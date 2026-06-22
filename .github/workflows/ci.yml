@@ -1,0 +1,26 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://app:app@localhost:5432/dg_platform
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+        env:
+          DATABASE_URL: postgresql://app:app@localhost:5432/dg_platform
+          AUTH_SECRET: ci-only-secret-ci-only-secret-1234

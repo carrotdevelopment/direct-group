@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnp/
+
+# Next.js
+.next/
+out/
+
+# Tests and build output
+coverage/
+playwright-report/
+test-results/
+
+# Local environment and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Runtime storage
+storage/uploads/*
+!storage/uploads/.gitkeep
+
+# Tooling
+*.tsbuildinfo
+.DS_Store
+npm-debug.log*
+
+# Prisma local artifacts
+prisma/*.db
+prisma/*.db-journal
