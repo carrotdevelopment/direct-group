@@ -14,7 +14,8 @@ async function main() {
     prisma.category.upsert({ where: { name: "Aceites" }, update: {}, create: { name: "Aceites" } }),
   ]);
   const product = await prisma.product.upsert({ where: { internalCode: "DG-002841" }, update: {}, create: { internalCode: "DG-002841", name: "Aceite de girasol 1,5 L", brandId: brand.id, categoryId: category.id, primarySupplierId: supplier.id, unitsPerPackage: 12, createdBy: admin.id, updatedBy: admin.id } });
-  await prisma.clientProductCode.upsert({ where: { clientId_clientCode_active: { clientId: client.id, clientCode: "NAT-ACE-15", active: true } }, update: {}, create: { clientId: client.id, productId: product.id, clientCode: "NAT-ACE-15", clientDescription: "Aceite Natura 1.5", createdBy: admin.id } });
+  const codeValidFrom = new Date("2026-01-01T00:00:00.000Z");
+  await prisma.clientProductCode.upsert({ where: { clientId_clientCode_validFrom: { clientId: client.id, clientCode: "NAT-ACE-15", validFrom: codeValidFrom } }, update: {}, create: { clientId: client.id, productId: product.id, clientCode: "NAT-ACE-15", clientDescription: "Aceite Natura 1.5", validFrom: codeValidFrom, changeReason: "Alta inicial", createdBy: admin.id } });
   await prisma.stockMovement.upsert({ where: { idempotencyKey: "seed:initial-stock:DG-002841" }, update: {}, create: { productId: product.id, stockClientId: client.id, warehouseId: warehouse.id, type: "MANUAL_ADJUSTMENT_IN", direction: "IN", quantity: 2480, comments: "Stock inicial del entorno local", createdBy: admin.id, idempotencyKey: "seed:initial-stock:DG-002841" } });
   console.info("Seed completo. Usuario: admin@directgroup.local");
 }

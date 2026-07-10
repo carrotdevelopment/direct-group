@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
 const metrics = [
-  { label: "Stock valorizado", value: formatCurrency(184_620_400), detail: "+8,2% vs. mes anterior", trend: "up", icon: Warehouse, tint: "bg-[#e8f2ec] text-[#1f6b48]" },
-  { label: "Ventas del mes", value: formatCurrency(42_810_200), detail: "+12,4% vs. mes anterior", trend: "up", icon: HandCoins, tint: "bg-[#fff0e8] text-[#d66a37]" },
+  { label: "Stock valorizado", value: formatCurrency(184_620_400), detail: "+8,2% vs. mes anterior", trend: "up", icon: Warehouse, tint: "bg-[#e9f1fb] text-[#0b5bbb]" },
+  { label: "Ventas del mes", value: formatCurrency(42_810_200), detail: "+12,4% vs. mes anterior", trend: "up", icon: HandCoins, tint: "bg-[#edf4fc] text-[#3979c8]" },
   { label: "Órdenes abiertas", value: "148", detail: "23 próximas a vencer", trend: "neutral", icon: ShoppingCart, tint: "bg-[#e9eef7] text-[#456b90]" },
   { label: "Stock crítico", value: "17", detail: "5 requieren acción hoy", trend: "down", icon: CircleAlert, tint: "bg-[#fce9e8] text-[#b7433f]" },
 ];
@@ -20,7 +20,7 @@ const movements = [
 
 const alerts = [
   { title: "5 productos sin stock", meta: "Cliente: Supermercados Norte", color: "bg-[#b7433f]", icon: CircleAlert },
-  { title: "3 importaciones para revisar", meta: "Ventas · Mapeo asistido por IA", color: "bg-[#ef7b45]", icon: Sparkles },
+  { title: "3 importaciones para revisar", meta: "Ventas · Mapeo asistido por IA", color: "bg-[#3979c8]", icon: Sparkles },
   { title: "12 precios vencen esta semana", meta: "Listas de 4 proveedores", color: "bg-[#d39b36]", icon: FileClock },
   { title: "Sincronización Tango completa", meta: "246 compras procesadas", color: "bg-[#3d9464]", icon: PackageCheck },
 ];
@@ -55,7 +55,7 @@ export default function DashboardPage() {
         <article className="card animate-enter p-5 sm:p-6" style={{ animationDelay: "220ms" }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div><div className="text-base font-black">Evolución comercial</div><div className="mt-1 text-xs text-[#7b847d]">Compras y ventas acumuladas · últimos 12 meses</div></div>
-            <div className="flex items-center gap-4 text-[10px] font-bold text-[#6e776f]"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#1f6b48]" /> Compras</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#ef7b45]" /> Ventas</span></div>
+            <div className="flex items-center gap-4 text-[10px] font-bold text-[#62728a]"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#0b5bbb]" /> Compras</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#62a0e8]" /> Ventas</span></div>
           </div>
           <div className="mt-3"><OperationsChart /></div>
         </article>
@@ -67,7 +67,7 @@ export default function DashboardPage() {
               <div key={alert.title} className="group flex items-center gap-3 py-3.5 first:pt-1">
                 <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white ${alert.color}`}><alert.icon size={16} /></div>
                 <div className="min-w-0 flex-1"><div className="truncate text-xs font-extrabold">{alert.title}</div><div className="mt-1 truncate text-[10px] text-[#89918c]">{alert.meta}</div></div>
-                <ArrowRight size={14} className="text-[#b1b7b2] transition group-hover:translate-x-0.5 group-hover:text-[#1f6b48]" />
+                <ArrowRight size={14} className="text-[#a8b4c4] transition group-hover:translate-x-0.5 group-hover:text-[#0b5bbb]" />
               </div>
             ))}
           </div>

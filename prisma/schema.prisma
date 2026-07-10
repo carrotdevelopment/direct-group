@@ -40,8 +40,10 @@ enum StockMovementType {
 
 enum ImportType {
   CLIENT_SALES
+  CLIENT_EGRESS
   SUPPLIER_PRICES
   TANGO_PURCHASES
+  INCOME_FOLDER
   OTHER
 }
 
@@ -76,99 +78,114 @@ enum OperationStatus {
   REVERSED
 }
 
+enum PriceRequestStatus {
+  SCHEDULED
+  SENT
+  RECEIVED
+  PROCESSING
+  WAITING_REVIEW
+  COMPLETED
+  NO_RESPONSE
+  FAILED
+}
+
 model User {
-  id           String   @id @default(cuid())
+  id           String         @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String         @unique
   passwordHash String
-  role         Role     @default(LECTURA)
-  active       Boolean  @default(true)
+  role         Role           @default(LECTURA)
+  active       Boolean        @default(true)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
   auditLogs    AuditLog[]
   uploads      UploadedFile[]
 }
 
 model Brand {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   products  Product[]
 }
 
 model Category {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   products  Product[]
 }
 
 model Supplier {
-  id             String   @id @default(cuid())
-  code           String   @unique
-  name           String
-  legalName      String?
-  taxId          String?  @unique
-  currency       String   @default("ARS")
-  status         RecordStatus @default(ACTIVE)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  products       Product[]
-  supplierPrices SupplierPrice[]
-  files          UploadedFile[]
+  id                  String                       @id @default(cuid())
+  code                String                       @unique
+  name                String
+  legalName           String?
+  taxId               String?                      @unique
+  currency            String                       @default("ARS")
+  status              RecordStatus                 @default(ACTIVE)
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  products            Product[]
+  supplierPrices      SupplierPrice[]
+  files               UploadedFile[]
+  priceRequestConfigs SupplierPriceRequestConfig[]
 
   @@index([name])
 }
 
 model Client {
-  id             String   @id @default(cuid())
-  code           String   @unique
-  name           String
-  legalName      String?
-  taxId          String?  @unique
-  segment        String?
-  status         RecordStatus @default(ACTIVE)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  productCodes   ClientProductCode[]
-  pricing        ClientPricing[]
-  purchases      Purchase[]
-  sales          Sale[]
-  stock          StockMovement[] @relation("StockOwner")
-  outgoingStock  StockMovement[] @relation("StockOrigin")
-  incomingStock  StockMovement[] @relation("StockDestination")
-  files          UploadedFile[]
+  id                String                @id @default(cuid())
+  code              String                @unique
+  name              String
+  legalName         String?
+  taxId             String?               @unique
+  segment           String?
+  status            RecordStatus          @default(ACTIVE)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  productCodes      ClientProductCode[]
+  pricing           ClientPricing[]
+  purchases         Purchase[]
+  sales             Sale[]
+  stock             StockMovement[]       @relation("StockOwner")
+  outgoingStock     StockMovement[]       @relation("StockOrigin")
+  incomingStock     StockMovement[]       @relation("StockDestination")
+  files             UploadedFile[]
+  egressMappings    ClientEgressMapping[]
+  costStructureRuns CostStructureRun[]
 
   @@index([name])
 }
 
 model Product {
-  id                   String   @id @default(cuid())
-  internalCode         String   @unique
-  name                 String
-  description          String?
-  brandId              String?
-  categoryId           String?
-  primarySupplierId    String?
-  unitsPerPackage      Int?
-  supplierCode         String?
-  status               RecordStatus @default(ACTIVE)
-  createdBy            String?
-  updatedBy            String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  brand                 Brand?    @relation(fields: [brandId], references: [id])
-  category              Category? @relation(fields: [categoryId], references: [id])
-  primarySupplier      Supplier? @relation(fields: [primarySupplierId], references: [id])
-  clientCodes           ClientProductCode[]
-  supplierPrices        SupplierPrice[]
-  clientPricing         ClientPricing[]
-  purchases             Purchase[]
-  sales                 Sale[]
-  stockMovements        StockMovement[]
+  id                 String              @id @default(cuid())
+  internalCode       String              @unique
+  name               String
+  description        String?
+  brandId            String?
+  categoryId         String?
+  primarySupplierId  String?
+  unitsPerPackage    Int?
+  supplierCode       String?
+  status             RecordStatus        @default(ACTIVE)
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  brand              Brand?              @relation(fields: [brandId], references: [id])
+  category           Category?           @relation(fields: [categoryId], references: [id])
+  primarySupplier    Supplier?           @relation(fields: [primarySupplierId], references: [id])
+  clientCodes        ClientProductCode[]
+  supplierPrices     SupplierPrice[]
+  clientPricing      ClientPricing[]
+  purchases          Purchase[]
+  sales              Sale[]
+  stockMovements     StockMovement[]
+  costStructureItems CostStructureItem[]
 
   @@index([name])
   @@index([supplierCode])
@@ -177,122 +194,267 @@ model Product {
 }
 
 model ClientProductCode {
-  id                String   @id @default(cuid())
+  id                String     @id @default(cuid())
   clientId          String
   productId         String
   clientCode        String
   clientDescription String?
-  active            Boolean  @default(true)
-  validFrom         DateTime @default(now())
+  active            Boolean    @default(true)
+  validFrom         DateTime   @default(now())
   validUntil        DateTime?
+  changeReason      String?
   createdBy         String?
   updatedBy         String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  client            Client   @relation(fields: [clientId], references: [id])
-  product           Product  @relation(fields: [productId], references: [id])
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  client            Client     @relation(fields: [clientId], references: [id])
+  product           Product    @relation(fields: [productId], references: [id])
   purchases         Purchase[]
   sales             Sale[]
 
-  @@unique([clientId, clientCode, active])
+  @@unique([clientId, clientCode, validFrom])
+  @@index([clientId, active])
+  @@index([clientId, productId, active])
   @@index([productId])
   @@index([clientCode])
 }
 
 model SupplierPrice {
-  id               String   @id @default(cuid())
-  productId        String
-  supplierId       String
-  supplierCode     String?
-  cost             Decimal  @db.Decimal(18, 4)
-  vatRate          Decimal  @db.Decimal(7, 4)
-  publicCost       Decimal? @db.Decimal(18, 4)
-  markup           Decimal? @db.Decimal(7, 4)
-  currency         String   @default("ARS")
-  validFrom        DateTime
-  validUntil       DateTime?
-  sourceFileId     String?
-  createdBy        String?
-  createdAt        DateTime @default(now())
-  product          Product  @relation(fields: [productId], references: [id])
-  supplier         Supplier @relation(fields: [supplierId], references: [id])
-  sourceFile       UploadedFile? @relation(fields: [sourceFileId], references: [id])
-  clientPricing    ClientPricing[]
+  id            String          @id @default(cuid())
+  productId     String
+  supplierId    String
+  supplierCode  String?
+  cost          Decimal         @db.Decimal(18, 4)
+  vatRate       Decimal         @db.Decimal(7, 4)
+  publicCost    Decimal?        @db.Decimal(18, 4)
+  markup        Decimal?        @db.Decimal(7, 4)
+  currency      String          @default("ARS")
+  informedAt    DateTime?
+  validFrom     DateTime
+  validUntil    DateTime?
+  sourceFileId  String?
+  createdBy     String?
+  createdAt     DateTime        @default(now())
+  product       Product         @relation(fields: [productId], references: [id])
+  supplier      Supplier        @relation(fields: [supplierId], references: [id])
+  sourceFile    UploadedFile?   @relation(fields: [sourceFileId], references: [id])
+  clientPricing ClientPricing[]
 
   @@unique([productId, supplierId, validFrom])
   @@index([supplierId, validFrom])
+  @@index([informedAt])
 }
 
 model ClientPricing {
-  id                 String   @id @default(cuid())
-  clientId           String
-  productId          String
-  supplierPriceId    String?
-  cost               Decimal  @db.Decimal(18, 4)
-  vatRate            Decimal  @db.Decimal(7, 4)
-  publicCost         Decimal? @db.Decimal(18, 4)
-  markup             Decimal  @db.Decimal(7, 4)
-  insurance          Decimal  @default(0) @db.Decimal(18, 4)
-  grossIncomeTax     Decimal  @default(0) @db.Decimal(18, 4)
-  debitCreditTax     Decimal  @default(0) @db.Decimal(18, 4)
-  freight            Decimal  @default(0) @db.Decimal(18, 4)
-  totalCost          Decimal  @db.Decimal(18, 4)
-  netSalePrice       Decimal  @db.Decimal(18, 4)
-  grossSalePrice     Decimal  @db.Decimal(18, 4)
-  profit             Decimal  @db.Decimal(18, 4)
-  profitPercentage   Decimal  @db.Decimal(7, 4)
-  missionsTax        Decimal  @default(0) @db.Decimal(18, 4)
-  volumetricWeight   Decimal? @db.Decimal(18, 4)
-  packages           Int?
-  validFrom          DateTime
-  validUntil         DateTime?
-  createdBy          String?
-  updatedBy          String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  client             Client   @relation(fields: [clientId], references: [id])
-  product            Product  @relation(fields: [productId], references: [id])
-  supplierPrice      SupplierPrice? @relation(fields: [supplierPriceId], references: [id])
+  id               String         @id @default(cuid())
+  clientId         String
+  productId        String
+  supplierPriceId  String?
+  cost             Decimal        @db.Decimal(18, 4)
+  vatRate          Decimal        @db.Decimal(7, 4)
+  publicCost       Decimal?       @db.Decimal(18, 4)
+  markup           Decimal        @db.Decimal(7, 4)
+  insurance        Decimal        @default(0) @db.Decimal(18, 4)
+  grossIncomeTax   Decimal        @default(0) @db.Decimal(18, 4)
+  debitCreditTax   Decimal        @default(0) @db.Decimal(18, 4)
+  freight          Decimal        @default(0) @db.Decimal(18, 4)
+  totalCost        Decimal        @db.Decimal(18, 4)
+  netSalePrice     Decimal        @db.Decimal(18, 4)
+  grossSalePrice   Decimal        @db.Decimal(18, 4)
+  profit           Decimal        @db.Decimal(18, 4)
+  profitPercentage Decimal        @db.Decimal(7, 4)
+  missionsTax      Decimal        @default(0) @db.Decimal(18, 4)
+  volumetricWeight Decimal?       @db.Decimal(18, 4)
+  packages         Int?
+  validFrom        DateTime
+  validUntil       DateTime?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  client           Client         @relation(fields: [clientId], references: [id])
+  product          Product        @relation(fields: [productId], references: [id])
+  supplierPrice    SupplierPrice? @relation(fields: [supplierPriceId], references: [id])
 
   @@unique([clientId, productId, validFrom])
   @@index([clientId, validUntil])
   @@index([productId])
 }
 
+model SupplierPriceRequestConfig {
+  id              String                      @id @default(cuid())
+  supplierId      String
+  contactName     String?
+  recipientEmails String[]
+  ccEmails        String[]                    @default([])
+  brandNames      String[]
+  scheduleDay     Int                         @default(1)
+  scheduleTime    String                      @default("09:00")
+  subjectTemplate String
+  bodyTemplate    String
+  reminderDays    Int                         @default(4)
+  active          Boolean                     @default(true)
+  lastSentAt      DateTime?
+  nextRunAt       DateTime?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  supplier        Supplier                    @relation(fields: [supplierId], references: [id])
+  cycles          SupplierPriceRequestCycle[]
+
+  @@index([active, nextRunAt])
+  @@index([supplierId])
+}
+
+model SupplierPriceRequestCycle {
+  id                String                     @id @default(cuid())
+  configId          String
+  period            DateTime
+  status            PriceRequestStatus         @default(SCHEDULED)
+  sentAt            DateTime?
+  receivedAt        DateTime?
+  completedAt       DateTime?
+  externalMessageId String?
+  replyMessageId    String?
+  processingNotes   String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  config            SupplierPriceRequestConfig @relation(fields: [configId], references: [id])
+
+  @@unique([configId, period])
+  @@index([status, period])
+}
+
+model ClientEgressMapping {
+  id           String   @id @default(cuid())
+  clientId     String
+  name         String
+  filePattern  String?
+  sheetName    String?
+  headerRow    Int      @default(1)
+  fieldMapping Json
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  client       Client   @relation(fields: [clientId], references: [id])
+
+  @@unique([clientId, name])
+  @@index([clientId, active])
+}
+
+model IncomeSource {
+  id             String    @id @default(cuid())
+  name           String
+  folderPath     String
+  filePattern    String    @default("*.xlsx")
+  pollingMinutes Int       @default(30)
+  active         Boolean   @default(true)
+  lastScannedAt  DateTime?
+  lastFileName   String?
+  lastFileHash   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([active, lastScannedAt])
+}
+
+model CostStructureRun {
+  id              String              @id @default(cuid())
+  clientId        String?
+  period          DateTime
+  status          JobStatus           @default(PENDING)
+  insuranceRate   Decimal             @default(1.2) @db.Decimal(7, 4)
+  grossIncomeRate Decimal             @default(5) @db.Decimal(7, 4)
+  debitTaxRate    Decimal             @default(0.6) @db.Decimal(7, 4)
+  creditTaxRate   Decimal             @default(0.6) @db.Decimal(7, 4)
+  missionsTaxRate Decimal             @default(1.25) @db.Decimal(7, 4)
+  activeProducts  Int                 @default(0)
+  calculatedItems Int                 @default(0)
+  pendingItems    Int                 @default(0)
+  assumptions     Json?
+  generatedBy     String?
+  generatedAt     DateTime            @default(now())
+  completedAt     DateTime?
+  client          Client?             @relation(fields: [clientId], references: [id])
+  items           CostStructureItem[]
+
+  @@unique([clientId, period])
+  @@index([clientId, period])
+  @@index([status, generatedAt])
+}
+
+model CostStructureItem {
+  id               String           @id @default(cuid())
+  runId            String
+  productId        String?
+  activeAtPeriod   Boolean
+  stockAtPeriod    Decimal          @default(0) @db.Decimal(18, 4)
+  itemDate         DateTime
+  clientCode       String?
+  uniqueCode       String
+  productName      String
+  supplierName     String?
+  categoryName     String?
+  publicPrice      Decimal          @default(0) @db.Decimal(18, 4)
+  vatRate          Decimal          @default(0) @db.Decimal(7, 4)
+  markup           Decimal          @default(0) @db.Decimal(7, 4)
+  publicPriceNoVat Decimal          @default(0) @db.Decimal(18, 4)
+  costDgNoVat      Decimal          @default(0) @db.Decimal(18, 4)
+  insurance        Decimal          @default(0) @db.Decimal(18, 4)
+  grossIncomeTax   Decimal          @default(0) @db.Decimal(18, 4)
+  debitTax         Decimal          @default(0) @db.Decimal(18, 4)
+  creditTax        Decimal          @default(0) @db.Decimal(18, 4)
+  freightNoVat     Decimal          @default(0) @db.Decimal(18, 4)
+  totalCost        Decimal          @default(0) @db.Decimal(18, 4)
+  netSalePrice     Decimal          @default(0) @db.Decimal(18, 4)
+  grossSalePrice   Decimal          @default(0) @db.Decimal(18, 4)
+  profit           Decimal          @default(0) @db.Decimal(18, 4)
+  profitPercentage Decimal          @default(0) @db.Decimal(7, 4)
+  missionsTax      Decimal          @default(0) @db.Decimal(18, 4)
+  costUpdated      Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  run              CostStructureRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  product          Product?         @relation(fields: [productId], references: [id])
+
+  @@unique([runId, productId])
+  @@index([runId, activeAtPeriod])
+  @@index([uniqueCode])
+}
+
 model Warehouse {
-  id             String   @id @default(cuid())
-  code           String   @unique
+  id             String          @id @default(cuid())
+  code           String          @unique
   name           String
   address        String?
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   stockMovements StockMovement[]
 }
 
 model StockMovement {
-  id                  String   @id @default(cuid())
+  id                  String            @id @default(cuid())
   productId           String
   stockClientId       String?
   originClientId      String?
   destinationClientId String?
   warehouseId         String?
-  type                 StockMovementType
-  direction            MovementDirection
-  quantity             Decimal  @db.Decimal(18, 4)
-  referenceType        String?
-  referenceId          String?
-  transferId           String?
-  comments             String?
-  metadata             Json?
-  idempotencyKey       String?  @unique
-  createdBy            String?
-  createdAt            DateTime @default(now())
-  product              Product  @relation(fields: [productId], references: [id])
-  stockClient          Client?  @relation("StockOwner", fields: [stockClientId], references: [id])
-  originClient         Client?  @relation("StockOrigin", fields: [originClientId], references: [id])
-  destinationClient    Client?  @relation("StockDestination", fields: [destinationClientId], references: [id])
-  warehouse            Warehouse? @relation(fields: [warehouseId], references: [id])
+  type                StockMovementType
+  direction           MovementDirection
+  quantity            Decimal           @db.Decimal(18, 4)
+  referenceType       String?
+  referenceId         String?
+  transferId          String?
+  comments            String?
+  metadata            Json?
+  idempotencyKey      String?           @unique
+  createdBy           String?
+  createdAt           DateTime          @default(now())
+  product             Product           @relation(fields: [productId], references: [id])
+  stockClient         Client?           @relation("StockOwner", fields: [stockClientId], references: [id])
+  originClient        Client?           @relation("StockOrigin", fields: [originClientId], references: [id])
+  destinationClient   Client?           @relation("StockDestination", fields: [destinationClientId], references: [id])
+  warehouse           Warehouse?        @relation(fields: [warehouseId], references: [id])
 
   @@index([productId, stockClientId, warehouseId])
   @@index([referenceType, referenceId])
@@ -301,56 +463,56 @@ model StockMovement {
 }
 
 model Purchase {
-  id                String   @id @default(cuid())
-  clientId          String
-  productId         String
-  clientCodeId      String?
-  operation         String?
-  orderDate         DateTime
-  deliveryDate      DateTime?
-  purchaseOrder     String?
-  externalCode      String?
-  quantity          Decimal  @db.Decimal(18, 4)
-  transferOrigin    String?
-  delivered         Boolean  @default(false)
-  comments          String?
-  tangoExternalId   String?  @unique
-  importBatchId     String?
-  status            OperationStatus @default(DRAFT)
-  createdBy         String?
-  updatedBy         String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  client            Client   @relation(fields: [clientId], references: [id])
-  product           Product  @relation(fields: [productId], references: [id])
-  clientCode        ClientProductCode? @relation(fields: [clientCodeId], references: [id])
-  importBatch       ImportBatch? @relation(fields: [importBatchId], references: [id])
+  id              String             @id @default(cuid())
+  clientId        String
+  productId       String
+  clientCodeId    String?
+  operation       String?
+  orderDate       DateTime
+  deliveryDate    DateTime?
+  purchaseOrder   String?
+  externalCode    String?
+  quantity        Decimal            @db.Decimal(18, 4)
+  transferOrigin  String?
+  delivered       Boolean            @default(false)
+  comments        String?
+  tangoExternalId String?            @unique
+  importBatchId   String?
+  status          OperationStatus    @default(DRAFT)
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  client          Client             @relation(fields: [clientId], references: [id])
+  product         Product            @relation(fields: [productId], references: [id])
+  clientCode      ClientProductCode? @relation(fields: [clientCodeId], references: [id])
+  importBatch     ImportBatch?       @relation(fields: [importBatchId], references: [id])
 
   @@index([clientId, orderDate])
   @@index([productId])
 }
 
 model Sale {
-  id                String   @id @default(cuid())
-  clientId          String
-  productId         String
-  clientCodeId      String?
-  saleDate          DateTime
-  externalCode      String?
-  quantity          Decimal  @db.Decimal(18, 4)
-  unitPrice         Decimal? @db.Decimal(18, 4)
-  totalAmount       Decimal? @db.Decimal(18, 4)
-  sourceFileId      String?
-  importBatchId     String?
-  sourceRow         Int?
-  status            OperationStatus @default(DRAFT)
-  createdBy         String?
-  createdAt         DateTime @default(now())
-  client            Client   @relation(fields: [clientId], references: [id])
-  product           Product  @relation(fields: [productId], references: [id])
-  clientCode        ClientProductCode? @relation(fields: [clientCodeId], references: [id])
-  sourceFile        UploadedFile? @relation(fields: [sourceFileId], references: [id])
-  importBatch       ImportBatch? @relation(fields: [importBatchId], references: [id])
+  id            String             @id @default(cuid())
+  clientId      String
+  productId     String
+  clientCodeId  String?
+  saleDate      DateTime
+  externalCode  String?
+  quantity      Decimal            @db.Decimal(18, 4)
+  unitPrice     Decimal?           @db.Decimal(18, 4)
+  totalAmount   Decimal?           @db.Decimal(18, 4)
+  sourceFileId  String?
+  importBatchId String?
+  sourceRow     Int?
+  status        OperationStatus    @default(DRAFT)
+  createdBy     String?
+  createdAt     DateTime           @default(now())
+  client        Client             @relation(fields: [clientId], references: [id])
+  product       Product            @relation(fields: [productId], references: [id])
+  clientCode    ClientProductCode? @relation(fields: [clientCodeId], references: [id])
+  sourceFile    UploadedFile?      @relation(fields: [sourceFileId], references: [id])
+  importBatch   ImportBatch?       @relation(fields: [importBatchId], references: [id])
 
   @@unique([importBatchId, sourceRow])
   @@index([clientId, saleDate])
@@ -358,84 +520,84 @@ model Sale {
 }
 
 model UploadedFile {
-  id                String   @id @default(cuid())
-  originalName      String
-  storageName       String   @unique
-  fileType          String
-  mimeType          String
-  sizeBytes         Int
-  clientId          String?
-  supplierId        String?
-  importType        ImportType
-  status            ImportStatus @default(UPLOADED)
-  aiResult          Json?
-  errors            Json?
-  uploadedById      String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  client            Client?   @relation(fields: [clientId], references: [id])
-  supplier          Supplier? @relation(fields: [supplierId], references: [id])
-  uploadedBy        User      @relation(fields: [uploadedById], references: [id])
-  jobs              ProcessingJob[]
-  extractions       AiExtraction[]
-  importBatches     ImportBatch[]
-  supplierPrices    SupplierPrice[]
-  sales             Sale[]
+  id             String          @id @default(cuid())
+  originalName   String
+  storageName    String          @unique
+  fileType       String
+  mimeType       String
+  sizeBytes      Int
+  clientId       String?
+  supplierId     String?
+  importType     ImportType
+  status         ImportStatus    @default(UPLOADED)
+  aiResult       Json?
+  errors         Json?
+  uploadedById   String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  client         Client?         @relation(fields: [clientId], references: [id])
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id])
+  uploadedBy     User            @relation(fields: [uploadedById], references: [id])
+  jobs           ProcessingJob[]
+  extractions    AiExtraction[]
+  importBatches  ImportBatch[]
+  supplierPrices SupplierPrice[]
+  sales          Sale[]
 }
 
 model ImportBatch {
-  id             String   @id @default(cuid())
+  id             String         @id @default(cuid())
   fileId         String
   type           ImportType
-  status         ImportStatus @default(UPLOADED)
+  status         ImportStatus   @default(UPLOADED)
   mapping        Json?
-  totalRows      Int      @default(0)
-  validRows      Int      @default(0)
-  invalidRows    Int      @default(0)
+  totalRows      Int            @default(0)
+  validRows      Int            @default(0)
+  invalidRows    Int            @default(0)
   confirmedAt    DateTime?
   confirmedBy    String?
-  idempotencyKey String   @unique
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  file           UploadedFile @relation(fields: [fileId], references: [id])
+  idempotencyKey String         @unique
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  file           UploadedFile   @relation(fields: [fileId], references: [id])
   purchases      Purchase[]
   sales          Sale[]
   rawRows        ImportRawRow[]
 }
 
 model ImportRawRow {
-  id               String   @id @default(cuid())
+  id               String      @id @default(cuid())
   importBatchId    String
   rowNumber        Int
   rawData          Json
   normalizedData   Json?
   validationErrors Json?
   status           String
-  createdAt        DateTime @default(now())
+  createdAt        DateTime    @default(now())
   importBatch      ImportBatch @relation(fields: [importBatchId], references: [id])
 
   @@unique([importBatchId, rowNumber])
 }
 
 model ProcessingJob {
-  id            String   @id @default(cuid())
-  queueName     String
-  jobName       String
-  bullmqJobId   String?  @unique
-  fileId        String?
-  status        JobStatus @default(PENDING)
-  progress      Int      @default(0)
-  errors        Json?
-  attempts      Int      @default(0)
-  startedAt     DateTime?
-  finishedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  file          UploadedFile? @relation(fields: [fileId], references: [id])
+  id          String        @id @default(cuid())
+  queueName   String
+  jobName     String
+  bullmqJobId String?       @unique
+  fileId      String?
+  status      JobStatus     @default(PENDING)
+  progress    Int           @default(0)
+  errors      Json?
+  attempts    Int           @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  file        UploadedFile? @relation(fields: [fileId], references: [id])
 }
 
 model AiExtraction {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   fileId          String
   extractionType  String
   provider        String
@@ -443,10 +605,10 @@ model AiExtraction {
   promptVersion   String
   inputSample     Json?
   output          Json
-  confidenceScore Decimal? @db.Decimal(7, 6)
+  confidenceScore Decimal?     @db.Decimal(7, 6)
   status          String
   createdBy       String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime     @default(now())
   file            UploadedFile @relation(fields: [fileId], references: [id])
 
   @@index([fileId, extractionType])

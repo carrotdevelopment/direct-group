@@ -12,11 +12,23 @@ export const productRows: DataRow[] = [
 ];
 
 export const clientRows: DataRow[] = [
-  { id: "1", primary: "Supermercados Norte SA", secondary: "CLI-00018 · CUIT 30-71284721-8", values: ["Retail", "48 productos", "24 códigos propios", formatCurrency(12_480_000), "Hace 8 min"], status: { label: "Activo", tone: "success" } },
-  { id: "2", primary: "Mercado del Centro SRL", secondary: "CLI-00024 · CUIT 30-69882104-2", values: ["Mayorista", "32 productos", "18 códigos propios", formatCurrency(8_210_400), "Hoy, 09:42"], status: { label: "Activo", tone: "success" } },
-  { id: "3", primary: "Distribuidora Sur", secondary: "CLI-00007 · CUIT 30-71455098-0", values: ["Distribuidor", "64 productos", "64 códigos propios", formatCurrency(17_932_100), "Ayer, 18:05"], status: { label: "Activo", tone: "success" } },
-  { id: "4", primary: "Hiper Mayorista SA", secondary: "CLI-00031 · CUIT 30-72112991-1", values: ["Mayorista", "29 productos", "12 códigos propios", formatCurrency(6_884_300), "20 jun, 14:22"], status: { label: "Revisión", tone: "warning" } },
-  { id: "5", primary: "Autoservicios del Litoral", secondary: "CLI-00042 · CUIT 30-71089233-5", values: ["Retail", "21 productos", "—", formatCurrency(3_208_900), "18 jun, 11:08"], status: { label: "Activo", tone: "success" } },
+  { id: "1", primary: "Macro", secondary: "CLI-00001", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "2", primary: "Provincia", secondary: "CLI-00002", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "3", primary: "Producteca", secondary: "CLI-00003", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "4", primary: "Credicoop REG", secondary: "CLI-00004", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "5", primary: "HSBC", secondary: "CLI-00005", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "6", primary: "Santander", secondary: "CLI-00006", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "7", primary: "Credicoop ES", secondary: "CLI-00007", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "8", primary: "Massalin", secondary: "CLI-00008", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "9", primary: "Pampa", secondary: "CLI-00009", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "10", primary: "CTC", secondary: "CLI-00010", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "11", primary: "Supervielle", secondary: "CLI-00011", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "12", primary: "Amex Futuro", secondary: "CLI-00012", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "13", primary: "Amex", secondary: "CLI-00013", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "14", primary: "Comafi", secondary: "CLI-00014", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "15", primary: "Importados", secondary: "CLI-00015", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "16", primary: "Syngenta", secondary: "CLI-00016", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
+  { id: "17", primary: "Umiles", secondary: "CLI-00017", values: ["Sin definir", "0 productos", "0 códigos propios", "—", "Sin actividad"], status: { label: "Activo", tone: "success" } },
 ];
 
 export const providerRows: DataRow[] = [

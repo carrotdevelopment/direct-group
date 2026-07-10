@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --ink: #17211b;
-  --muted: #6d766f;
-  --line: #e5e8e5;
+  --ink: #10233f;
+  --muted: #62728a;
+  --line: #dfe6ef;
   --surface: #ffffff;
-  --canvas: #f4f5f2;
-  --green: #1f6b48;
-  --green-dark: #174d36;
-  --green-soft: #e8f2ec;
-  --orange: #ef7b45;
-  --orange-soft: #fff0e8;
+  --canvas: #f4f7fb;
+  --green: #0b5bbb;
+  --green-dark: #062b5b;
+  --green-soft: #e9f1fb;
+  --orange: #3979c8;
+  --orange-soft: #edf4fc;
   --warning: #b76a18;
   --danger: #b7433f;
 }
@@ -31,7 +31,7 @@ button, input, select, textarea { font: inherit; }
 
 button, a { -webkit-tap-highlight-color: transparent; }
 
-::selection { background: #cfe4d7; color: var(--green-dark); }
+::selection { background: #cfe0f5; color: var(--green-dark); }
 
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }

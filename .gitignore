@@ -25,6 +25,14 @@ storage/uploads/*
 *.tsbuildinfo
 .DS_Store
 npm-debug.log*
+.dev-server*.log
+
+# Local Excel databases and supplier files.
+# Keep real business data outside git unless the repo is private and you
+# intentionally version it, preferably with Git LFS for large binaries.
+BASE DE DATOS DG/
+local-data/
+supplier-files/
 
 # Prisma local artifacts
 prisma/*.db

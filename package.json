@@ -34,12 +34,14 @@
     "lucide-react": "latest",
     "next": "latest",
     "next-auth": "beta",
+    "pdf-parse": "^2.4.5",
     "react": "latest",
     "react-dom": "latest",
     "recharts": "latest",
     "server-only": "latest",
     "superjson": "latest",
     "tailwind-merge": "latest",
+    "xlsx": "^0.18.5",
     "zod": "latest"
   },
   "devDependencies": {

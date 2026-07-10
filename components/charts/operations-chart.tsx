@@ -17,15 +17,15 @@ export function OperationsChart() {
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 800, height: 270 }}>
         <AreaChart data={data} margin={{ top: 12, right: 4, left: -28, bottom: 0 }}>
           <defs>
-            <linearGradient id="compras" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1f6b48" stopOpacity={.2} /><stop offset="100%" stopColor="#1f6b48" stopOpacity={0} /></linearGradient>
-            <linearGradient id="ventas" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ef7b45" stopOpacity={.2} /><stop offset="100%" stopColor="#ef7b45" stopOpacity={0} /></linearGradient>
+            <linearGradient id="compras" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0b5bbb" stopOpacity={.2} /><stop offset="100%" stopColor="#0b5bbb" stopOpacity={0} /></linearGradient>
+            <linearGradient id="ventas" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#62a0e8" stopOpacity={.2} /><stop offset="100%" stopColor="#62a0e8" stopOpacity={0} /></linearGradient>
           </defs>
           <CartesianGrid stroke="#edf0ed" vertical={false} />
           <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "#89918c", fontWeight: 700 }} dy={10} />
           <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#9aa19c" }} />
           <Tooltip contentStyle={{ border: "1px solid #e5e8e5", borderRadius: 12, boxShadow: "0 8px 30px rgba(23,33,27,.08)", fontSize: 12 }} />
-          <Area type="monotone" dataKey="compras" stroke="#1f6b48" strokeWidth={2.5} fill="url(#compras)" />
-          <Area type="monotone" dataKey="ventas" stroke="#ef7b45" strokeWidth={2.5} fill="url(#ventas)" />
+          <Area type="monotone" dataKey="compras" stroke="#0b5bbb" strokeWidth={2.5} fill="url(#compras)" />
+          <Area type="monotone" dataKey="ventas" stroke="#62a0e8" strokeWidth={2.5} fill="url(#ventas)" />
         </AreaChart>
       </ResponsiveContainer>
     </div>

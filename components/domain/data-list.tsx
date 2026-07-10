@@ -26,7 +26,7 @@ export function DataList({
       <div className="flex flex-col gap-3 border-b border-[#e8ebe8] p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-[340px]">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#939b95]" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="h-10 w-full rounded-xl border border-[#dfe4df] bg-[#fafbfa] pl-10 pr-4 text-xs outline-none focus:border-[#98b7a3] focus:ring-3 focus:ring-[#e2ede6]" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="h-10 w-full rounded-xl border border-[#dbe4ef] bg-[#f8fafd] pl-10 pr-4 text-xs outline-none focus:border-[#7da4d3] focus:ring-3 focus:ring-[#e5eef9]" />
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm"><Filter size={14} /> Filtros</Button>

@@ -3,11 +3,11 @@ import { cn } from "@/lib/utils";
 type Tone = "success" | "warning" | "danger" | "neutral" | "info";
 
 const tones: Record<Tone, string> = {
-  success: "bg-[#e8f2ec] text-[#1f6b48]",
+  success: "bg-[#e9f1fb] text-[#0b5bbb]",
   warning: "bg-[#fff3df] text-[#9a5b17]",
   danger: "bg-[#fce9e8] text-[#ad3f3b]",
-  neutral: "bg-[#eff1ef] text-[#606a63]",
-  info: "bg-[#e8f0f7] text-[#35658a]",
+  neutral: "bg-[#edf1f6] text-[#60738d]",
+  info: "bg-[#e3edf9] text-[#174d8f]",
 };
 
 export function Badge({ children, tone = "neutral", dot = false }: { children: React.ReactNode; tone?: Tone; dot?: boolean }) {

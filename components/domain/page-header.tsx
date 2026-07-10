@@ -9,9 +9,9 @@ export function PageHeader({
   return (
     <div className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
       <div className="animate-enter">
-        {eyebrow && <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.14em] text-[#78827b]">Operación <ChevronRight size={11} /> <span className="text-[#1f6b48]">{eyebrow}</span></div>}
-        <h1 className="text-[28px] font-black tracking-[-.035em] text-[#17211b] sm:text-[32px]">{title}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6d766f]">{description}</p>
+        {eyebrow && <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.14em] text-[#74849a]">Operación <ChevronRight size={11} /> <span className="text-[#0b5bbb]">{eyebrow}</span></div>}
+        <h1 className="text-[28px] font-black tracking-[-.035em] text-[#10233f] sm:text-[32px]">{title}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#62728a]">{description}</p>
       </div>
       {(action || secondaryAction) && (
         <div className="flex shrink-0 items-center gap-2 animate-enter">
