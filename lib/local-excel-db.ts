@@ -11,6 +11,8 @@ export type ExcelProduct = {
   supplierCode: string;
   category: string;
   unitsPerPackage: number | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type ExcelClientCodeMapping = {
@@ -498,6 +500,16 @@ function toIsoDate(year: number, month: number, day: number) {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function asIsoDateTime(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  const raw = asString(value);
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString();
+}
+
 function withUniquePriceIds(prices: ExcelPrice[]) {
   const seen = new Map<string, number>();
   return prices.map((price, index) => {
@@ -560,6 +572,8 @@ export function readProductsFromExcel() {
         unitsPerPackage: asNullableNumber(
           row["Bulto"] || row["unitsPerPackage"],
         ),
+        createdAt: asIsoDateTime(row["Creado"] || row["createdAt"]),
+        updatedAt: asIsoDateTime(row["Actualizado"] || row["updatedAt"]),
       };
     })
     .filter((product) => product.code && product.name);
@@ -579,6 +593,8 @@ export function writeProductsToExcel(products: ExcelProduct[]) {
       Proveedor: product.supplier,
       Categoria: product.category,
       Bulto: product.unitsPerPackage ?? "",
+      Creado: product.createdAt ?? "",
+      Actualizado: product.updatedAt ?? "",
     })),
   );
   return filePath;

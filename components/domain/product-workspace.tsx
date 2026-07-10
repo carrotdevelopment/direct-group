@@ -32,6 +32,8 @@ type Product = {
   supplierCode: string;
   category: string;
   unitsPerPackage: number | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type Supplier = {
@@ -47,6 +49,7 @@ type Category = {
 };
 
 type SortKey =
+  | "updatedAt"
   | "name"
   | "brand"
   | "supplier"
@@ -130,6 +133,25 @@ const emptyForm = {
 
 const visibleBatchSize = 300;
 
+function normalizeOptionName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function uniqueActiveOptions<T extends { name: string; active: boolean }>(
+  options: T[],
+) {
+  return Array.from(
+    options
+      .filter((option) => option.active && option.name.trim())
+      .reduce((map, option) => {
+        const key = normalizeOptionName(option.name);
+        if (!map.has(key)) map.set(key, { ...option, name: option.name.trim() });
+        return map;
+      }, new Map<string, T>())
+      .values(),
+  ).sort((left, right) => left.name.localeCompare(right.name, "es"));
+}
+
 export function ProductWorkspace() {
   const [products, setProducts] = useState<Product[]>(seed);
   const [query, setQuery] = useState("");
@@ -139,7 +161,10 @@ export function ProductWorkspace() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<SortState>(null);
+  const [sort, setSort] = useState<SortState>({
+    key: "updatedAt",
+    direction: "desc",
+  });
   const [dbStatus, setDbStatus] = useState("Leyendo Excel local...");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -169,18 +194,12 @@ export function ProductWorkspace() {
   }, []);
 
   const activeSuppliers = useMemo(
-    () =>
-      suppliers
-        .filter((supplier) => supplier.active)
-        .sort((left, right) => left.name.localeCompare(right.name, "es")),
+    () => uniqueActiveOptions(suppliers),
     [suppliers],
   );
 
   const activeCategories = useMemo(
-    () =>
-      categories
-        .filter((category) => category.active)
-        .sort((left, right) => left.name.localeCompare(right.name, "es")),
+    () => uniqueActiveOptions(categories),
     [categories],
   );
 
@@ -310,13 +329,30 @@ export function ProductWorkspace() {
         ? Number(form.unitsPerPackage)
         : null,
     };
+    const now = new Date().toISOString();
     if (editingId)
       await persist(
         products.map((product) =>
-          product.id === editingId ? { ...product, ...values } : product,
+          product.id === editingId
+            ? {
+                ...product,
+                ...values,
+                createdAt: product.createdAt || now,
+                updatedAt: now,
+              }
+            : product,
         ),
       );
-    else await persist([...products, { id: crypto.randomUUID(), ...values }]);
+    else
+      await persist([
+        ...products,
+        {
+          id: crypto.randomUUID(),
+          ...values,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
     setForm(emptyForm);
     setEditingId(null);
     setError("");
@@ -412,9 +448,10 @@ export function ProductWorkspace() {
             value: String(
               new Set(products.map((product) => product.category)).size,
             ),
-            meta: "Catálogo organizado",
+            meta: "Agregar o administrar",
             icon: Layers3,
             tone: "blue",
+            href: "/proveedores#categorias",
           },
           {
             label: "Marcas",
@@ -430,8 +467,9 @@ export function ProductWorkspace() {
             value: String(
               new Set(products.map((product) => product.supplier)).size,
             ),
-            meta: "Proveedores vinculados",
+            meta: "Agregar o administrar",
             icon: Truck,
+            href: "/proveedores#proveedores",
           },
         ]}
       />
@@ -470,7 +508,7 @@ export function ProductWorkspace() {
           </div>
         </div>
         <div className="max-h-[470px] overflow-auto">
-          <table className="w-full min-w-[900px] table-fixed text-left text-[10.5px]">
+          <table className="w-full min-w-[1040px] table-fixed text-left text-[10.5px]">
             <thead className="sticky top-0 z-[1]">
               <tr className="border-b border-[#dbe4ef] bg-[#edf4fc] font-bold text-[#334b6b]">
                 <th className="w-10 px-2 py-2 text-center">
@@ -487,23 +525,26 @@ export function ProductWorkspace() {
                     className="h-4 w-4 accent-[#0b5bbb]"
                   />
                 </th>
-                <th className="w-[30%] px-3 py-2 text-center">
+                <th className="w-[27%] px-3 py-2 text-center">
                   {sortHeader("name", "Producto")}
                 </th>
-                <th className="w-[12%] px-2 py-2 text-center">
+                <th className="w-[11%] px-2 py-2 text-center">
                   {sortHeader("brand", "Marca")}
                 </th>
-                <th className="w-[13%] px-2 py-2 text-center">
+                <th className="w-[12%] px-2 py-2 text-center">
                   {sortHeader("supplier", "Proveedor")}
                 </th>
-                <th className="w-[13%] px-2 py-2 text-center">
+                <th className="w-[12%] px-2 py-2 text-center">
                   {sortHeader("supplierCode", "Cód. proveedor")}
                 </th>
-                <th className="w-[13%] px-2 py-2 text-center">
+                <th className="w-[12%] px-2 py-2 text-center">
                   {sortHeader("category", "Categoría")}
                 </th>
                 <th className="w-16 px-2 py-2 text-center">
                   {sortHeader("unitsPerPackage", "Bulto")}
+                </th>
+                <th className="w-28 px-2 py-2 text-center">
+                  {sortHeader("updatedAt", "Actualizado")}
                 </th>
                 <th className="w-20 px-2 py-2 text-center">Acción</th>
               </tr>
@@ -556,6 +597,11 @@ export function ProductWorkspace() {
                   </td>
                   <td className="px-2 py-1.5 text-center font-medium text-[#425979]">
                     {product.unitsPerPackage ? product.unitsPerPackage : "-"}
+                  </td>
+                  <td className="px-2 py-1.5 text-center font-medium text-[#425979]">
+                    <div className="truncate" title={product.updatedAt || ""}>
+                      {formatUpdatedAt(product.updatedAt)}
+                    </div>
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     <Button
@@ -627,12 +673,18 @@ export function ProductWorkspace() {
             </h2>
             <datalist id="dg-supplier-options">
               {activeSuppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.name} />
+                <option
+                  key={`supplier-${normalizeOptionName(supplier.name)}`}
+                  value={supplier.name}
+                />
               ))}
             </datalist>
             <datalist id="dg-category-options">
               {activeCategories.map((category) => (
-                <option key={category.id} value={category.name} />
+                <option
+                  key={`category-${normalizeOptionName(category.name)}`}
+                  value={category.name}
+                />
               ))}
             </datalist>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -710,4 +762,17 @@ export function ProductWorkspace() {
       )}
     </>
   );
+}
+
+function formatUpdatedAt(value?: string) {
+  if (!value) return "Sin dato";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

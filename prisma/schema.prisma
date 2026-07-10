@@ -172,6 +172,7 @@ model Product {
   unitsPerPackage    Int?
   supplierCode       String?
   status             RecordStatus        @default(ACTIVE)
+  version            Int                 @default(1)
   createdBy          String?
   updatedBy          String?
   createdAt          DateTime            @default(now())

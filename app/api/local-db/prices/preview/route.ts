@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { previewPriceImport } from "@/lib/price-importer";
+import { validateUploadedFile } from "@/lib/upload-validation";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,20 @@ export async function POST(request: Request) {
       {
         prices: [],
         message: "Proveedor, mes, año y archivo son obligatorios.",
+        warnings: [],
+      },
+      { status: 400 },
+    );
+  }
+  const validation = validateUploadedFile(file, {
+    allowedExtensions: ["xlsx", "xls", "pdf"],
+    label: "La lista de precios",
+  });
+  if (!validation.ok) {
+    return NextResponse.json(
+      {
+        prices: [],
+        message: validation.message,
         warnings: [],
       },
       { status: 400 },

@@ -55,5 +55,6 @@ npm run build
 - Los archivos se guardan fuera de `public/` y nunca se ejecutan.
 - Las operaciones masivas usan claves de idempotencia.
 - Se usa una versión soportada de Next.js en lugar de Next.js 14, que está fuera de soporte. Ver [ADR-001](docs/ADR-001-framework-version.md).
+- El estado de bases locales y controles transversales quedan documentados en [QUALITY-BASELINE](docs/QUALITY-BASELINE.md).
 
 La especificación funcional original permanece en [`arquitectura.md`](arquitectura.md).

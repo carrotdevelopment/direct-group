@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Tag, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataList } from "@/components/domain/data-list";
@@ -17,6 +17,7 @@ type AdminItem = {
 type ApiKey = "suppliers" | "categories";
 
 function AdminList({
+  id,
   title,
   eyebrow,
   description,
@@ -24,6 +25,7 @@ function AdminList({
   apiKey,
   placeholder,
 }: {
+  id: string;
   title: string;
   eyebrow: string;
   description: string;
@@ -35,6 +37,7 @@ function AdminList({
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState("Leyendo Excel local...");
   const [query, setQuery] = useState("");
+  const draftInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(endpoint)
@@ -47,6 +50,18 @@ function AdminList({
       })
       .catch(() => setStatus("No pude leer el Excel local"));
   }, [apiKey, endpoint]);
+
+  useEffect(() => {
+    if (window.location.hash !== `#${id}`) return;
+    const timeout = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      draftInputRef.current?.focus();
+    }, 100);
+    return () => window.clearTimeout(timeout);
+  }, [id]);
 
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -95,7 +110,7 @@ function AdminList({
   }
 
   return (
-    <section className="card overflow-hidden">
+    <section id={id} className="card scroll-mt-6 overflow-hidden">
       <div className="flex flex-col gap-4 border-b border-[#e1e8f1] bg-white p-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="eyebrow">{eyebrow}</div>
@@ -106,6 +121,7 @@ function AdminList({
         </div>
         <div className="flex w-full flex-col gap-2 sm:flex-row lg:max-w-xl">
           <input
+            ref={draftInputRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -185,6 +201,7 @@ export function SupplierAdminWorkspace() {
       />
       <div className="grid gap-4 xl:grid-cols-2">
         <AdminList
+          id="proveedores"
           eyebrow="Perfil admin"
           title="Administrar proveedores"
           description="Estos proveedores alimentan el desplegable del módulo Productos."
@@ -193,6 +210,7 @@ export function SupplierAdminWorkspace() {
           placeholder="Nuevo proveedor..."
         />
         <AdminList
+          id="categorias"
           eyebrow="Perfil admin"
           title="Administrar categorías"
           description="Estas categorías alimentan el desplegable del módulo Productos."

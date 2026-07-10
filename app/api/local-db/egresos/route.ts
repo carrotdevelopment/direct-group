@@ -6,6 +6,7 @@ import {
   readEgressRows,
   type EgressClient,
 } from "@/lib/operation-excel-db";
+import { validateUploadedFile } from "@/lib/upload-validation";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,16 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json(
       { ok: false, message: "Tenés que adjuntar un archivo Excel." },
+      { status: 400 },
+    );
+  }
+  const validation = validateUploadedFile(file, {
+    allowedExtensions: ["xlsx", "xls"],
+    label: `El archivo de egresos ${client}`,
+  });
+  if (!validation.ok) {
+    return NextResponse.json(
+      { ok: false, message: validation.message },
       { status: 400 },
     );
   }
