@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import {
   ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator, ChartNoAxesCombined,
   ChevronDown, CircleDollarSign, ClipboardList, FileKey2, FileUp, LayoutDashboard,
@@ -12,12 +13,16 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-const navigation = [
+type NavItem = { label: string; href: string; icon: React.ElementType; adminOnly?: true };
+type NavGroup = { label: string; items: NavItem[] };
+
+const navigation: NavGroup[] = [
   { label: "Principal", items: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   ]},
   { label: "Información Productos", items: [
     { label: "Productos", href: "/productos", icon: Boxes },
+    { label: "Clientes", href: "/clientes", icon: Users, adminOnly: true },
     { label: "Códigos cliente", href: "/codigos-clientes", icon: FileKey2 },
     { label: "Precios", href: "/precios", icon: CircleDollarSign },
   ]},
@@ -32,7 +37,6 @@ const navigation = [
     { label: "Stock", href: "/stock", icon: Warehouse },
   ]},
   { label: "Entidades", items: [
-    { label: "Clientes", href: "/clientes", icon: Users },
     { label: "Proveedores", href: "/proveedores", icon: Truck },
   ]},
   { label: "Sistema", items: [
@@ -45,6 +49,13 @@ const navigation = [
 
 function SidebarContent({ close }: { close?: () => void }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase());
+  const isAdmin =
+    process.env.NODE_ENV === "development" ||
+    session?.user?.role === "ADMIN" ||
+    (!!session?.user?.email && adminEmails.includes(session.user.email.toLowerCase()));
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-[92px] items-center border-b border-[#dfe7f0] px-4">
@@ -53,26 +64,30 @@ function SidebarContent({ close }: { close?: () => void }) {
       </div>
 
       <nav className="scrollbar-none flex-1 overflow-y-auto px-3 py-5">
-        {navigation.map((group) => (
-          <div key={group.label} className="mb-5">
-            <div className="mb-2 px-3 text-[9px] font-extrabold uppercase tracking-[.18em] text-[#8190a4]">{group.label}</div>
-            <div className="space-y-1">
-              {group.items.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                return (
-                  <Link key={item.href} href={item.href} onClick={close} className={cn(
-                    "group flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold transition",
-                    active ? "bg-[#062b5b] text-white shadow-sm" : "text-[#425979] hover:bg-[#edf4fc] hover:text-[#062b5b]",
-                  )}>
-                    <item.icon size={17} strokeWidth={active ? 2.5 : 2} />
-                    {item.label}
-                    {item.label === "Importaciones" && <span className="ml-auto rounded-full bg-[#0b5bbb] px-1.5 py-0.5 text-[9px] font-black text-white">3</span>}
-                  </Link>
-                );
-              })}
+        {navigation.map((group) => {
+          const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={group.label} className="mb-5">
+              <div className="mb-2 px-3 text-[9px] font-extrabold uppercase tracking-[.18em] text-[#8190a4]">{group.label}</div>
+              <div className="space-y-1">
+                {visibleItems.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  return (
+                    <Link key={item.href} href={item.href} onClick={close} className={cn(
+                      "group flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold transition",
+                      active ? "bg-[#062b5b] text-white shadow-sm" : "text-[#425979] hover:bg-[#edf4fc] hover:text-[#062b5b]",
+                    )}>
+                      <item.icon size={17} strokeWidth={active ? 2.5 : 2} />
+                      {item.label}
+                      {item.label === "Importaciones" && <span className="ml-auto rounded-full bg-[#0b5bbb] px-1.5 py-0.5 text-[9px] font-black text-white">3</span>}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div className="m-3 rounded-2xl border border-[#dbe4ef] bg-[#f4f7fb] p-3">

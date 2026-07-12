@@ -1406,7 +1406,7 @@ export function PriceRequestWorkspace() {
               </label>
               <div className="rounded-xl bg-[#edf4fc] px-2 py-2 text-[11px] text-[#425979]">
                 Programación fija: día 1 de cada mes. Para probar ahora, usá
-                â€œEnviar pruebaâ€ en la tabla.
+                "Enviar prueba" en la tabla.
               </div>
             </div>
             {supplierError && (

@@ -15,7 +15,7 @@ export function SummaryStrip({ items }: { items: SummaryItem[] }) {
   return (
     <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((item, index) => {
-        const className = `card animate-enter flex items-center gap-4 p-4 ${item.href ? "cursor-pointer transition hover:-translate-y-0.5 hover:border-[#b9cce4] hover:shadow-lg" : ""}`;
+        const className = `card animate-enter flex items-center gap-4 p-4 ${item.href ? "cursor-pointer transition hover:-translate-y-0.5 hover:border-[#b9cce4] hover:!bg-[#edf4fc] hover:shadow-lg" : ""}`;
         const content = (
           <>
             <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tones[item.tone ?? "green"]}`}>

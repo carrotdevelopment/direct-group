@@ -127,7 +127,7 @@ export function GET(request: Request) {
     (mapping) => canonicalClient(mapping.client) === "santander",
   );
   const assignmentSourcePeriod = santanderAssignments
-    .map((mapping) => periodIndex(mapping.year, mapping.month))
+    .map((mapping) => periodIndex(mapping.assignedYear, mapping.assignedMonth))
     .filter((period) => period <= targetPeriod)
     .sort((left, right) => right - left)[0];
   const assignmentSourceYear = assignmentSourcePeriod
@@ -143,8 +143,8 @@ export function GET(request: Request) {
   const assignments = santanderAssignments
     .filter(
       (mapping) =>
-        mapping.month === assignmentSourceMonth &&
-        mapping.year === assignmentSourceYear,
+        mapping.assignedMonth === assignmentSourceMonth &&
+        mapping.assignedYear === assignmentSourceYear,
     )
     .sort((left, right) =>
       left.clientCode.localeCompare(right.clientCode, "es", {

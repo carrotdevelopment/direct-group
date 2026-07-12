@@ -42,6 +42,10 @@ ALTER TABLE "ClientProductCode"
   ADD CONSTRAINT "ClientProductCode_clientCode_not_blank_chk"
   CHECK (length(btrim("clientCode")) > 0);
 
+ALTER TABLE "ClientProductCode"
+  ADD COLUMN IF NOT EXISTS "voidedAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "voidReason" TEXT;
+
 -- Numeric sanity checks. Quantities are stored as positive numbers; direction
 -- or operation type expresses whether they add or subtract stock.
 ALTER TABLE "Product"
@@ -124,10 +128,15 @@ WHERE
   AND "status" <> 'ARCHIVED';
 
 -- A client code can point to only one active product at a time for the same
--- client. Historical rows remain supported through validFrom/validUntil.
+-- client. A product can also have only one active client code per client.
+-- Historical rows remain supported through validFrom/validUntil.
 CREATE UNIQUE INDEX IF NOT EXISTS "ClientProductCode_client_activeCode_key"
 ON "ClientProductCode" ("clientId", lower(btrim("clientCode")))
-WHERE "active" = true;
+WHERE "active" = true AND "voidedAt" IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ClientProductCode_client_activeProduct_key"
+ON "ClientProductCode" ("clientId", "productId")
+WHERE "active" = true AND "voidedAt" IS NULL;
 
 -- Fast lookup paths used by import/matching flows.
 CREATE INDEX IF NOT EXISTS "Product_supplierCode_normalized_idx"

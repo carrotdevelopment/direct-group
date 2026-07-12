@@ -29,6 +29,10 @@ Restricciones preparadas:
 - `ClientProductCode.clientCode` obligatorio.
 - `validUntil` debe ser posterior a `validFrom`.
 - Para un cliente, un mismo código activo no puede apuntar a dos productos al mismo tiempo.
+- Para un cliente, un producto/código único no puede tener dos códigos cliente activos al mismo tiempo.
+- Si un producto cambia de código cliente en un período posterior, la relación anterior queda inactiva y se crea una nueva vigente.
+- Las correcciones de carga conservan auditoría mediante `changeReason`, `updatedAt` y `updatedBy`.
+- Los errores ya guardados no se borran físicamente: se anulan con `voidedAt` y `voidReason`.
 - El historial sigue permitido mediante `validFrom` / `validUntil`.
 
 ## Cantidades y precios

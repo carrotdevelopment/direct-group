@@ -4,6 +4,7 @@ import {
   writeCategoriesToExcel,
   type ExcelCategory,
 } from "@/lib/local-excel-db";
+import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,20 @@ export function GET() {
 export async function PUT(request: Request) {
   const body = (await request.json()) as { categories?: ExcelCategory[] };
   const categories = body.categories ?? [];
+
+  const seen = new Map<string, string>();
+  for (const category of categories) {
+    const key = normalizeForDuplicateCheck(category.name);
+    if (!key) continue;
+    if (seen.has(key)) {
+      return NextResponse.json(
+        { ok: false, message: `Ya existe una categoría con el nombre "${seen.get(key)}".` },
+        { status: 409 },
+      );
+    }
+    seen.set(key, category.name.trim().replace(/\s+/g, " "));
+  }
+
   writeCategoriesToExcel(categories);
   return NextResponse.json({ categories });
 }

@@ -7,6 +7,7 @@ import { DataList } from "@/components/domain/data-list";
 import { PageHeader } from "@/components/domain/page-header";
 import { SummaryStrip } from "@/components/domain/summary-strip";
 import { providerRows } from "@/lib/demo-data";
+import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 type AdminItem = {
   id: string;
@@ -35,6 +36,7 @@ function AdminList({
 }) {
   const [items, setItems] = useState<AdminItem[]>([]);
   const [draft, setDraft] = useState("");
+  const [inputError, setInputError] = useState("");
   const [status, setStatus] = useState("Leyendo Excel local...");
   const [query, setQuery] = useState("");
   const draftInputRef = useRef<HTMLInputElement>(null);
@@ -74,7 +76,7 @@ function AdminList({
       );
   }, [items, query]);
 
-  async function persist(next: AdminItem[]) {
+  async function persist(next: AdminItem[]): Promise<string | null> {
     setItems(next);
     setStatus("Guardando en Excel...");
     try {
@@ -83,22 +85,34 @@ function AdminList({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [apiKey]: next }),
       });
-      if (!response.ok) throw new Error("write failed");
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { message?: string };
+        const message = body.message ?? "No pude guardar en el Excel local";
+        setStatus(message);
+        return message;
+      }
       setStatus("Excel local sincronizado");
+      return null;
     } catch {
       setStatus("No pude guardar en el Excel local");
+      return null;
     }
   }
 
   async function addItem() {
-    const name = draft.trim().toUpperCase();
+    const name = normalizeForDuplicateCheck(draft);
     if (!name) return;
-    if (items.some((item) => item.name.trim().toUpperCase() === name)) {
-      setStatus("Ese valor ya existe");
+    if (items.some((item) => normalizeForDuplicateCheck(item.name) === name)) {
+      setInputError("Ese nombre ya existe.");
       return;
     }
-    await persist([...items, { id: crypto.randomUUID(), name, active: true }]);
-    setDraft("");
+    setInputError("");
+    const error = await persist([...items, { id: crypto.randomUUID(), name, active: true }]);
+    if (error) {
+      setInputError(error);
+    } else {
+      setDraft("");
+    }
   }
 
   async function toggleItem(id: string) {
@@ -119,23 +133,31 @@ function AdminList({
             {description}
           </p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:flex-row lg:max-w-xl">
-          <input
-            ref={draftInputRef}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void addItem();
-              }
-            }}
-            placeholder={placeholder}
-            className="h-10 flex-1 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-3 text-xs font-semibold uppercase outline-none focus:border-[#7da4d3]"
-          />
-          <Button size="sm" onClick={addItem}>
-            <Plus size={14} /> Agregar
-          </Button>
+        <div className="flex w-full flex-col gap-1 lg:max-w-xl">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              ref={draftInputRef}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setInputError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void addItem();
+                }
+              }}
+              placeholder={placeholder}
+              className={`h-10 flex-1 rounded-xl border bg-[#f8fafd] px-3 text-xs font-semibold uppercase outline-none ${inputError ? "border-red-400 focus:border-red-400" : "border-[#dbe4ef] focus:border-[#7da4d3]"}`}
+            />
+            <Button size="sm" onClick={addItem}>
+              <Plus size={14} /> Agregar
+            </Button>
+          </div>
+          {inputError && (
+            <p className="pl-1 text-[11px] font-semibold text-red-600">{inputError}</p>
+          )}
         </div>
       </div>
       <div className="border-b border-[#e7edf4] bg-[#fafcff] p-4">

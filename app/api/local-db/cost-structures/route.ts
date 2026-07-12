@@ -7,6 +7,10 @@ import {
   readSantanderCostRowsFromExcel,
   writeSantanderCostRowsToExcel,
   type ExcelSantanderCostRow,
+  readFreightCriteria,
+  getActiveCriterion,
+  upsertFreightCriterion,
+  type FreightCriterionEntry,
 } from "@/lib/local-excel-db";
 
 export const runtime = "nodejs";
@@ -30,6 +34,15 @@ type CostStructureRow = {
   freightNoVat: number;
   pvcNoVat: number;
   pvcWithVat: number;
+  latestSupplierCostDg: number;
+  supplierCostDgDate: string | null;
+  hasPriceAlert: boolean;
+  segment: "active" | "inactive_with_stock" | "inactive";
+  pvcHistory: Array<{ period: string; pvcWithVat: number }>;
+  freightCriterion: FreightCriterionEntry | null;
+  // Transient — only present in PUT body, not returned by GET:
+  freightMode?: "pct" | "fixed";
+  freightValue?: number;
 };
 
 type Rates = {
@@ -143,45 +156,60 @@ function latestByUniqueCode<T extends { uniqueCode: string }>(
 export function GET(request: Request) {
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
-  const month = Number(url.searchParams.get("month") || "0");
-  const year = Number(url.searchParams.get("year") || "0");
+  const historyFor = url.searchParams.get("historyFor") || "";
+  const today = new Date();
+  const currentPeriodKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
   if (canonicalClient(client) !== "santander") {
     return NextResponse.json({
       rows: [],
-      message: "Por ahora solo estÃ¡ cargada la estructura real de Santander.",
+      message: "Por ahora solo está cargada la estructura real de Santander.",
     });
   }
-  if (!month || !year) {
-    return NextResponse.json(
-      { rows: [], message: "Mes y aÃ±o son obligatorios." },
-      { status: 400 },
-    );
+
+  // History search mode — return all periods for codes matching clientCode
+  if (historyFor) {
+    const needle = historyFor.trim().toLowerCase();
+    const matched = readSantanderCostRowsFromExcel()
+      .filter((row) => row.clientCode.toLowerCase().includes(needle))
+      .sort(
+        (a, b) =>
+          b.period.localeCompare(a.period) ||
+          a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }),
+      );
+    return NextResponse.json({
+      rows: matched.map((row) => ({
+        period: row.period,
+        clientCode: row.clientCode,
+        uniqueCode: row.uniqueCode,
+        product: row.product,
+        supplier: row.supplier,
+        vatRate: row.vatRate,
+        freightNoVat: row.freightNoVat,
+        pvcNoVat: row.pvcNoVat,
+        pvcWithVat: row.pvcWithVat,
+        profitPercentage: row.profitPercentage,
+      })),
+      message: `${matched.length} registro${matched.length !== 1 ? "s" : ""} encontrado${matched.length !== 1 ? "s" : ""}.`,
+    });
   }
 
-  const targetPeriod = periodIndex(year, month);
-  const targetPeriodLabel = periodLabel(year, month);
-  const santanderAssignments = readClientCodesFromExcel().filter(
+  // All assignments for this client — deduplicate by uniqueCode, keeping the latest batch
+  const allAssignments = readClientCodesFromExcel().filter(
     (mapping) => canonicalClient(mapping.client) === "santander",
   );
-  const assignmentSourcePeriod = santanderAssignments
-    .map((mapping) => periodIndex(mapping.year, mapping.month))
-    .filter((period) => period <= targetPeriod)
-    .sort((left, right) => right - left)[0];
-  const assignmentSourceYear = assignmentSourcePeriod
-    ? Math.floor((assignmentSourcePeriod - 1) / 12)
-    : 0;
-  const assignmentSourceMonth = assignmentSourcePeriod
-    ? assignmentSourcePeriod - assignmentSourceYear * 12
-    : 0;
-  const exactAssignments = santanderAssignments.filter(
-    (mapping) =>
-      mapping.month === assignmentSourceMonth &&
-      mapping.year === assignmentSourceYear,
-  );
-  const assignmentSourceLabel = assignmentSourcePeriod
-    ? periodLabel(assignmentSourceYear, assignmentSourceMonth)
-    : targetPeriodLabel;
+  const latestAssignmentByCode = new Map<string, typeof allAssignments[0]>();
+  for (const assignment of allAssignments) {
+    const current = latestAssignmentByCode.get(assignment.uniqueCode);
+    if (
+      !current ||
+      periodIndex(assignment.assignedYear, assignment.assignedMonth) >
+        periodIndex(current.assignedYear, current.assignedMonth)
+    ) {
+      latestAssignmentByCode.set(assignment.uniqueCode, assignment);
+    }
+  }
+
   const products = new Map(
     readProductsFromExcel().map((product) => [product.code, product]),
   );
@@ -192,88 +220,107 @@ export function GET(request: Request) {
     current.push(price);
     pricesByUniqueCode.set(code, current);
   }
-  const santanderCosts = readSantanderCostRowsFromExcel();
+
+  // Latest saved cost row per uniqueCode, across all periods
+  const MAX_PERIOD = Number.MAX_SAFE_INTEGER;
+  const allCostRows = readSantanderCostRowsFromExcel();
   const latestCosts = latestByUniqueCode(
-    santanderCosts,
+    allCostRows,
     (row) => periodIndex(row.year, row.month),
-    targetPeriod,
+    MAX_PERIOD,
   );
 
-  const rows: CostStructureRow[] = exactAssignments
+  // Freight criteria — keyed by uniqueCode
+  const freightCriteriaStore = readFreightCriteria();
+
+  // History map: last 3 periods per uniqueCode (desc)
+  const historyByCode = new Map<string, Array<{ period: string; pvcWithVat: number }>>();
+  for (const row of allCostRows) {
+    const list = historyByCode.get(row.uniqueCode) ?? [];
+    list.push({ period: row.period, pvcWithVat: row.pvcWithVat });
+    historyByCode.set(row.uniqueCode, list);
+  }
+  for (const [code, list] of historyByCode) {
+    historyByCode.set(
+      code,
+      list.sort((a, b) => b.period.localeCompare(a.period)).slice(0, 3),
+    );
+  }
+
+  const rows: CostStructureRow[] = Array.from(latestAssignmentByCode.values())
     .map((assignment) => {
       const cost = latestCosts.get(assignment.uniqueCode);
-      const prices = pricesByUniqueCode.get(
-        normalizeCode(assignment.uniqueCode),
-      ) ?? [];
-      const costDgPrice = latestPriceValue(prices, targetPeriod, "costDg");
-      const publicPricePrice = latestPriceValue(
-        prices,
-        targetPeriod,
-        "publicPrice",
-      );
-      const vatPrice = latestPriceValue(prices, targetPeriod, "vatRate");
-      const markupPrice = latestPriceValue(prices, targetPeriod, "markup");
+      const prices = pricesByUniqueCode.get(normalizeCode(assignment.uniqueCode)) ?? [];
+      const costDgPrice = latestPriceValue(prices, MAX_PERIOD, "costDg");
+      const publicPricePrice = latestPriceValue(prices, MAX_PERIOD, "publicPrice");
+      const vatPrice = latestPriceValue(prices, MAX_PERIOD, "vatRate");
+      const markupPrice = latestPriceValue(prices, MAX_PERIOD, "markup");
       const product = products.get(assignment.uniqueCode);
-      const costIsCurrent = cost?.period === targetPeriodLabel;
+
       const costDgDate = sourceDateOrNull(costDgPrice);
-      const priceInfoDates = [
-        sourceDateOrNull(publicPricePrice),
-        sourceDateOrNull(vatPrice),
-        sourceDateOrNull(markupPrice),
-      ].filter(Boolean) as string[];
-      const priceInfoIsCurrent =
-        priceInfoDates.length === 3 &&
-        priceInfoDates.every((date) => date.startsWith(targetPeriodLabel));
-      const latestPriceInfoDate =
-        priceInfoDates.sort((left, right) => right.localeCompare(left))[0] ||
-        null;
-      const stalePriceInfoDate =
-        priceInfoDates.find((date) => !date.startsWith(targetPeriodLabel)) ||
-        null;
+
+      const savedCostDg = cost?.costDgNoVat ?? 0;
+      const liveCostDg = costDgPrice?.costDg ?? 0;
+      const stock = 0; // will be populated from stock module when available
+      const active = assignment.active;
+      const segment: CostStructureRow["segment"] = active
+        ? "active"
+        : stock > 0
+          ? "inactive_with_stock"
+          : "inactive";
+
       return {
         id: assignment.uniqueCode,
-        active: true,
-        stock: 0,
-        date: `${targetPeriodLabel}-01`,
+        active,
+        stock,
+        date: cost ? `${cost.period}-01` : "",
         clientCode: assignment.clientCode,
         uniqueCode: assignment.uniqueCode,
-        costDgUpdatedAt:
-          costDgDate ||
-          (costIsCurrent ? `${targetPeriodLabel}-01` : null),
-        publicPriceUpdatedAt:
-          priceInfoIsCurrent && latestPriceInfoDate
-            ? latestPriceInfoDate
-            : stalePriceInfoDate,
+        costDgUpdatedAt: costDgDate,
+        publicPriceUpdatedAt: cost?.period ?? null,
         product: cost?.product || product?.name || "",
         supplier: cost?.supplier || product?.supplier || "",
         category: cost?.category || product?.category || "",
-        publicPrice: valueFromPrice(
-          publicPricePrice?.publicPrice,
-          cost?.publicPrice ?? 0,
-        ),
+        publicPrice: valueFromPrice(publicPricePrice?.publicPrice, cost?.publicPrice ?? 0),
         vatRate: valueFromPrice(vatPrice?.vatRate, cost?.vatRate ?? 21),
         markup: valueFromPrice(markupPrice?.markup, cost?.markup ?? 0),
-        costDgNoVat: valueFromPrice(
-          costDgPrice?.costDg,
-          cost?.costDgNoVat ?? 0,
-        ),
-        freightNoVat: cost?.freightNoVat || 0,
+        costDgNoVat: savedCostDg > 0 ? savedCostDg : liveCostDg,
+        freightNoVat: (() => {
+          const costDg = savedCostDg > 0 ? savedCostDg : liveCostDg;
+          const criterion = getActiveCriterion(
+            freightCriteriaStore[assignment.uniqueCode] ?? [],
+            currentPeriodKey,
+          );
+          if (criterion) {
+            return criterion.mode === "pct"
+              ? roundMoney((costDg * criterion.value) / 100)
+              : roundMoney(criterion.value);
+          }
+          return cost?.freightNoVat ?? 0;
+        })(),
         pvcNoVat: cost?.pvcNoVat || 0,
         pvcWithVat: cost?.pvcWithVat || 0,
+        latestSupplierCostDg: liveCostDg,
+        supplierCostDgDate: sourceDateOrNull(costDgPrice),
+        hasPriceAlert:
+          savedCostDg > 0 && liveCostDg > 0 && Math.abs(savedCostDg - liveCostDg) > 0.01,
+        segment,
+        pvcHistory: historyByCode.get(assignment.uniqueCode) ?? [],
+        freightCriterion: getActiveCriterion(
+          freightCriteriaStore[assignment.uniqueCode] ?? [],
+          currentPeriodKey,
+        ),
       };
     })
-    .sort((left, right) =>
-      left.clientCode.localeCompare(right.clientCode, "es", {
-        numeric: true,
-      }),
-    );
+    .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
+
+  const activeCount = rows.filter((r) => r.segment === "active").length;
+  const inactiveStockCount = rows.filter((r) => r.segment === "inactive_with_stock").length;
+  const inactiveCount = rows.filter((r) => r.segment === "inactive").length;
 
   return NextResponse.json({
     rows,
-    message:
-      assignmentSourceLabel === targetPeriodLabel
-        ? `${rows.length} productos Santander asignados en código cliente para ${targetPeriodLabel}.`
-        : `${rows.length} productos Santander asignados en código cliente para ${targetPeriodLabel}. Se usó la asignación de ${assignmentSourceLabel}.`,
+    message: `${activeCount} activos · ${inactiveStockCount} inactivos con stock · ${inactiveCount} inactivos — ${rows.length} códigos en total.`,
   });
 }
 
@@ -286,13 +333,14 @@ export async function PUT(request: Request) {
     rows?: CostStructureRow[];
   };
   const client = body.client || "";
-  const month = Number(body.month || 0);
-  const year = Number(body.year || 0);
+  const now = new Date();
+  const month = Number(body.month || now.getMonth() + 1);
+  const year = Number(body.year || now.getFullYear());
   const rows = body.rows || [];
 
-  if (canonicalClient(client) !== "santander" || !month || !year) {
+  if (canonicalClient(client) !== "santander") {
     return NextResponse.json(
-      { ok: false, message: "Cliente, mes o aÃ±o invÃ¡lido." },
+      { ok: false, message: "Cliente inválido." },
       { status: 400 },
     );
   }
@@ -344,9 +392,126 @@ export async function PUT(request: Request) {
   });
 
   writeSantanderCostRowsToExcel([...existing, ...nextRows]);
+
+  // Persist freight criteria for rows where one was applied this session
+  for (const row of rows) {
+    if (row.freightMode && row.freightValue != null) {
+      upsertFreightCriterion(row.uniqueCode, {
+        mode: row.freightMode,
+        value: row.freightValue,
+        effectiveFrom: period,
+      });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     rows,
     message: `Estructura Santander ${period} guardada.`,
   });
+}
+
+export async function PATCH(request: Request) {
+  const body = (await request.json()) as {
+    client?: string;
+    uniqueCode?: string;
+    period?: string;
+    freightNoVat?: number;
+    pvcNoVat?: number;
+    pvcWithVat?: number;
+  };
+
+  if (canonicalClient(body.client || "") !== "santander") {
+    return NextResponse.json({ ok: false, message: "Cliente inválido." }, { status: 400 });
+  }
+
+  const uniqueCode = body.uniqueCode || "";
+  const period = body.period || "";
+  if (!uniqueCode || !period) {
+    return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
+  }
+
+  const allRows = readSantanderCostRowsFromExcel();
+  const idx = allRows.findIndex((r) => r.uniqueCode === uniqueCode && r.period === period);
+  if (idx === -1) {
+    return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
+  }
+
+  const existing = allRows[idx];
+  const freightNoVat = typeof body.freightNoVat === "number" ? body.freightNoVat : existing.freightNoVat;
+  const pvcNoVat = typeof body.pvcNoVat === "number" ? body.pvcNoVat : existing.pvcNoVat;
+  const pvcWithVat = typeof body.pvcWithVat === "number" ? body.pvcWithVat : existing.pvcWithVat;
+
+  const tempRow: CostStructureRow = {
+    id: existing.uniqueCode,
+    active: true,
+    stock: 0,
+    date: existing.date,
+    clientCode: existing.clientCode,
+    uniqueCode: existing.uniqueCode,
+    costDgUpdatedAt: null,
+    publicPriceUpdatedAt: null,
+    product: existing.product,
+    supplier: existing.supplier,
+    category: existing.category,
+    publicPrice: existing.publicPrice,
+    vatRate: existing.vatRate,
+    markup: existing.markup,
+    costDgNoVat: existing.costDgNoVat,
+    freightNoVat,
+    pvcNoVat,
+    pvcWithVat,
+    latestSupplierCostDg: 0,
+    supplierCostDgDate: null,
+    hasPriceAlert: false,
+    segment: "active",
+    pvcHistory: [],
+    freightCriterion: null,
+  };
+
+  const calc = calculateSantanderCost(tempRow, defaultRates);
+  allRows[idx] = {
+    ...existing,
+    freightNoVat,
+    pvcNoVat,
+    pvcWithVat,
+    ppNoVat: calc.ppNoVat,
+    insurance: calc.insurance,
+    grossIncome: calc.grossIncome,
+    debitTax: calc.debitTax,
+    creditTax: calc.creditTax,
+    missionsTax: calc.missionsTax,
+    totalCost: calc.totalCost,
+    profit: calc.profit,
+    profitPercentage: calc.profitPercentage,
+  };
+  writeSantanderCostRowsToExcel(allRows);
+
+  return NextResponse.json({ ok: true, profitPercentage: calc.profitPercentage, message: "Registro actualizado." });
+}
+
+export function DELETE(request: Request) {
+  const url = new URL(request.url);
+  const client = url.searchParams.get("client") || "";
+  const uniqueCode = url.searchParams.get("uniqueCode") || "";
+  const period = url.searchParams.get("period") || "";
+
+  if (canonicalClient(client) !== "santander") {
+    return NextResponse.json({ ok: false, message: "Cliente inválido." }, { status: 400 });
+  }
+  if (!uniqueCode || !period) {
+    return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
+  }
+
+  const allRows = readSantanderCostRowsFromExcel();
+  const filtered = allRows.filter(
+    (r) => !(r.uniqueCode === uniqueCode && r.period === period),
+  );
+
+  if (filtered.length === allRows.length) {
+    return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
+  }
+
+  writeSantanderCostRowsToExcel(filtered);
+  return NextResponse.json({ ok: true, message: "Registro eliminado." });
 }

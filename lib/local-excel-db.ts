@@ -1,6 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
+import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 export type ExcelProduct = {
   id: string;
@@ -18,10 +19,16 @@ export type ExcelProduct = {
 export type ExcelClientCodeMapping = {
   id: string;
   client: string;
-  month: number;
-  year: number;
   uniqueCode: string;
   clientCode: string;
+  assignedMonth: number;
+  assignedYear: number;
+  active: boolean;
+  reactivatedAt?: string;
+  correctedAt?: string;
+  correctionReason?: string;
+  voidedAt?: string;
+  voidReason?: string;
 };
 
 export type ExcelSupplier = {
@@ -78,6 +85,27 @@ export type ExcelSantanderCostRow = {
   volumetricWeight: number;
   unitsPerPackage: number;
   source: string;
+};
+
+export type ExcelClient = {
+  id: string;
+  name: string;
+  active: boolean;
+  createdAt?: string;
+};
+
+export type ExcelClientRateItem = {
+  id: string;
+  clientId: string;
+  clientName: string;
+  effectiveFrom: string;
+  rateName: string;
+  rateKey: string;
+  applies: boolean;
+  valuePct: number;
+  appliesTo: "COSTO" | "PRECIO";
+  sortOrder: number;
+  createdAt?: string;
 };
 
 export type ExcelSantanderStockRow = {
@@ -193,20 +221,22 @@ const productsSeed: ExcelProduct[] = [
 
 const clientCodeSeed: ExcelClientCodeMapping[] = [
   {
-    id: "monthly-macro-2026-1-421000005",
+    id: "assign-macro-421000005-2026-1",
     client: "Macro",
-    month: 1,
-    year: 2026,
     uniqueCode: "421000005",
     clientCode: "MAC-421000005",
+    assignedMonth: 1,
+    assignedYear: 2026,
+    active: true,
   },
   {
-    id: "monthly-provincia-2026-1-425000031",
+    id: "assign-provincia-425000031-2026-1",
     client: "Provincia",
-    month: 1,
-    year: 2026,
     uniqueCode: "425000031",
     clientCode: "PROV-425000031",
+    assignedMonth: 1,
+    assignedYear: 2026,
+    active: true,
   },
 ];
 
@@ -410,8 +440,20 @@ function getPricesJsonFilePath() {
   return path.join(ensureFolder(), "Base Precios DG.json");
 }
 
+export function getClientsFilePath() {
+  return path.join(ensureFolder(), "Base Clientes DG.xlsx");
+}
+
+export function getClientRatesFilePath() {
+  return path.join(ensureFolder(), "Base Config Tasas Clientes DG.xlsx");
+}
+
 export function getSantanderCostStructureFilePath() {
   return path.join(ensureFolder(), "Base Estructura Costos Santander DG.xlsx");
+}
+
+export function getFreightCriteriaFilePath() {
+  return path.join(ensureFolder(), "Base Criterios Flete DG.json");
 }
 
 export function getSantanderStockFilePath() {
@@ -616,8 +658,6 @@ export function readClientCodesFromExcel() {
   const mappings = rows
     .map((row, index): ExcelClientCodeMapping => {
       const client = asString(row["Cliente"]);
-      const month = Number(asString(row["Mes"]) || "0");
-      const year = Number(asString(row["Año"] || row["Anio"]) || "0");
       const uniqueCode = asString(
         row["Código Único"] ||
           row["CÃ³digo Ãšnico"] ||
@@ -629,23 +669,53 @@ export function readClientCodesFromExcel() {
           row["CÃ³digo Cliente"] ||
           row["Codigo Cliente"],
       );
+      // New column names with fallback to old names for backward compatibility
+      const assignedMonth = Number(
+        asString(
+          row["Mes Asignación"] || row["Mes Asignacion"] || row["Mes"],
+        ) || "0",
+      );
+      const assignedYear = Number(
+        asString(
+          row["Año Asignación"] ||
+            row["Anio Asignacion"] ||
+            row["Año"] ||
+            row["Anio"],
+        ) || "0",
+      );
+      const activeStr = asString(row["Activo"] || row["active"]).toLowerCase();
+      const active = activeStr === "" ? true : activeStr !== "no";
       return {
         id:
           asString(row["ID"]) ||
-          `monthly-${client}-${year}-${month}-${uniqueCode}-${index}`,
+          `assign-${client}-${uniqueCode}-${assignedYear}-${assignedMonth}-${index}`,
         client,
-        month,
-        year,
         uniqueCode,
         clientCode,
+        assignedMonth,
+        assignedYear,
+        active,
+        reactivatedAt: asIsoDateTime(row["Reactivado"] || row["reactivatedAt"]),
+        correctedAt: asIsoDateTime(row["Corregido"] || row["correctedAt"]),
+        correctionReason: asString(
+          row["Motivo Corrección"] ||
+            row["Motivo Correccion"] ||
+            row["correctionReason"],
+        ),
+        voidedAt: asIsoDateTime(row["Anulado"] || row["voidedAt"]),
+        voidReason: asString(
+          row["Motivo Anulación"] ||
+            row["Motivo Anulacion"] ||
+            row["voidReason"],
+        ),
       };
     })
     .filter(
       (mapping) =>
         mapping.client &&
-        mapping.month >= 1 &&
-        mapping.month <= 12 &&
-        mapping.year > 2000 &&
+        mapping.assignedMonth >= 1 &&
+        mapping.assignedMonth <= 12 &&
+        mapping.assignedYear > 2000 &&
         mapping.uniqueCode &&
         mapping.clientCode,
     );
@@ -667,10 +737,16 @@ export function writeClientCodesToExcel(mappings: ExcelClientCodeMapping[]) {
     mappings.map((mapping) => ({
       ID: mapping.id,
       Cliente: mapping.client,
-      Mes: mapping.month,
-      Año: mapping.year,
       "Código Único": mapping.uniqueCode,
       "Código Cliente": mapping.clientCode,
+      "Mes Asignación": mapping.assignedMonth,
+      "Año Asignación": mapping.assignedYear,
+      Activo: mapping.active ? "Si" : "No",
+      Reactivado: mapping.reactivatedAt ?? "",
+      Corregido: mapping.correctedAt ?? "",
+      "Motivo Corrección": mapping.correctionReason ?? "",
+      Anulado: mapping.voidedAt ?? "",
+      "Motivo Anulación": mapping.voidReason ?? "",
     })),
   );
   clientCodesCache = {
@@ -702,8 +778,8 @@ export function writeSuppliersToExcel(suppliers: ExcelSupplier[]) {
   const uniqueSuppliers = Array.from(
     new Map(
       suppliers.map((supplier) => [
-        supplier.name.trim().toUpperCase(),
-        { ...supplier, name: supplier.name.trim() },
+        normalizeForDuplicateCheck(supplier.name),
+        { ...supplier, name: supplier.name.trim().replace(/\s+/g, " ") },
       ]),
     ).values(),
   ).filter((supplier) => supplier.name);
@@ -742,8 +818,8 @@ export function writeCategoriesToExcel(categories: ExcelCategory[]) {
   const uniqueCategories = Array.from(
     new Map(
       categories.map((category) => [
-        category.name.trim().toUpperCase(),
-        { ...category, name: category.name.trim() },
+        normalizeForDuplicateCheck(category.name),
+        { ...category, name: category.name.trim().replace(/\s+/g, " ") },
       ]),
     ).values(),
   ).filter((category) => category.name);
@@ -972,6 +1048,54 @@ export function writeSantanderCostRowsToExcel(rows: ExcelSantanderCostRow[]) {
   return filePath;
 }
 
+// ── Freight criteria ──────────────────────────────────────────────────────────
+
+export type FreightCriterionEntry = {
+  mode: "pct" | "fixed";
+  value: number;
+  effectiveFrom: string; // "YYYY-MM"
+};
+
+type FreightCriteriaStore = Record<string, FreightCriterionEntry[]>;
+
+export function readFreightCriteria(): FreightCriteriaStore {
+  const filePath = getFreightCriteriaFilePath();
+  if (!fs.existsSync(filePath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as FreightCriteriaStore;
+  } catch {
+    return {};
+  }
+}
+
+export function getActiveCriterion(
+  entries: FreightCriterionEntry[],
+  periodKey: string,
+): FreightCriterionEntry | null {
+  return (
+    [...entries]
+      .filter((e) => e.effectiveFrom <= periodKey)
+      .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] ?? null
+  );
+}
+
+export function upsertFreightCriterion(
+  uniqueCode: string,
+  entry: FreightCriterionEntry,
+): void {
+  const filePath = getFreightCriteriaFilePath();
+  const store = readFreightCriteria();
+  const existing = store[uniqueCode] ?? [];
+  const idx = existing.findIndex((e) => e.effectiveFrom === entry.effectiveFrom);
+  if (idx >= 0) {
+    existing[idx] = entry;
+  } else {
+    existing.push(entry);
+  }
+  store[uniqueCode] = existing.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  fs.writeFileSync(filePath, JSON.stringify(store, null, 2), "utf-8");
+}
+
 export function readSantanderStockRowsFromExcel() {
   const filePath = getSantanderStockFilePath();
   if (!fs.existsSync(filePath)) return [];
@@ -1020,4 +1144,112 @@ export function readSantanderStockRowsFromExcel() {
         row.client.toLowerCase() === "santander" &&
         (row.clientCode || row.uniqueCode),
     );
+}
+
+const clientNamesSeed = [
+  "Macro", "Provincia", "Producteca", "Credicoop REG", "HSBC", "Santander",
+  "Credicoop ES", "Massalin", "Pampa", "CTC", "Supervielle", "Amex Futuro",
+  "Amex", "Comafi", "Importados", "Syngenta", "Umiles",
+];
+
+const clientsSeed: ExcelClient[] = clientNamesSeed.map((name) => ({
+  id: `client-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  name,
+  active: true,
+}));
+
+const defaultRateItems: Omit<ExcelClientRateItem, "id" | "clientId" | "clientName" | "effectiveFrom" | "createdAt">[] = [
+  { rateName: "Seguro",        rateKey: "seguro",             applies: true, valuePct: 1.2,  appliesTo: "COSTO",  sortOrder: 1 },
+  { rateName: "Ing. Brutos",   rateKey: "ingresos_brutos",    applies: true, valuePct: 5,    appliesTo: "PRECIO", sortOrder: 2 },
+  { rateName: "Imp. Débito",   rateKey: "impuesto_debito",    applies: true, valuePct: 0.6,  appliesTo: "PRECIO", sortOrder: 3 },
+  { rateName: "Imp. Crédito",  rateKey: "impuesto_credito",   applies: true, valuePct: 0.6,  appliesTo: "PRECIO", sortOrder: 4 },
+  { rateName: "Imp. Misiones", rateKey: "impuesto_misiones",  applies: true, valuePct: 1.25, appliesTo: "PRECIO", sortOrder: 5 },
+];
+
+function buildClientRatesSeed(): ExcelClientRateItem[] {
+  const effectiveFrom = "2024-01";
+  const items: ExcelClientRateItem[] = [];
+  for (const client of clientsSeed) {
+    for (const rate of defaultRateItems) {
+      items.push({
+        id: `rate-${client.id}-${rate.rateKey}-${effectiveFrom}`,
+        clientId: client.id,
+        clientName: client.name,
+        effectiveFrom,
+        ...rate,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+  return items;
+}
+
+export function readClientsFromExcel(): ExcelClient[] {
+  const filePath = getClientsFilePath();
+  if (!fs.existsSync(filePath)) writeClientsToExcel(clientsSeed);
+  const rows = readSheetRows(filePath);
+  return rows
+    .map((row, index): ExcelClient => {
+      const name = asString(row["Nombre"] || row["Cliente"]);
+      return {
+        id: asString(row["ID"]) || `client-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || index}`,
+        name,
+        active: asString(row["Activo"]).toLowerCase() !== "no",
+        createdAt: asIsoDateTime(row["Creado"]),
+      };
+    })
+    .filter((c) => c.name);
+}
+
+export function writeClientsToExcel(clients: ExcelClient[]) {
+  const filePath = getClientsFilePath();
+  writeWorkbook(filePath, "Clientes", clients.map((c) => ({
+    ID: c.id,
+    Nombre: c.name,
+    Activo: c.active ? "Si" : "No",
+    Creado: c.createdAt ?? new Date().toISOString(),
+  })));
+  return filePath;
+}
+
+export function readClientRatesFromExcel(): ExcelClientRateItem[] {
+  const filePath = getClientRatesFilePath();
+  if (!fs.existsSync(filePath)) writeClientRatesToExcel(buildClientRatesSeed());
+  const rows = readSheetRows(filePath);
+  return rows
+    .map((row, index): ExcelClientRateItem => {
+      const appliesTo = asString(row["Aplica Sobre"]).toUpperCase();
+      return {
+        id: asString(row["ID"]) || `rate-item-${index}`,
+        clientId: asString(row["Cliente ID"]),
+        clientName: asString(row["Cliente"]),
+        effectiveFrom: asString(row["Vigente Desde"]),
+        rateName: asString(row["Nombre Tasa"]),
+        rateKey: asString(row["Clave"]),
+        applies: asString(row["Aplica"]).toLowerCase() !== "no",
+        valuePct: asNumber(row["Valor %"]),
+        appliesTo: appliesTo === "COSTO" ? "COSTO" : "PRECIO",
+        sortOrder: asNumber(row["Orden"]) || 99,
+        createdAt: asIsoDateTime(row["Creado"]),
+      };
+    })
+    .filter((r) => r.clientId && r.rateKey && r.effectiveFrom);
+}
+
+export function writeClientRatesToExcel(items: ExcelClientRateItem[]) {
+  const filePath = getClientRatesFilePath();
+  writeWorkbook(filePath, "Tasas", items.map((r) => ({
+    ID: r.id,
+    "Cliente ID": r.clientId,
+    Cliente: r.clientName,
+    "Vigente Desde": r.effectiveFrom,
+    "Nombre Tasa": r.rateName,
+    Clave: r.rateKey,
+    Aplica: r.applies ? "Si" : "No",
+    "Valor %": r.valuePct,
+    "Aplica Sobre": r.appliesTo,
+    Orden: r.sortOrder,
+    Creado: r.createdAt ?? new Date().toISOString(),
+  })));
+  return filePath;
 }
