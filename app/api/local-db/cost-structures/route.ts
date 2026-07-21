@@ -167,6 +167,14 @@ export function GET(request: Request) {
     });
   }
 
+  // Period filter — default to current month/year
+  const reqMonth = url.searchParams.get("month");
+  const reqYear = url.searchParams.get("year");
+  const targetMonth = reqMonth ? Number(reqMonth) : today.getMonth() + 1;
+  const targetYear = reqYear ? Number(reqYear) : today.getFullYear();
+  const targetPeriod = periodIndex(targetYear, targetMonth);
+  const targetPeriodKey = periodLabel(targetYear, targetMonth);
+
   // History search mode — return all periods for codes matching clientCode
   if (historyFor) {
     const needle = historyFor.trim().toLowerCase();
@@ -221,21 +229,21 @@ export function GET(request: Request) {
     pricesByUniqueCode.set(code, current);
   }
 
-  // Latest saved cost row per uniqueCode, across all periods
-  const MAX_PERIOD = Number.MAX_SAFE_INTEGER;
+  // Latest saved cost row per uniqueCode, up to the requested period
   const allCostRows = readSantanderCostRowsFromExcel();
   const latestCosts = latestByUniqueCode(
     allCostRows,
     (row) => periodIndex(row.year, row.month),
-    MAX_PERIOD,
+    targetPeriod,
   );
 
   // Freight criteria — keyed by uniqueCode
   const freightCriteriaStore = readFreightCriteria();
 
-  // History map: last 3 periods per uniqueCode (desc)
+  // History map: last 3 periods per uniqueCode up to targetPeriod (desc)
   const historyByCode = new Map<string, Array<{ period: string; pvcWithVat: number }>>();
   for (const row of allCostRows) {
+    if (periodIndex(row.year, row.month) > targetPeriod) continue;
     const list = historyByCode.get(row.uniqueCode) ?? [];
     list.push({ period: row.period, pvcWithVat: row.pvcWithVat });
     historyByCode.set(row.uniqueCode, list);
@@ -251,10 +259,10 @@ export function GET(request: Request) {
     .map((assignment) => {
       const cost = latestCosts.get(assignment.uniqueCode);
       const prices = pricesByUniqueCode.get(normalizeCode(assignment.uniqueCode)) ?? [];
-      const costDgPrice = latestPriceValue(prices, MAX_PERIOD, "costDg");
-      const publicPricePrice = latestPriceValue(prices, MAX_PERIOD, "publicPrice");
-      const vatPrice = latestPriceValue(prices, MAX_PERIOD, "vatRate");
-      const markupPrice = latestPriceValue(prices, MAX_PERIOD, "markup");
+      const costDgPrice = latestPriceValue(prices, targetPeriod, "costDg");
+      const publicPricePrice = latestPriceValue(prices, targetPeriod, "publicPrice");
+      const vatPrice = latestPriceValue(prices, targetPeriod, "vatRate");
+      const markupPrice = latestPriceValue(prices, targetPeriod, "markup");
       const product = products.get(assignment.uniqueCode);
 
       const costDgDate = sourceDateOrNull(costDgPrice);
@@ -289,7 +297,7 @@ export function GET(request: Request) {
           const costDg = savedCostDg > 0 ? savedCostDg : liveCostDg;
           const criterion = getActiveCriterion(
             freightCriteriaStore[assignment.uniqueCode] ?? [],
-            currentPeriodKey,
+            targetPeriodKey,
           );
           if (criterion) {
             return criterion.mode === "pct"
@@ -308,7 +316,7 @@ export function GET(request: Request) {
         pvcHistory: historyByCode.get(assignment.uniqueCode) ?? [],
         freightCriterion: getActiveCriterion(
           freightCriteriaStore[assignment.uniqueCode] ?? [],
-          currentPeriodKey,
+          targetPeriodKey,
         ),
       };
     })

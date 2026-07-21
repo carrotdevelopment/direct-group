@@ -1,9 +1,11 @@
 ﻿"use client";
 
 import {
+  type MouseEvent,
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -152,6 +154,29 @@ const BULK_COLUMNS: (keyof BulkRow)[] = [
   "name", "brand", "code", "supplier", "category", "unitsPerPackage", "supplierCode",
 ];
 
+function bulkCellKey(rowIndex: number, col: keyof BulkRow) {
+  return `${rowIndex}:${col}`;
+}
+
+function bulkCellRectangle(
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number,
+) {
+  const minRow = Math.min(startRow, endRow);
+  const maxRow = Math.max(startRow, endRow);
+  const minCol = Math.min(startCol, endCol);
+  const maxCol = Math.max(startCol, endCol);
+  const selected = new Set<string>();
+  for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex++) {
+    for (let colIndex = minCol; colIndex <= maxCol; colIndex++) {
+      selected.add(bulkCellKey(rowIndex, BULK_COLUMNS[colIndex]));
+    }
+  }
+  return selected;
+}
+
 function emptyBulkRow(): BulkRow {
   return { name: "", brand: "", code: "", supplier: "", category: "", unitsPerPackage: "", supplierCode: "" };
 }
@@ -216,6 +241,13 @@ export function ProductWorkspace() {
   const [bulkRows, setBulkRows] = useState<BulkRow[]>(() => blankBulkRows());
   const [bulkError, setBulkError] = useState("");
   const [bulkPending, setBulkPending] = useState<BulkPendingState | null>(null);
+  const [selectedBulkCells, setSelectedBulkCells] = useState<Set<string>>(
+    new Set(),
+  );
+  const bulkSelectionAnchor = useRef<{
+    rowIndex: number;
+    colIndex: number;
+  } | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -238,6 +270,14 @@ export function ProductWorkspace() {
       .catch(() => {
         setDbStatus("No pude leer el Excel local, usando datos demo");
       });
+  }, []);
+
+  useEffect(() => {
+    const stopBulkSelection = () => {
+      bulkSelectionAnchor.current = null;
+    };
+    window.addEventListener("mouseup", stopBulkSelection);
+    return () => window.removeEventListener("mouseup", stopBulkSelection);
   }, []);
 
   const activeSuppliers = useMemo(
@@ -476,6 +516,44 @@ export function ProductWorkspace() {
     setSelected(new Set());
   }
 
+  function startBulkCellSelection(
+    _event: MouseEvent<HTMLElement>,
+    rowIndex: number,
+    colIndex: number,
+  ) {
+    bulkSelectionAnchor.current = { rowIndex, colIndex };
+    setSelectedBulkCells(
+      bulkCellRectangle(rowIndex, colIndex, rowIndex, colIndex),
+    );
+  }
+
+  function continueBulkCellSelection(rowIndex: number, colIndex: number) {
+    const anchor = bulkSelectionAnchor.current;
+    if (!anchor) return;
+    setSelectedBulkCells(
+      bulkCellRectangle(anchor.rowIndex, anchor.colIndex, rowIndex, colIndex),
+    );
+  }
+
+  function clearSelectedBulkCells() {
+    if (selectedBulkCells.size === 0) return;
+    setBulkRows((rows) =>
+      rows.map((row, rowIndex) => {
+        const next = { ...row };
+        let changed = false;
+        for (const col of BULK_COLUMNS) {
+          if (selectedBulkCells.has(bulkCellKey(rowIndex, col))) {
+            next[col] = "";
+            changed = true;
+          }
+        }
+        return changed ? next : row;
+      }),
+    );
+    setSelectedBulkCells(new Set());
+    setBulkError("");
+  }
+
   function reviewBulk() {
     const filled = bulkRows.filter((r) => r.name.trim() || r.code.trim());
     if (filled.length === 0) {
@@ -545,6 +623,7 @@ export function ProductWorkspace() {
     await persist([...products, ...bulkPending.toImport]);
     setBulkPending(null);
     setBulkRows(blankBulkRows());
+    setSelectedBulkCells(new Set());
   }
 
   return (
@@ -771,6 +850,9 @@ export function ProductWorkspace() {
           <p className="mt-1 text-[11px] font-medium text-[#62728a]">
             Completá la tabla o pegá desde Excel. Orden de columnas: Producto · Marca · Código único · Proveedor · Categoría · Bulto · Cód. Único Prov.
           </p>
+          <p className="mt-1 text-[10px] font-bold text-[#8a99ad]">
+            Tip: mantené click y arrastrá para seleccionar celdas. Un nuevo click inicia una selección nueva.
+          </p>
         </div>
         <div className="overflow-auto">
           <table className="w-full min-w-[880px] table-fixed text-left text-[10.5px]">
@@ -788,42 +870,60 @@ export function ProductWorkspace() {
             <tbody className="divide-y divide-[#e7edf4] bg-white">
               {bulkRows.map((row, rowIndex) => (
                 <tr key={rowIndex} className="hover:bg-[#f8fafd]">
-                  {BULK_COLUMNS.map((col, colIndex) => (
-                    <td
-                      key={col}
-                      className={`py-1 ${col === "name" ? "px-3" : "px-2"} ${col === "unitsPerPackage" ? "text-center" : ""}`}
-                    >
-                      <input
-                        type={col === "unitsPerPackage" ? "number" : "text"}
-                        min="1"
-                        value={row[col]}
-                        placeholder={
-                          col === "name" ? "Nombre del producto" :
-                          col === "brand" ? "Marca" :
-                          col === "code" ? "421000005" :
-                          col === "supplier" ? "Proveedor" :
-                          col === "category" ? "Categoría" :
-                          col === "unitsPerPackage" ? "–" :
-                          "Cód. prov."
+                  {BULK_COLUMNS.map((col, colIndex) => {
+                    const selectedCell = selectedBulkCells.has(
+                      bulkCellKey(rowIndex, col),
+                    );
+                    return (
+                      <td
+                        key={col}
+                        onMouseDown={(event) =>
+                          startBulkCellSelection(event, rowIndex, colIndex)
                         }
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setBulkRows((prev) =>
-                            prev.map((r, i) => (i === rowIndex ? { ...r, [col]: value } : r)),
-                          );
-                          setBulkError("");
-                        }}
-                        onPaste={(e) => {
-                          const text = e.clipboardData.getData("text");
-                          if (!text.includes("\t") && !text.includes("\n")) return;
-                          e.preventDefault();
-                          setBulkRows((prev) => applyBulkPaste(prev, text, rowIndex, colIndex));
-                          setBulkError("");
-                        }}
-                        className={`h-8 w-full rounded-lg border border-transparent bg-transparent px-2 text-[10.5px] outline-none hover:border-[#dbe4ef] focus:border-[#7da4d3] focus:bg-white ${col === "unitsPerPackage" ? "text-center" : ""}`}
-                      />
-                    </td>
-                  ))}
+                        onMouseEnter={() =>
+                          continueBulkCellSelection(rowIndex, colIndex)
+                        }
+                        onMouseOver={() =>
+                          continueBulkCellSelection(rowIndex, colIndex)
+                        }
+                        className={`py-1 ${col === "name" ? "px-3" : "px-2"} ${col === "unitsPerPackage" ? "text-center" : ""}`}
+                      >
+                        <input
+                          type={col === "unitsPerPackage" ? "number" : "text"}
+                          min="1"
+                          value={row[col]}
+                          placeholder={
+                            col === "name" ? "Nombre del producto" :
+                            col === "brand" ? "Marca" :
+                            col === "code" ? "421000005" :
+                            col === "supplier" ? "Proveedor" :
+                            col === "category" ? "Categoría" :
+                            col === "unitsPerPackage" ? "–" :
+                            "Cód. prov."
+                          }
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setBulkRows((prev) =>
+                              prev.map((r, i) => (i === rowIndex ? { ...r, [col]: value } : r)),
+                            );
+                            setBulkError("");
+                          }}
+                          onPaste={(e) => {
+                            const text = e.clipboardData.getData("text");
+                            if (!text.includes("\t") && !text.includes("\n")) return;
+                            e.preventDefault();
+                            setBulkRows((prev) => applyBulkPaste(prev, text, rowIndex, colIndex));
+                            setBulkError("");
+                          }}
+                          className={`h-8 w-full rounded-lg border px-2 text-[10.5px] outline-none hover:border-[#dbe4ef] focus:border-[#7da4d3] focus:bg-white ${col === "unitsPerPackage" ? "text-center" : ""} ${
+                            selectedCell
+                              ? "border-[#0b5bbb] bg-[#dfeafa] shadow-[inset_0_0_0_1px_#0b5bbb]"
+                              : "border-transparent bg-transparent"
+                          }`}
+                        />
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -849,7 +949,25 @@ export function ProductWorkspace() {
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => { setBulkRows(blankBulkRows()); setBulkError(""); }}
+              disabled={selectedBulkCells.size === 0}
+              onClick={clearSelectedBulkCells}
+              className={
+                selectedBulkCells.size === 0
+                  ? "h-7 border-[#e1e5ea] bg-[#f1f3f5] px-3 text-[10px] text-[#9aa3ad] opacity-100"
+                  : "h-7 px-3 text-[10px]"
+              }
+            >
+              <Trash2 size={12} /> Borrar celdas ({selectedBulkCells.size})
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setBulkRows(blankBulkRows());
+                setSelectedBulkCells(new Set());
+                setBulkError("");
+              }}
               className="h-7 px-3 text-[10px] text-[#9aa3ad]"
             >
               Limpiar

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Calculator,
@@ -198,9 +198,9 @@ export function CostStructureWorkspace() {
   const [historyStatus, setHistoryStatus] = useState("");
   const [historyEditId, setHistoryEditId] = useState<string | null>(null);
   const [historyEditValues, setHistoryEditValues] = useState<{
-    freightNoVat: string;
-    pvcNoVat: string;
-    pvcWithVat: string;
+    freightNoVat: number;
+    pvcNoVat: number;
+    pvcWithVat: number;
   } | null>(null);
   const [historyDeleteConfirm, setHistoryDeleteConfirm] = useState<string | null>(null);
 
@@ -246,6 +246,11 @@ export function CostStructureWorkspace() {
     [activeRateConfig],
   );
 
+  const origMap = useMemo(
+    () => new Map(originalRows.map((r) => [r.id, r])),
+    [originalRows],
+  );
+
   const suppliers = useMemo(
     () => Array.from(new Set(rows.map((r) => r.supplier).filter(Boolean))).sort(),
     [rows],
@@ -276,8 +281,10 @@ export function CostStructureWorkspace() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  async function loadStructure() {
+  async function loadStructure(overrideMonth?: number, overrideYear?: number) {
     if (!client) return;
+    const m = overrideMonth ?? Number(saveMonth);
+    const y = overrideYear ?? Number(saveYear);
     setLoading(true);
     setSaved(false);
     setSelectedIds(new Set());
@@ -286,7 +293,7 @@ export function CostStructureWorkspace() {
     setStatus("Cargando estructura...");
     try {
       const res = await fetch(
-        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}`,
+        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&month=${m}&year=${y}`,
       );
       const data = (await res.json()) as { rows: CostRow[]; message?: string };
       if (!res.ok) throw new Error(data.message || "No pude cargar");
@@ -304,19 +311,18 @@ export function CostStructureWorkspace() {
   function updateRow(
     id: string,
     field: "freightNoVat" | "pvcNoVat" | "pvcWithVat",
-    value: string,
+    value: number,
   ) {
-    const num = field === "freightNoVat" ? Number(value) : parseMoneyInput(value);
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
         if (field === "pvcNoVat") {
-          return { ...row, pvcNoVat: num, pvcWithVat: round2(num * (1 + row.vatRate / 100)) };
+          return { ...row, pvcNoVat: value, pvcWithVat: round2(value * (1 + row.vatRate / 100)) };
         }
         if (field === "pvcWithVat") {
-          return { ...row, pvcWithVat: num, pvcNoVat: round2(num / (1 + row.vatRate / 100)) };
+          return { ...row, pvcWithVat: value, pvcNoVat: round2(value / (1 + row.vatRate / 100)) };
         }
-        return { ...row, freightNoVat: num };
+        return { ...row, freightNoVat: value };
       }),
     );
     setSaved(false);
@@ -409,8 +415,7 @@ export function CostStructureWorkspace() {
     }
   }
 
-  function updateFreight(id: string, value: string) {
-    const newFreight = parseMoneyInput(value);
+  function updateFreight(id: string, newFreight: number) {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
@@ -513,9 +518,7 @@ export function CostStructureWorkspace() {
 
   async function saveHistoryEdit(uniqueCode: string, period: string) {
     if (!historyEditValues) return;
-    const freightNoVat = parseMoneyInput(historyEditValues.freightNoVat);
-    const pvcNoVat = parseMoneyInput(historyEditValues.pvcNoVat);
-    const pvcWithVat = parseMoneyInput(historyEditValues.pvcWithVat);
+    const { freightNoVat, pvcNoVat, pvcWithVat } = historyEditValues;
     try {
       const res = await fetch("/api/local-db/cost-structures", {
         method: "PATCH",
@@ -560,7 +563,7 @@ export function CostStructureWorkspace() {
   const numberInput =
     "h-7 w-full min-w-[52px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[8px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]";
   const stickyTh =
-    "sticky top-0 z-40 border-b border-r border-[#c3d0df] bg-[#eaf1df] bg-clip-padding px-1 py-2 text-center font-black text-[#34452f]";
+    "sticky top-0 z-40 border-b border-r border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]";
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -595,7 +598,7 @@ export function CostStructureWorkspace() {
           <div className="flex items-end">
             <Button
               variant="secondary"
-              onClick={loadStructure}
+              onClick={() => loadStructure()}
               disabled={loading || !client}
               className="h-11 w-full"
             >
@@ -737,7 +740,16 @@ export function CostStructureWorkspace() {
               <span className="text-[9px] font-bold text-[#62728a]">Período PVC</span>
               <select
                 value={saveMonth}
-                onChange={(e) => setSaveMonth(e.target.value)}
+                onChange={(e) => {
+                  const newMonth = e.target.value;
+                  if (rows.length > 0) {
+                    if (pendingChanges().length > 0 && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${saveYear} y descartar?`)) return;
+                    setSaveMonth(newMonth);
+                    loadStructure(Number(newMonth), Number(saveYear));
+                  } else {
+                    setSaveMonth(newMonth);
+                  }
+                }}
                 className="h-6 rounded border border-[#dbe4ef] bg-white px-1 text-[10px]"
               >
                 {months.map((m, i) => {
@@ -749,10 +761,18 @@ export function CostStructureWorkspace() {
               <select
                 value={saveYear}
                 onChange={(e) => {
-                  const y = Number(e.target.value);
-                  setSaveYear(e.target.value);
-                  if (y === currentYear && Number(saveMonth) > currentMonth) {
-                    setSaveMonth(String(currentMonth));
+                  const newYear = Number(e.target.value);
+                  const newMonth = newYear === currentYear && Number(saveMonth) > currentMonth
+                    ? String(currentMonth)
+                    : saveMonth;
+                  if (rows.length > 0) {
+                    if (pendingChanges().length > 0 && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${newYear} y descartar?`)) return;
+                    setSaveYear(String(newYear));
+                    setSaveMonth(newMonth);
+                    loadStructure(Number(newMonth), newYear);
+                  } else {
+                    setSaveYear(String(newYear));
+                    setSaveMonth(newMonth);
                   }
                 }}
                 className="h-6 rounded border border-[#dbe4ef] bg-white px-1 text-[10px]"
@@ -776,11 +796,11 @@ export function CostStructureWorkspace() {
 
         {/* Table */}
         <div className="max-h-[calc(100vh-330px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
-          <table className="min-w-[1480px] table-fixed border-separate border-spacing-0 text-left text-[8px]">
+          <table className="min-w-[1480px] table-fixed border-collapse text-left text-[8px]">
             <thead>
               <tr>
                 {/* Checkbox */}
-                <th className={`${stickyTh} left-0 z-50 w-7`}>
+                <th className={`${stickyTh} left-0 z-50 w-9`}>
                   <input
                     ref={headerCheckboxRef}
                     type="checkbox"
@@ -789,19 +809,17 @@ export function CostStructureWorkspace() {
                     className="h-3.5 w-3.5 accent-[#0b5bbb]"
                   />
                 </th>
-                {/* Alert */}
-                <th className={`${stickyTh} left-7 z-50 w-5`} />
                 {/* Sticky text cols */}
-                <th className={`${stickyTh} left-12 z-50 w-16`}>
+                <th className={`${stickyTh} left-9 z-50 w-16`}>
                   <div>Cód.</div>
                   <InlineSearch value={clientCodeSearch} onChange={setClientCodeSearch} />
                 </th>
-                <th className={`${stickyTh} left-28 z-50 w-[76px]`}>
+                <th className={`${stickyTh} left-[100px] z-50 w-[76px]`}>
                   <div>Cód.Único</div>
                   <InlineSearch value={uniqueCodeSearch} onChange={setUniqueCodeSearch} />
                 </th>
                 <th
-                  className={`${stickyTh} left-[182px] z-50 w-36 shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)]`}
+                  className={`${stickyTh} left-[176px] z-50 w-36 shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)]`}
                 >
                   <div>Producto</div>
                   <InlineSearch value={productSearch} onChange={setProductSearch} />
@@ -831,19 +849,36 @@ export function CostStructureWorkspace() {
                 <th className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
                   PP s/IVA
                 </th>
-                <th className="sticky top-0 z-10 w-16 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
-                  Flete s/IVA
+                <th className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
+                  PP c/IVA
                 </th>
+                {/* Reference cols (anterior) — Fecha PVC ant primero */}
                 <th
-                  className="sticky top-0 z-10 w-14 cursor-pointer select-none border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24] hover:bg-[#f5ccc0]"
+                  className="sticky top-0 z-10 w-14 cursor-pointer select-none border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a] hover:bg-[#fce6df]"
                   onClick={() => toggleSort("publicPriceUpdatedAt")}
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
-                    Fecha PVC
+                    Fecha PVC ant
                     <span className="text-[7px]">
                       {sortKey === "publicPriceUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
+                </th>
+                <th className="sticky top-0 z-10 w-16 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
+                  Flete ant
+                </th>
+                <th className="sticky top-0 z-10 w-20 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
+                  PVC s/IVA ant
+                </th>
+                <th className="sticky top-0 z-10 w-20 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
+                  PVC c/IVA ant
+                </th>
+                {/* Editable cols — current period */}
+                <th className="sticky top-0 z-10 w-14 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
+                  Fecha PVC
+                </th>
+                <th className="sticky top-0 z-10 w-16 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
+                  Flete s/IVA
                 </th>
                 <th className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
                   PVC s/IVA
@@ -905,10 +940,10 @@ export function CostStructureWorkspace() {
                       : "bg-[#f2f4f7] text-[#62728a]";
 
                 return (
-                  <>
-                    <tr key={`seg-${seg}`}>
+                  <Fragment key={seg}>
+                    <tr>
                       <td
-                        colSpan={18}
+                        colSpan={22}
                         className={`border-b border-t border-[#d0dbe8] px-4 py-1.5 text-[9px] font-extrabold uppercase tracking-wider ${labelBg}`}
                       >
                         {isCollapsible ? (
@@ -942,62 +977,53 @@ export function CostStructureWorkspace() {
                         : "bg-white";
                 const stickyBg =
                   seg === "inactive_with_stock"
-                    ? isProposed ? "bg-[#edf7ff] bg-clip-padding" : "bg-[#fff8f0] bg-clip-padding"
+                    ? isProposed ? "bg-[#edf7ff] " : "bg-[#fff8f0] "
                     : seg === "inactive"
-                      ? "bg-[#f7f8fa] bg-clip-padding"
+                      ? "bg-[#f7f8fa] "
                       : isProposed
-                        ? "bg-[#edf7ff] bg-clip-padding"
-                        : "bg-[#f8fafd] bg-clip-padding";
+                        ? "bg-[#edf7ff] "
+                        : "bg-[#f8fafd] ";
 
                 return (
-                  <>
+                  <Fragment key={row.id}>
                     <tr
-                      key={row.id}
                       className={`${rowBg} border-b border-[#e1e8f1]`}
                     >
-                      {/* Checkbox */}
+                      {/* Checkbox + Alert */}
                       <td
-                        className={`sticky left-0 z-30 w-7 border-r border-[#d6e0ec] px-1 py-1 text-center ${stickyBg}`}
+                        className={`sticky left-0 z-30 w-9 border-r border-[#d6e0ec] px-1 py-1 text-center ${stickyBg}`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(row.id)}
-                          className="h-3.5 w-3.5 accent-[#0b5bbb]"
-                        />
-                      </td>
-                      {/* Alert */}
-                      <td
-                        className={`sticky left-7 z-30 w-5 border-r border-[#d6e0ec] px-0.5 py-1 text-center ${stickyBg}`}
-                      >
-                        {row.hasPriceAlert ? (
-                          <span title="Proveedor actualizó el precio">
-                            <AlertTriangle size={11} className="text-[#b7433f]" />
-                          </span>
-                        ) : isProposed ? (
-                          <span
-                            title="PVC propuesto"
-                            className="text-[8px] font-black text-[#0b5bbb]"
-                          >
-                            ✓
-                          </span>
-                        ) : null}
+                        <div className="flex items-center justify-center gap-0.5">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(row.id)}
+                            className="h-3.5 w-3.5 accent-[#0b5bbb]"
+                          />
+                          {row.hasPriceAlert ? (
+                            <span title="Proveedor actualizó el precio">
+                              <AlertTriangle size={9} className="text-[#b7433f]" />
+                            </span>
+                          ) : isProposed ? (
+                            <span title="PVC propuesto" className="text-[7px] font-black text-[#0b5bbb]">✓</span>
+                          ) : <span className="w-[9px]" />}
+                        </div>
                       </td>
                       {/* Sticky text cols */}
                       <td
-                        className={`sticky left-12 z-30 w-16 truncate border-r border-[#d6e0ec] px-1.5 py-1 font-mono ${stickyBg}`}
+                        className={`sticky left-9 z-30 w-16 truncate border-r border-[#d6e0ec] px-1.5 py-1 font-mono ${stickyBg}`}
                         title={row.clientCode}
                       >
                         {row.clientCode || "—"}
                       </td>
                       <td
-                        className={`sticky left-28 z-30 w-[76px] truncate border-r border-[#d6e0ec] px-1.5 py-1 font-mono ${stickyBg}`}
+                        className={`sticky left-[100px] z-30 w-[76px] truncate border-r border-[#d6e0ec] px-1.5 py-1 font-mono ${stickyBg}`}
                         title={row.uniqueCode}
                       >
                         {row.uniqueCode}
                       </td>
                       <td
-                        className={`sticky left-[182px] z-30 w-36 truncate border-r border-[#c3d0df] px-1.5 py-1 font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)] ${stickyBg}`}
+                        className={`sticky left-[176px] z-30 w-36 truncate border-r border-[#c3d0df] px-1.5 py-1 font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)] ${stickyBg}`}
                         title={row.product}
                       >
                         {row.product}
@@ -1021,37 +1047,47 @@ export function CostStructureWorkspace() {
                       <td className="bg-[#eef5fc] px-2 py-1 text-right tabular-nums text-[#1a3a5c]">
                         {money(calc.ppNoVat)}
                       </td>
+                      <td className="bg-[#eef5fc] px-2 py-1 text-right tabular-nums text-[#1a3a5c]">
+                        {money(row.publicPrice)}
+                      </td>
+                      {/* Reference cols — last loaded values (Fecha PVC ant primero) */}
+                      <td className="bg-[#fff5f3] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#7a4a3a]">
+                        {displayPeriod(origMap.get(row.id)?.publicPriceUpdatedAt ?? null)}
+                      </td>
+                      <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
+                        {origMap.has(row.id) ? money(origMap.get(row.id)!.freightNoVat) : "—"}
+                      </td>
+                      <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
+                        {origMap.has(row.id) ? money(origMap.get(row.id)!.pvcNoVat) : "—"}
+                      </td>
+                      <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
+                        {origMap.has(row.id) ? money(origMap.get(row.id)!.pvcWithVat) : "—"}
+                      </td>
+                      {/* Fecha PVC actual (período seleccionado) */}
+                      <td className="bg-[#fce6df] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#5c2a24]">
+                        {displayPeriod(`${saveYear}-${String(saveMonth).padStart(2, "0")}`)}
+                      </td>
                       {/* Flete editable — recalcula PVC manteniendo margen */}
-                      <td className="px-1.5 py-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={money(row.freightNoVat)}
-                          onChange={(e) => updateFreight(row.id, e.target.value)}
+                      <td className="bg-[#fce6df] px-1.5 py-1">
+                        <MoneyInput
+                          value={row.freightNoVat}
+                          onChange={(v) => updateFreight(row.id, v)}
                           className={numberInput}
                         />
                       </td>
-                      {/* Fecha PVC */}
-                      <td className="bg-[#fff5f3] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#7a4a3a]">
-                        {displayPeriod(row.publicPriceUpdatedAt)}
-                      </td>
                       {/* PVC s/IVA editable */}
-                      <td className="bg-[#fff5f3] px-1.5 py-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={money(row.pvcNoVat)}
-                          onChange={(e) => updateRow(row.id, "pvcNoVat", e.target.value)}
+                      <td className="bg-[#fce6df] px-1.5 py-1">
+                        <MoneyInput
+                          value={row.pvcNoVat}
+                          onChange={(v) => updateRow(row.id, "pvcNoVat", v)}
                           className={numberInput}
                         />
                       </td>
                       {/* PVC c/IVA auto-linked */}
-                      <td className="bg-[#fff5f3] px-1.5 py-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={money(row.pvcWithVat)}
-                          onChange={(e) => updateRow(row.id, "pvcWithVat", e.target.value)}
+                      <td className="bg-[#fce6df] px-1.5 py-1">
+                        <MoneyInput
+                          value={row.pvcWithVat}
+                          onChange={(v) => updateRow(row.id, "pvcWithVat", v)}
                           className={numberInput}
                         />
                       </td>
@@ -1093,7 +1129,7 @@ export function CostStructureWorkspace() {
                     {isExpanded && (
                       <tr key={`${row.id}-detail`} className="bg-[#f8fafd]">
                         <td
-                          colSpan={18}
+                          colSpan={22}
                           className="border-b border-[#dbe4ef] px-8 py-4"
                         >
 
@@ -1257,10 +1293,10 @@ export function CostStructureWorkspace() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -1276,8 +1312,7 @@ export function CostStructureWorkspace() {
         </div>
 
         <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[10px] text-[#62728a]">
-          Mostrando {filteredRows.length} de {rows.length} productos · Campos rosados: PVC
-          s/IVA y c/IVA (se sincronizan automáticamente) · Celeste: fórmulas automáticas
+          Mostrando {filteredRows.length} de {rows.length} productos · Gris: último guardado (referencia) · Rosa: PVC editable (s/IVA y c/IVA se sincronizan) · Celeste: datos archivo de precios
           {someSelected && (
             <span className="ml-2 font-bold text-[#10233f]">
               · {selectedIds.size} seleccionado{selectedIds.size > 1 ? "s" : ""}
@@ -1363,43 +1398,27 @@ export function CostStructureWorkspace() {
                           {isEditing && historyEditValues ? (
                             <>
                               <td className="bg-[#f5f9f2] px-1.5 py-1">
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
+                                <MoneyInput
                                   value={historyEditValues.freightNoVat}
-                                  onChange={(e) =>
-                                    setHistoryEditValues((p) => p ? { ...p, freightNoVat: e.target.value } : p)
-                                  }
+                                  onChange={(v) => setHistoryEditValues((p) => p ? { ...p, freightNoVat: v } : p)}
                                   className={hInput}
                                 />
                               </td>
                               <td className="bg-[#fff5f3] px-1.5 py-1">
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
+                                <MoneyInput
                                   value={historyEditValues.pvcNoVat}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    const parsed = parseMoneyInput(raw);
-                                    setHistoryEditValues((p) =>
-                                      p ? { ...p, pvcNoVat: raw, pvcWithVat: money(round2(parsed * (1 + row.vatRate / 100))) } : p,
-                                    );
-                                  }}
+                                  onChange={(v) => setHistoryEditValues((p) =>
+                                    p ? { ...p, pvcNoVat: v, pvcWithVat: round2(v * (1 + row.vatRate / 100)) } : p
+                                  )}
                                   className={hInput}
                                 />
                               </td>
                               <td className="bg-[#fff5f3] px-1.5 py-1">
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
+                                <MoneyInput
                                   value={historyEditValues.pvcWithVat}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    const parsed = parseMoneyInput(raw);
-                                    setHistoryEditValues((p) =>
-                                      p ? { ...p, pvcWithVat: raw, pvcNoVat: money(round2(parsed / (1 + row.vatRate / 100))) } : p,
-                                    );
-                                  }}
+                                  onChange={(v) => setHistoryEditValues((p) =>
+                                    p ? { ...p, pvcWithVat: v, pvcNoVat: round2(v / (1 + row.vatRate / 100)) } : p
+                                  )}
                                   className={hInput}
                                 />
                               </td>
@@ -1460,9 +1479,9 @@ export function CostStructureWorkspace() {
                                     setHistoryEditId(key);
                                     setHistoryDeleteConfirm(null);
                                     setHistoryEditValues({
-                                      freightNoVat: money(row.freightNoVat),
-                                      pvcNoVat: money(row.pvcNoVat),
-                                      pvcWithVat: money(row.pvcWithVat),
+                                      freightNoVat: row.freightNoVat,
+                                      pvcNoVat: row.pvcNoVat,
+                                      pvcWithVat: row.pvcWithVat,
                                     });
                                   }}
                                   className="rounded border border-[#dbe4ef] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#334b6b] hover:bg-[#edf4fc]"
@@ -1579,6 +1598,114 @@ export function CostStructureWorkspace() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+// Reformat a string that may already contain thousands dots.
+// Returns [formattedDisplay, newCursorPos].
+function reformat(raw: string, cursor: number): [string, number] {
+  const commaIdx = raw.indexOf(",");
+  const inIntPart = commaIdx < 0 || cursor <= commaIdx;
+
+  const intStr = (commaIdx >= 0 ? raw.slice(0, commaIdx) : raw).replace(/\D/g, "");
+  const decStr = commaIdx >= 0 ? raw.slice(commaIdx + 1).replace(/\D/g, "") : null;
+
+  const formattedInt = intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const formatted = decStr !== null ? `${formattedInt},${decStr}` : formattedInt;
+
+  let newCursor: number;
+  if (!inIntPart) {
+    const newCommaPos = formatted.indexOf(",");
+    const newIntLen = newCommaPos >= 0 ? newCommaPos : formatted.length;
+    newCursor = cursor + (newIntLen - commaIdx);
+  } else {
+    const digitsLeft = raw.slice(0, cursor).replace(/\D/g, "").length;
+    const newCommaPos = formatted.indexOf(",");
+    const intEnd = newCommaPos >= 0 ? newCommaPos : formatted.length;
+    newCursor = intEnd;
+    let count = 0;
+    for (let i = 0; i <= intEnd; i++) {
+      if (count === digitsLeft) { newCursor = i; break; }
+      if (i < intEnd && formatted[i] !== ".") count++;
+    }
+  }
+
+  return [formatted, Math.max(0, Math.min(newCursor, formatted.length))];
+}
+
+function MoneyInput({
+  value,
+  onChange,
+  className,
+}: {
+  value: number;
+  onChange: (newValue: number) => void;
+  className: string;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [display, setDisplay] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function applyAndSet(raw: string, cursor: number) {
+    let [newDisplay, newCursor] = reformat(raw, cursor);
+    if (newDisplay === ",") { newDisplay = "0,"; newCursor = 2; }
+    setDisplay(newDisplay);
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(newCursor, newCursor));
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode="decimal"
+      value={isEditing ? display : money(value)}
+      className={className}
+      onFocus={(e) => {
+        setIsEditing(true);
+        setDisplay(money(value));
+        const el = e.target;
+        requestAnimationFrame(() => el.select());
+      }}
+      onChange={(e) => {
+        applyAndSet(e.target.value, e.target.selectionStart ?? e.target.value.length);
+      }}
+      onBlur={() => {
+        setIsEditing(false);
+        onChange(parseMoneyInput(display));
+      }}
+      onKeyDown={(e) => {
+        const el = e.currentTarget;
+        const pos = el.selectionStart ?? 0;
+        const selEnd = el.selectionEnd ?? pos;
+
+        if (e.key === "Enter") { el.blur(); return; }
+
+        // Both "." and "," act as decimal separator
+        if (e.key === "," || e.key === ".") {
+          e.preventDefault();
+          if (display.includes(",")) return; // already has decimal part — ignore
+          // Build prefix: if nothing before cursor, lead with "0"
+          const before = display.slice(0, pos).replace(/\./g, ""); // strip thousands dots
+          const prefix = before === "" ? "0" : display.slice(0, pos);
+          applyAndSet(prefix + "," + display.slice(selEnd), prefix.length + 1);
+          return;
+        }
+
+        // Backspace over thousands dot → delete the digit before the dot
+        if (e.key === "Backspace" && pos === selEnd && pos >= 2 && display[pos - 1] === ".") {
+          e.preventDefault();
+          applyAndSet(display.slice(0, pos - 2) + display.slice(pos), pos - 2);
+          return;
+        }
+
+        // Delete over thousands dot → delete the digit after the dot
+        if (e.key === "Delete" && pos === selEnd && pos < display.length && display[pos] === ".") {
+          e.preventDefault();
+          applyAndSet(display.slice(0, pos) + display.slice(pos + 2), pos);
+          return;
+        }
+      }}
+    />
+  );
+}
 
 function InlineSearch({
   value,

@@ -38,7 +38,7 @@ type DraftRow = {
   assignedMonth?: number;
   assignedYear?: number;
 };
-type DraftSortKey = "uniqueCode" | "clientCode";
+type DraftSortKey = "uniqueCode" | "clientCode" | "assignedPeriod";
 type DraftSort = { key: DraftSortKey; direction: "asc" | "desc" };
 type HistorySortKey =
   | "client"
@@ -176,6 +176,14 @@ function compareHistoryRows(
   );
 }
 
+function draftSortValue(row: DraftRow, key: DraftSortKey) {
+  if (key === "assignedPeriod") {
+    if (!row.assignedYear || !row.assignedMonth) return 0;
+    return row.assignedYear * 12 + row.assignedMonth;
+  }
+  return row[key];
+}
+
 export function ClientCodeWorkspace() {
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [productCodes, setProductCodes] = useState<Set<string>>(
@@ -200,11 +208,17 @@ export function ClientCodeWorkspace() {
   const dragMode = useRef<"select" | "deselect" | null>(null);
   const [message, setMessage] = useState("");
   const [draftError, setDraftError] = useState("");
+  const [highlightedDuplicates, setHighlightedDuplicates] = useState<{
+    uniqueCodes: Set<string>;
+    clientCodes: Set<string>;
+  }>(() => ({ uniqueCodes: new Set(), clientCodes: new Set() }));
   const [dbStatus, setDbStatus] = useState("Leyendo Excel local...");
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [historyClient, setHistoryClient] = useState("");
   const [historyMonth, setHistoryMonth] = useState("");
   const [historyYear, setHistoryYear] = useState("");
+  const [activeFilterMonth, setActiveFilterMonth] = useState("");
+  const [activeFilterYear, setActiveFilterYear] = useState("");
   const [historyUniqueCode, setHistoryUniqueCode] = useState("");
   const [historyClientCode, setHistoryClientCode] = useState("");
   const [historyPage, setHistoryPage] = useState(0);
@@ -215,6 +229,7 @@ export function ClientCodeWorkspace() {
     direction: "desc",
   });
   const [pending, setPending] = useState<PendingState | null>(null);
+  const activeTableScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const stopDragging = () => {
@@ -317,6 +332,14 @@ export function ClientCodeWorkspace() {
       .filter((option) => option.value <= maxMonth);
   }, [year]);
 
+  const availableActiveFilterMonths = useMemo(() => {
+    const selected = Number(activeFilterYear);
+    const maxMonth = selected === currentYear ? currentMonth : 12;
+    return months
+      .map((name, index) => ({ name, value: index + 1 }))
+      .filter((option) => option.value <= maxMonth);
+  }, [activeFilterYear]);
+
   const activeAssignmentByCode = useMemo(() => {
     const index = new Map<string, Mapping>();
     if (!client) return index;
@@ -352,13 +375,21 @@ export function ClientCodeWorkspace() {
       .filter(({ row }) => {
         const isEmpty = !row.uniqueCode.trim() && !row.clientCode.trim();
         if (isEmpty) return true;
+        if (!row.isNew) {
+          if (activeFilterYear && row.assignedYear !== Number(activeFilterYear)) {
+            return false;
+          }
+          if (activeFilterMonth && row.assignedMonth !== Number(activeFilterMonth)) {
+            return false;
+          }
+        }
         if (!query) return true;
         return (
           row.uniqueCode.toLowerCase().includes(query) ||
           row.clientCode.toLowerCase().includes(query)
         );
       });
-  }, [draftRows, draftFilter]);
+  }, [draftRows, draftFilter, activeFilterMonth, activeFilterYear]);
 
   const filteredInactiveAssignments = useMemo(() => {
     if (!client) return [];
@@ -435,12 +466,44 @@ export function ClientCodeWorkspace() {
     if (!productCatalogLoaded) return [];
     return Array.from(
       new Set(
-        preview
+        draftRows
+          .filter(
+            (row) =>
+              row.isNew &&
+              row.uniqueCode.trim() &&
+              row.clientCode.trim() &&
+              !toDeactivate.has(relationKey(row.uniqueCode, row.clientCode)),
+          )
           .map((row) => row.uniqueCode)
           .filter((uniqueCode) => !productCodes.has(codeKey(uniqueCode))),
       ),
     );
-  }, [preview, productCatalogLoaded, productCodes]);
+  }, [draftRows, productCatalogLoaded, productCodes, toDeactivate]);
+
+  const hasNewPreviewRows = useMemo(
+    () =>
+      draftRows.some(
+        (row) =>
+          row.isNew &&
+          row.uniqueCode.trim() &&
+          row.clientCode.trim() &&
+          !toDeactivate.has(relationKey(row.uniqueCode, row.clientCode)),
+      ),
+    [draftRows, toDeactivate],
+  );
+
+  const visibleActiveDeactivateKeys = useMemo(
+    () =>
+      filteredDraftEntries
+        .map(({ row }) => row)
+        .filter((row) => !row.isNew && row.uniqueCode.trim() && row.clientCode.trim())
+        .map((row) => relationKey(row.uniqueCode, row.clientCode)),
+    [filteredDraftEntries],
+  );
+
+  const allVisibleActiveMarked =
+    visibleActiveDeactivateKeys.length > 0 &&
+    visibleActiveDeactivateKeys.every((key) => toDeactivate.has(key));
 
   const saveDisabledReason = useMemo(() => {
     if (!client) return "Seleccioná un cliente para poder guardar asignaciones.";
@@ -449,7 +512,7 @@ export function ClientCodeWorkspace() {
       if (preview.length === 0 && toDeactivate.size === 0) {
         return "Cargá al menos una asignación nueva, corregí una existente o marcá una activa para desactivar.";
       }
-      if (!productCatalogLoaded) {
+      if (hasNewPreviewRows && !productCatalogLoaded) {
         return "Todavía no se pudo validar contra Productos.";
       }
       if (invalidPreviewUniqueCodes.length > 0) {
@@ -464,6 +527,7 @@ export function ClientCodeWorkspace() {
   }, [
     assignmentMode,
     client,
+    hasNewPreviewRows,
     invalidPreviewUniqueCodes.length,
     isLoadingDb,
     preview.length,
@@ -482,10 +546,15 @@ export function ClientCodeWorkspace() {
       const prefilled = rows.filter((r) => !r.isNew);
       const newRows = rows.filter((r) => r.isNew);
       const sorted = [...prefilled].sort((a, b) => {
-        const cmp = a[key].localeCompare(b[key], "es", {
-          numeric: true,
-          sensitivity: "base",
-        });
+        const left = draftSortValue(a, key);
+        const right = draftSortValue(b, key);
+        const cmp =
+          typeof left === "number" && typeof right === "number"
+            ? left - right
+            : String(left).localeCompare(String(right), "es", {
+                numeric: true,
+                sensitivity: "base",
+              });
         return nextSort.direction === "asc" ? cmp : -cmp;
       });
       return [...sorted, ...newRows];
@@ -594,6 +663,7 @@ export function ClientCodeWorkspace() {
     );
     setMessage("");
     setDraftError("");
+    setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
   }
 
   function populateDraftFromMappings(
@@ -625,6 +695,7 @@ export function ClientCodeWorkspace() {
     setToDeactivate(new Set());
     setSelectedToReactivate(new Set());
     setSelectedNewRows(new Set());
+    setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
     setDraftSort(null);
     if (!nextClient) {
       setDraftRows(blankRows());
@@ -641,6 +712,7 @@ export function ClientCodeWorkspace() {
     setSelectedNewRows(new Set());
     setMessage("");
     setDraftError("");
+    setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
   }
 
   function toggleDeactivate(uniqueCode: string, clientCode: string) {
@@ -653,11 +725,34 @@ export function ClientCodeWorkspace() {
     });
   }
 
+  function toggleVisibleActiveDeactivation() {
+    setToDeactivate((current) => {
+      const next = new Set(current);
+      const allSelected =
+        visibleActiveDeactivateKeys.length > 0 &&
+        visibleActiveDeactivateKeys.every((key) => next.has(key));
+      if (allSelected) {
+        visibleActiveDeactivateKeys.forEach((key) => next.delete(key));
+      } else {
+        visibleActiveDeactivateKeys.forEach((key) => next.add(key));
+      }
+      return next;
+    });
+  }
+
   function changeAssignmentYear(nextYear: string) {
     setYear(nextYear);
     const maxMonth = Number(nextYear) === currentYear ? currentMonth : 12;
     if (Number(month) > maxMonth) {
       setMonth(String(maxMonth));
+    }
+  }
+
+  function changeActiveFilterYear(nextYear: string) {
+    setActiveFilterYear(nextYear);
+    const maxMonth = Number(nextYear) === currentYear ? currentMonth : 12;
+    if (activeFilterMonth && Number(activeFilterMonth) > maxMonth) {
+      setActiveFilterMonth("");
     }
   }
 
@@ -744,35 +839,6 @@ export function ClientCodeWorkspace() {
     });
   }
 
-  function toggleAllNewRows() {
-    const newIndices = filteredDraftEntries
-      .filter(({ row }) => row.isNew)
-      .map(({ originalIndex }) => originalIndex);
-    setSelectedNewRows((current) => {
-      const allSelected = newIndices.every((i) => current.has(i));
-      if (allSelected) {
-        const next = new Set(current);
-        newIndices.forEach((i) => next.delete(i));
-        return next;
-      }
-      const next = new Set(current);
-      newIndices.forEach((i) => next.add(i));
-      return next;
-    });
-  }
-
-  function removeNewRows() {
-    if (selectedNewRows.size === 0) return;
-    const remaining = draftRows.filter((_, i) => !selectedNewRows.has(i));
-    const hasContent = remaining.some(
-      (r) => r.uniqueCode.trim() || r.clientCode.trim(),
-    );
-    setDraftRows(hasContent ? remaining : [...remaining, ...blankRows(3)]);
-    setSelectedNewRows(new Set());
-    setMessage("");
-    setDraftError("");
-  }
-
   function pasteRows(
     event: ClipboardEvent<HTMLInputElement>,
     startIndex: number,
@@ -820,6 +886,7 @@ export function ClientCodeWorkspace() {
       return next;
     });
     setMessage("");
+    setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
   }
 
   function reviewChanges() {
@@ -830,7 +897,7 @@ export function ClientCodeWorkspace() {
   function reviewActiveChanges() {
     if (!client || (preview.length === 0 && toDeactivate.size === 0)) return;
 
-    if (preview.length > 0 && !productCatalogLoaded) {
+    if (hasNewPreviewRows && !productCatalogLoaded) {
       setDraftError(
         "No pude validar contra Productos. Revisá que Base Productos DG.xlsx esté disponible antes de guardar asignaciones.",
       );
@@ -838,6 +905,7 @@ export function ClientCodeWorkspace() {
     }
 
     if (invalidPreviewUniqueCodes.length > 0) {
+      setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
       setDraftError(
         `Código único inexistente en Productos: ${invalidPreviewUniqueCodes.join(", ")}. Primero cargalo en el maestro de Productos.`,
       );
@@ -853,6 +921,10 @@ export function ClientCodeWorkspace() {
       } else seenCC.add(key);
     }
     if (dupCC.length > 0) {
+      setHighlightedDuplicates({
+        uniqueCodes: new Set(),
+        clientCodes: new Set(dupCC.map(codeKey)),
+      });
       setDraftError(
         `Código cliente repetido: ${dupCC.join(", ")}. Un código cliente no puede apuntar a dos productos distintos.`,
       );
@@ -868,6 +940,10 @@ export function ClientCodeWorkspace() {
       } else seenUnique.add(uniqueKey);
     }
     if (dupUnique.length > 0) {
+      setHighlightedDuplicates({
+        uniqueCodes: new Set(dupUnique.map(codeKey)),
+        clientCodes: new Set(),
+      });
       setDraftError(
         `Código único repetido: ${dupUnique.join(", ")}. Para un mismo cliente solo puede quedar activa una relación por código único.`,
       );
@@ -875,6 +951,7 @@ export function ClientCodeWorkspace() {
     }
 
     setDraftError("");
+    setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
     const canonicalized = canonicalClient(client);
     const nextMappings = [...mappings];
     const changes: PendingChange[] = [];
@@ -1148,12 +1225,14 @@ export function ClientCodeWorkspace() {
     await voidMappings(new Set([mappingId]));
   }
 
-  const visibleNewIndices = filteredDraftEntries
-    .filter(({ row }) => row.isNew)
-    .map(({ originalIndex }) => originalIndex);
-  const allNewSelected =
-    visibleNewIndices.length > 0 &&
-    visibleNewIndices.every((i) => selectedNewRows.has(i));
+  function scrollActiveTableToEnd() {
+    const container = activeTableScrollRef.current;
+    if (!container) return;
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth",
+    });
+  }
 
   return (
     <>
@@ -1219,19 +1298,59 @@ export function ClientCodeWorkspace() {
         </div>
 
         {/* Filter */}
-        <div className="border-b border-[#e1e8f1] bg-[#fafcff] px-5 py-3">
-          <input
-            value={draftFilter}
-            onChange={(e) => setDraftFilter(e.target.value)}
-            placeholder="Buscar código único o código cliente..."
-            className="h-9 w-full max-w-sm rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
-          />
+        <div className="flex flex-wrap items-end gap-3 border-b border-[#e1e8f1] bg-[#fafcff] px-5 py-3">
+          <label className="min-w-[260px] flex-1 text-[11px] font-extrabold text-[#334b6b]">
+            Buscar
+            <input
+              value={draftFilter}
+              onChange={(e) => setDraftFilter(e.target.value)}
+              placeholder="Código único o código cliente..."
+              className="mt-1.5 h-9 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
+            />
+          </label>
+          {assignmentMode === "active" && (
+            <>
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Filtrar año vigente
+                <select
+                  value={activeFilterYear}
+                  onChange={(e) => changeActiveFilterYear(e.target.value)}
+                  className="mt-1.5 h-9 w-32 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
+                >
+                  <option value="">Todos</option>
+                  {assignmentYears.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Filtrar mes vigente
+                <select
+                  value={activeFilterMonth}
+                  onChange={(e) => setActiveFilterMonth(e.target.value)}
+                  className="mt-1.5 h-9 w-40 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
+                >
+                  <option value="">Todos</option>
+                  {availableActiveFilterMonths.map((option) => (
+                    <option key={option.name} value={option.value}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
         </div>
 
         {/* ACTIVE MODE TABLE */}
         {assignmentMode === "active" && (
           <div className="p-5">
-            <div className="relative mx-auto max-h-[400px] overflow-auto rounded-xl border border-[#dbe4ef]">
+            <div
+              ref={activeTableScrollRef}
+              className="relative mx-auto max-h-[400px] overflow-auto rounded-xl border border-[#dbe4ef]"
+            >
               {isLoadingDb && (
                 <div className="absolute inset-0 z-10 grid place-items-center bg-white/75 backdrop-blur-[1px]">
                   <div className="flex items-center gap-3 rounded-2xl border border-[#dbe4ef] bg-white px-4 py-3 text-xs font-black text-[#0b5bbb] shadow-sm">
@@ -1246,9 +1365,10 @@ export function ClientCodeWorkspace() {
                     <th className="w-24 border-r border-[#dbe4ef] px-2 py-2 text-center">
                       <input
                         type="checkbox"
-                        aria-label="Seleccionar filas nuevas"
-                        checked={allNewSelected}
-                        onChange={toggleAllNewRows}
+                        aria-label="Marcar todas las activas visibles para desactivar"
+                        checked={allVisibleActiveMarked}
+                        disabled={visibleActiveDeactivateKeys.length === 0}
+                        onChange={toggleVisibleActiveDeactivation}
                         className="h-4 w-4 accent-[#0b5bbb]"
                       />
                     </th>
@@ -1281,7 +1401,18 @@ export function ClientCodeWorkspace() {
                       </button>
                     </th>
                     <th className="w-36 border-r border-[#dbe4ef] px-3 py-2 text-left">
-                      Asignado en
+                      <button
+                        type="button"
+                        onClick={() => sortDraftBy("assignedPeriod")}
+                        className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition hover:bg-white/80 hover:text-[#0b5bbb]"
+                      >
+                        Asignado en{" "}
+                        {draftSort?.key === "assignedPeriod"
+                          ? draftSort.direction === "asc"
+                            ? "↑"
+                            : "↓"
+                          : "↕"}
+                      </button>
                     </th>
                     <th className="w-28 px-2 py-2 text-center text-[10px]">
                       Acción
@@ -1306,6 +1437,12 @@ export function ClientCodeWorkspace() {
                       Boolean(row.uniqueCode.trim()) &&
                       productCatalogLoaded &&
                       !productCodes.has(codeKey(row.uniqueCode));
+                    const duplicateUniqueCode =
+                      Boolean(row.uniqueCode.trim()) &&
+                      highlightedDuplicates.uniqueCodes.has(codeKey(row.uniqueCode));
+                    const duplicateClientCode =
+                      Boolean(row.clientCode.trim()) &&
+                      highlightedDuplicates.clientCodes.has(codeKey(row.clientCode));
                     return (
                       <tr
                         key={originalIndex}
@@ -1349,8 +1486,22 @@ export function ClientCodeWorkspace() {
                               </span>
                             </span>
                           ) : (
-                            <span className="text-[9px] font-bold text-[#b0bbc8]">
-                              #{originalIndex + 1}
+                            <span className="inline-flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                aria-label={`Marcar ${row.uniqueCode} para desactivar`}
+                                checked={markedDea}
+                                onChange={() =>
+                                  toggleDeactivate(
+                                    row.uniqueCode.trim(),
+                                    row.clientCode.trim(),
+                                  )
+                                }
+                                className="h-3.5 w-3.5 accent-[#b7433f]"
+                              />
+                              <span className="text-[9px] font-bold text-[#b0bbc8]">
+                                #{originalIndex + 1}
+                              </span>
                             </span>
                           )}
                         </td>
@@ -1358,10 +1509,12 @@ export function ClientCodeWorkspace() {
                         {/* Unique code */}
                         <td
                           className={`border-r border-[#e7edf4] p-0 ${
-                            unknownUniqueCode ? "bg-[#fff1f0]" : ""
+                            unknownUniqueCode || duplicateUniqueCode ? "bg-[#fff1f0]" : ""
                           }`}
                           title={
-                            unknownUniqueCode
+                            duplicateUniqueCode
+                              ? "Código único repetido"
+                              : unknownUniqueCode
                               ? "Este código único no existe en Productos"
                               : undefined
                           }
@@ -1381,21 +1534,25 @@ export function ClientCodeWorkspace() {
                                 autoFocus={originalIndex === 0 && isBlank}
                                 placeholder={isBlank ? "Pegá códigos únicos acá" : ""}
                                 className={`h-8 w-full select-text border-0 bg-transparent px-3 pr-24 font-mono text-[11px] outline-none focus:bg-[#edf4fc] ${
-                                  unknownUniqueCode
+                                  unknownUniqueCode || duplicateUniqueCode
                                     ? "font-bold text-[#b42318] focus:bg-[#fff1f0]"
                                     : ""
                                 }`}
                               />
-                              {unknownUniqueCode && (
+                              {duplicateUniqueCode ? (
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
+                                  Repetido
+                                </span>
+                              ) : unknownUniqueCode ? (
                                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
                                   No existe
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           ) : (
                             <span
                               className={`flex h-8 items-center px-3 font-mono text-[11px] ${
-                                unknownUniqueCode
+                                unknownUniqueCode || duplicateUniqueCode
                                   ? "font-bold text-[#b42318]"
                                   : markedDea
                                   ? "line-through text-[#9aa3ad]"
@@ -1403,37 +1560,57 @@ export function ClientCodeWorkspace() {
                               }`}
                             >
                               {row.uniqueCode}
-                              {unknownUniqueCode && (
+                              {duplicateUniqueCode ? (
+                                <span className="ml-2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
+                                  Repetido
+                                </span>
+                              ) : unknownUniqueCode ? (
                                 <span className="ml-2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
                                   No existe
                                 </span>
-                              )}
+                              ) : null}
                             </span>
                           )}
                         </td>
 
                         {/* Client code */}
-                        <td className="border-r border-[#e7edf4] p-0">
-                          <input
-                            value={row.clientCode}
-                            onChange={(e) =>
-                              updateDraft(
-                                originalIndex,
-                                "clientCode",
-                                e.target.value,
-                              )
-                            }
-                            onPaste={(e) => pasteRows(e, originalIndex)}
-                            disabled={markedDea}
-                            placeholder={
-                              row.isNew && row.uniqueCode && !row.clientCode
-                                ? "Sin asignación previa"
-                                : ""
-                            }
-                            className={`h-8 w-full select-text border-0 bg-transparent px-3 font-mono text-[11px] outline-none focus:bg-[#edf4fc] disabled:text-[#9aa3ad] ${
-                              markedDea ? "line-through" : ""
-                            }`}
-                          />
+                        <td
+                          className={`border-r border-[#e7edf4] p-0 ${
+                            duplicateClientCode ? "bg-[#fff1f0]" : ""
+                          }`}
+                          title={duplicateClientCode ? "Código cliente repetido" : undefined}
+                        >
+                          <div className="relative">
+                            <input
+                              value={row.clientCode}
+                              onChange={(e) =>
+                                updateDraft(
+                                  originalIndex,
+                                  "clientCode",
+                                  e.target.value,
+                                )
+                              }
+                              onPaste={(e) => pasteRows(e, originalIndex)}
+                              disabled={markedDea}
+                              placeholder={
+                                row.isNew && row.uniqueCode && !row.clientCode
+                                  ? "Sin asignación previa"
+                                  : ""
+                              }
+                              className={`h-8 w-full select-text border-0 bg-transparent px-3 pr-24 font-mono text-[11px] outline-none focus:bg-[#edf4fc] disabled:text-[#9aa3ad] ${
+                                duplicateClientCode
+                                  ? "font-bold text-[#b42318] focus:bg-[#fff1f0]"
+                                  : markedDea
+                                    ? "line-through"
+                                    : ""
+                              }`}
+                            />
+                            {duplicateClientCode && (
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
+                                Repetido
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Assigned period */}
@@ -1477,29 +1654,37 @@ export function ClientCodeWorkspace() {
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="text-[10px] font-semibold text-[#62728a]">
                 {activeAssignmentsCount} activas en la base ·{" "}
+                {visibleActiveDeactivateKeys.length} visibles por filtro ·{" "}
                 {toDeactivate.size > 0 && (
                   <span className="text-[#a43d39]">
                     {toDeactivate.size} marcada{toDeactivate.size !== 1 ? "s" : ""} para desactivar ·{" "}
                   </span>
                 )}
-                {selectedNewRows.size} seleccionadas
+                {selectedNewRows.size} fila{selectedNewRows.size !== 1 ? "s" : ""} nueva{selectedNewRows.size !== 1 ? "s" : ""} seleccionada{selectedNewRows.size !== 1 ? "s" : ""}
                 <span className="ml-2 text-[#8a99ad]">
                   Para corregir una activa, editá su código cliente y guardá.
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  variant={selectedNewRows.size > 0 ? "danger" : "secondary"}
+                  variant={toDeactivate.size > 0 ? "danger" : "secondary"}
                   size="sm"
-                  disabled={selectedNewRows.size === 0}
-                  onClick={removeNewRows}
+                  disabled={toDeactivate.size === 0}
+                  onClick={reviewActiveChanges}
                   className={
-                    selectedNewRows.size === 0
+                    toDeactivate.size === 0
                       ? "border-[#e1e5ea] bg-[#f1f3f5] text-[#9aa3ad] opacity-100"
                       : ""
                   }
                 >
-                  <Trash2 size={14} /> Eliminar filas ({selectedNewRows.size})
+                  <Trash2 size={14} /> Desactivar asignaciones ({toDeactivate.size})
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={scrollActiveTableToEnd}
+                >
+                  Ir al final
                 </Button>
                 <Button
                   variant="secondary"
@@ -1628,11 +1813,23 @@ export function ClientCodeWorkspace() {
           </div>
         )}
 
+        {/* Error / message */}
+        {draftError && (
+          <div className="mx-5 mb-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
+            {draftError}
+          </div>
+        )}
+        {message && (
+          <div className="mx-5 mb-4 rounded-xl bg-[#e9f1fb] px-4 py-3 text-xs font-bold text-[#0b5bbb]">
+            {message}
+          </div>
+        )}
+
         {/* Footer: month/year + save */}
-        <div className="flex flex-wrap items-end justify-between gap-4 border-t border-[#e1e8f1] bg-[#fafcff] px-5 py-4">
-          <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-end justify-end gap-4 border-t border-[#e1e8f1] bg-[#fafcff] px-5 py-4">
+          <div className="flex flex-wrap items-end justify-end gap-3">
             <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Año asignación
+              Año nueva asignación
               <select
                 value={year}
                 onChange={(e) => changeAssignmentYear(e.target.value)}
@@ -1646,7 +1843,7 @@ export function ClientCodeWorkspace() {
               </select>
             </label>
             <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Mes asignación
+              Mes nueva asignación
               <select
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
@@ -1702,17 +1899,6 @@ export function ClientCodeWorkspace() {
           </div>
         </div>
 
-        {/* Error / message */}
-        {draftError && (
-          <div className="mx-5 mb-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
-            {draftError}
-          </div>
-        )}
-        {message && (
-          <div className="mx-5 mb-4 rounded-xl bg-[#e9f1fb] px-4 py-3 text-xs font-bold text-[#0b5bbb]">
-            {message}
-          </div>
-        )}
       </section>
 
       {/* CONSULTA */}

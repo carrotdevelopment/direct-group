@@ -22,7 +22,6 @@ const navigation: NavGroup[] = [
   ]},
   { label: "Información Productos", items: [
     { label: "Productos", href: "/productos", icon: Boxes },
-    { label: "Clientes", href: "/clientes", icon: Users, adminOnly: true },
     { label: "Códigos cliente", href: "/codigos-clientes", icon: FileKey2 },
     { label: "Precios", href: "/precios", icon: CircleDollarSign },
   ]},
@@ -37,6 +36,7 @@ const navigation: NavGroup[] = [
     { label: "Stock", href: "/stock", icon: Warehouse },
   ]},
   { label: "Entidades", items: [
+    { label: "Clientes", href: "/clientes", icon: Users, adminOnly: true },
     { label: "Proveedores", href: "/proveedores", icon: Truck },
   ]},
   { label: "Sistema", items: [
