@@ -586,7 +586,43 @@ CANCELLED
 
 ---
 
-## 7.6. Módulo de compras desde Tango Gestión
+## 7.6. Módulo de ingresos desde Tango Gestión
+
+La decisión vigente para la integración de ingresos desde Tango está documentada en:
+
+```txt
+docs/ADR-002-TANGO-INGRESOS-INTEGRATION.md
+```
+
+Principio rector:
+
+* Tango Gestión sigue siendo la fuente de verdad.
+* La Plataforma DG no carga, edita ni elimina ingresos en Tango.
+* La web consume datos ya sincronizados en PostgreSQL DG.
+* La conexión a SQL Server Tango no se realiza desde el navegador.
+* La sincronización se hará mediante un agente interno de solo lectura instalado dentro de la red/servidor de la empresa.
+
+Flujo objetivo:
+
+```txt
+Tango Gestión
+  ↓
+SQL Server Tango, solo lectura
+  ↓
+DG Tango Sync Agent, dentro de la red
+  ↓ HTTPS seguro
+DG Platform API
+  ↓
+PostgreSQL DG
+  ↓
+Panel Ingresos web
+```
+
+La etapa actual usa el archivo local `Consulta ingresos Tango.xlsx` únicamente como fuente transitoria para validar UI, filtros y reglas de negocio antes de implementar la conexión directa.
+
+---
+
+## 7.6.1. Módulo de compras desde Tango Gestión
 
 ### Responsabilidades
 

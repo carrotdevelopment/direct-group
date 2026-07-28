@@ -115,42 +115,53 @@ export function GET(request: Request) {
   const month = today.getMonth() + 1;
   const year = today.getFullYear();
   const targetPeriod = periodIndex(year, month);
-  const targetPeriodLabel = periodLabel(year, month);
 
   if (canonicalClient(client) !== "santander") {
     return NextResponse.json({
       rows: [],
-      message: "Por ahora solo esta cargada la vista real de stock Santander.",
+      message: "Por ahora solo está cargada la vista de stock Santander.",
     });
   }
-  const santanderAssignments = readClientCodesFromExcel().filter(
-    (mapping) => canonicalClient(mapping.client) === "santander",
-  );
-  const assignmentSourcePeriod = santanderAssignments
-    .map((mapping) => periodIndex(mapping.assignedYear, mapping.assignedMonth))
-    .filter((period) => period <= targetPeriod)
-    .sort((left, right) => right - left)[0];
-  const assignmentSourceYear = assignmentSourcePeriod
-    ? Math.floor((assignmentSourcePeriod - 1) / 12)
-    : 0;
-  const assignmentSourceMonth = assignmentSourcePeriod
-    ? assignmentSourcePeriod - assignmentSourceYear * 12
-    : 0;
-  const assignmentSourceLabel = assignmentSourcePeriod
-    ? periodLabel(assignmentSourceYear, assignmentSourceMonth)
-    : targetPeriodLabel;
 
-  const assignments = santanderAssignments
-    .filter(
-      (mapping) =>
-        mapping.assignedMonth === assignmentSourceMonth &&
-        mapping.assignedYear === assignmentSourceYear,
-    )
-    .sort((left, right) =>
-      left.clientCode.localeCompare(right.clientCode, "es", {
-        numeric: true,
-      }),
-    );
+  // All non-voided Santander assignments up to today
+  const allMappings = readClientCodesFromExcel().filter(
+    (m) =>
+      canonicalClient(m.client) === "santander" &&
+      !m.voidedAt &&
+      periodIndex(m.assignedYear, m.assignedMonth) <= targetPeriod,
+  );
+
+  // Active: most recent active assignment per uniqueCode
+  type Mapping = (typeof allMappings)[number];
+  const activeByCode = new Map<string, Mapping>();
+  for (const m of allMappings) {
+    if (!m.active) continue;
+    const key = normalizeCode(m.uniqueCode);
+    const current = activeByCode.get(key);
+    const mPeriod = periodIndex(m.assignedYear, m.assignedMonth);
+    if (!current || mPeriod > periodIndex(current.assignedYear, current.assignedMonth)) {
+      activeByCode.set(key, m);
+    }
+  }
+
+  // Inactive: most recent inactive per uniqueCode that has no active counterpart
+  const activeKeys = new Set([...activeByCode.keys()]);
+  const inactiveByCode = new Map<string, Mapping>();
+  for (const m of allMappings) {
+    if (m.active) continue;
+    const key = normalizeCode(m.uniqueCode);
+    if (activeKeys.has(key)) continue;
+    const current = inactiveByCode.get(key);
+    const mPeriod = periodIndex(m.assignedYear, m.assignedMonth);
+    if (!current || mPeriod > periodIndex(current.assignedYear, current.assignedMonth)) {
+      inactiveByCode.set(key, m);
+    }
+  }
+
+  const assignments = [
+    ...[...activeByCode.values()].map((m) => ({ ...m, vigente: true })),
+    ...[...inactiveByCode.values()].map((m) => ({ ...m, vigente: false })),
+  ].sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
   const products = new Map(
     readProductsFromExcel().map((product) => [
       normalizeCode(product.code),
@@ -249,6 +260,7 @@ export function GET(request: Request) {
     const adjustment = realStock - webAvailable;
     return {
       id: `${assignment.clientCode}-${assignment.uniqueCode}`,
+      vigente: assignment.vigente,
       clientCode: assignment.clientCode,
       uniqueCode: assignment.uniqueCode,
       product: stock?.product || product?.name || "",
@@ -284,11 +296,10 @@ export function GET(request: Request) {
     };
   });
 
+  const vigentes = rows.filter((r) => r.vigente).length;
+  const withStockData = rows.filter((r) => r.hasStockData).length;
   return NextResponse.json({
     rows,
-    message:
-      assignmentSourceLabel === targetPeriodLabel
-        ? `${rows.length} productos Santander a stock actual (${targetPeriodLabel}); ${rows.filter((row) => row.hasStockData).length} con datos de stock.`
-        : `${rows.length} productos Santander a stock actual (${targetPeriodLabel}); se usó la asignación de ${assignmentSourceLabel}. ${rows.filter((row) => row.hasStockData).length} con datos de stock.`,
+    message: `${vigentes} productos vigentes Santander · ${withStockData} con datos de stock cargados.`,
   });
 }

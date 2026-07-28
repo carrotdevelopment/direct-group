@@ -25,12 +25,12 @@ const navigation: NavGroup[] = [
     { label: "Códigos cliente", href: "/codigos-clientes", icon: FileKey2 },
     { label: "Precios", href: "/precios", icon: CircleDollarSign },
   ]},
+  { label: "Estructura de Costos", items: [
+    { label: "Estructura de costos", href: "/estructura-costos", icon: Calculator },
+  ]},
   { label: "Movimientos", items: [
     { label: "Ingresos", href: "/ingresos", icon: ArrowDownToLine },
     { label: "Egresos", href: "/egresos", icon: ArrowUpFromLine },
-  ]},
-  { label: "Estructura de Costos", items: [
-    { label: "Estructura de costos", href: "/estructura-costos", icon: Calculator },
   ]},
   { label: "Stock", items: [
     { label: "Stock", href: "/stock", icon: Warehouse },

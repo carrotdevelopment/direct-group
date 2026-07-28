@@ -406,6 +406,7 @@ const categoriesSeed: ExcelCategory[] = Array.from(new Set(categoryNamesSeed))
 export function getLocalDbFolder() {
   return (
     process.env.DG_LOCAL_DB_DIR ||
+    path.resolve(process.cwd(), "local-data", "BASE DE DATOS DG") ||
     path.resolve(process.cwd(), "..", "..", "BASE DE DATOS DG")
   );
 }

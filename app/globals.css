@@ -59,3 +59,5 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .animate-enter { animation: enter .42s cubic-bezier(.22,.8,.32,1) both; }
+
+.cost-table tbody td { border-bottom: 1px solid #e1e8f1; }

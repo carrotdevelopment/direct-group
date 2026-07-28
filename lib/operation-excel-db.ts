@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
-import { getLocalDbFolder } from "@/lib/local-excel-db";
+import {
+  getLocalDbFolder,
+  readClientCodesFromExcel,
+} from "@/lib/local-excel-db";
 
 export const egressSchemas = {
   Amex: [
@@ -298,6 +301,58 @@ export const incomeSchema = [
   "Comentarios",
 ] as const;
 
+export type TangoIncomeRow = {
+  id: string;
+  rowIndex: number;
+  client: string;
+  operation: string;
+  orderDate: string;
+  orderYear: number | null;
+  orderMonth: number | null;
+  orderNumber: string;
+  clientCode: string;
+  uniqueCode: string;
+  quantity: number;
+  source: string;
+  deliveryDate: string;
+  delivered: number;
+  pending: number;
+  comments: string;
+  status: "complete" | "pending" | "without-order-date";
+};
+
+export type TangoIncomeSummary = {
+  exists: boolean;
+  filePath: string;
+  lastUpdated: string | null;
+  totalRows: number;
+  clients: number;
+  operations: number;
+  totalQuantity: number;
+  totalDelivered: number;
+  pendingQuantity: number;
+  pendingRows: number;
+};
+
+export type TangoIncomeFilters = {
+  clients?: string[];
+  operation?: string;
+  status?: string;
+  years?: number[];
+  months?: number[];
+  search?: string;
+  limit?: number;
+};
+
+export type TangoIncomeViewSummary = {
+  totalRows: number;
+  totalQuantity: number;
+  totalDelivered: number;
+  pendingQuantity: number;
+  pendingRows: number;
+  unmatchedRows: number;
+};
+
 export type EgressClient = keyof typeof egressSchemas;
 
 function ensureFolder() {
@@ -312,6 +367,10 @@ export function getEgressFilePath(client: EgressClient) {
 
 export function getIncomeFilePath() {
   return path.join(ensureFolder(), "Base Ingresos DG.xlsx");
+}
+
+export function getTangoIncomeQueryFilePath() {
+  return path.join(ensureFolder(), "Consulta ingresos Tango.xlsx");
 }
 
 function readSheet(filePath: string) {
@@ -451,6 +510,238 @@ function asText(value: unknown) {
 function asNumber(value: unknown) {
   const parsed = Number(asText(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeSearch(value: unknown) {
+  return asText(value)
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+function parseTangoDate(value: unknown) {
+  const raw = asText(value);
+  if (!raw) {
+    return {
+      display: "",
+      year: null as number | null,
+      month: null as number | null,
+      timestamp: 0,
+    };
+  }
+
+  const datePart = raw.split(" ")[0] ?? raw;
+  const [firstText, secondText, yearText] = datePart.split("/");
+  const first = Number(firstText);
+  const second = Number(secondText);
+  const parsedYear = Number(yearText);
+  const year =
+    parsedYear > 0 && parsedYear < 100 ? 2000 + parsedYear : parsedYear;
+  const isMonthFirst = first >= 1 && first <= 12;
+  const day = isMonthFirst ? second : first;
+  const month = isMonthFirst ? first : second;
+
+  if (!day || !month || !year) {
+    return {
+      display: raw,
+      year: null as number | null,
+      month: null as number | null,
+      timestamp: 0,
+    };
+  }
+
+  return {
+    display: `${String(day).padStart(2, "0")}/${String(month).padStart(
+      2,
+      "0",
+    )}/${year}`,
+    year,
+    month,
+    timestamp: new Date(year, month - 1, day).getTime(),
+  };
+}
+
+function buildLatestClientCodeMap() {
+  const mappings = readClientCodesFromExcel()
+    .filter((mapping) => mapping.active)
+    .sort((left, right) => {
+      const leftPeriod = left.assignedYear * 100 + left.assignedMonth;
+      const rightPeriod = right.assignedYear * 100 + right.assignedMonth;
+      return rightPeriod - leftPeriod;
+    });
+  const byClientCode = new Map<string, { client: string; uniqueCode: string }>();
+  for (const mapping of mappings) {
+    const key = normalizeSearch(mapping.clientCode);
+    if (!byClientCode.has(key)) {
+      byClientCode.set(key, {
+        client: mapping.client,
+        uniqueCode: mapping.uniqueCode,
+      });
+    }
+  }
+  return byClientCode;
+}
+
+export function readTangoIncomeQueryRows() {
+  const filePath = getTangoIncomeQueryFilePath();
+  if (!fs.existsSync(filePath)) return [];
+
+  const workbook = XLSX.read(fs.readFileSync(filePath), {
+    type: "buffer",
+    cellDates: false,
+  });
+  const sheetName = workbook.SheetNames.includes("Consulta1")
+    ? "Consulta1"
+    : workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+    raw: false,
+  });
+  const clientCodeMap = buildLatestClientCodeMap();
+
+  return rows.map((row, index): TangoIncomeRow => {
+    const clientCode = asText(row["CodigoCliente"]);
+    const mapping = clientCodeMap.get(normalizeSearch(clientCode));
+    const orderDate = parseTangoDate(row["FechaPedido"]);
+    const deliveryDate = parseTangoDate(row["FechaEntrega"]);
+    const quantity = asNumber(row["Cantidad"]);
+    const delivered = asNumber(row["Entregado"]);
+    const pending = Math.max(0, quantity - delivered);
+    const status =
+      pending > 0
+        ? "pending"
+        : !orderDate.display
+          ? "without-order-date"
+          : "complete";
+
+    return {
+      id: `tango-income-${index}`,
+      rowIndex: index,
+      client:
+        asText(row["DB_Clientes 1.Cliente"]) ||
+        mapping?.client ||
+        "Sin cliente",
+      operation: asText(row["Operacion"]),
+      orderDate: orderDate.display,
+      orderYear: orderDate.year,
+      orderMonth: orderDate.month,
+      orderNumber: asText(row["OrdenDeCompra"]),
+      clientCode,
+      uniqueCode: mapping?.uniqueCode ?? "",
+      quantity,
+      source: asText(row["OrigenDelPasaje"]),
+      deliveryDate: deliveryDate.display,
+      delivered,
+      pending,
+      comments: asText(row["Comentarios"]),
+      status,
+    };
+  });
+}
+
+export function getTangoIncomeSummary(): TangoIncomeSummary {
+  const filePath = getTangoIncomeQueryFilePath();
+  const exists = fs.existsSync(filePath);
+  const rows = readTangoIncomeQueryRows();
+  return {
+    exists,
+    filePath,
+    lastUpdated: exists ? fs.statSync(filePath).mtime.toISOString() : null,
+    totalRows: rows.length,
+    clients: new Set(rows.map((row) => normalizeSearch(row.client))).size,
+    operations: new Set(rows.map((row) => normalizeSearch(row.operation))).size,
+    totalQuantity: rows.reduce((total, row) => total + row.quantity, 0),
+    totalDelivered: rows.reduce((total, row) => total + row.delivered, 0),
+    pendingQuantity: rows.reduce((total, row) => total + row.pending, 0),
+    pendingRows: rows.filter((row) => row.pending > 0).length,
+  };
+}
+
+export function readTangoIncomeRows(options: TangoIncomeFilters = {}) {
+  const query = normalizeSearch(options.search);
+  const clientSet = new Set((options.clients ?? []).map(normalizeSearch));
+  const yearSet = new Set(options.years ?? []);
+  const monthSet = new Set(options.months ?? []);
+  const filteredRows = readTangoIncomeQueryRows()
+    .filter((row) => {
+      if (clientSet.size > 0 && !clientSet.has(normalizeSearch(row.client))) {
+        return false;
+      }
+      if (options.operation && row.operation !== options.operation) return false;
+      if (yearSet.size > 0 && !yearSet.has(row.orderYear ?? 0)) return false;
+      if (monthSet.size > 0 && !monthSet.has(row.orderMonth ?? 0)) {
+        return false;
+      }
+      if (options.status === "pending" && row.pending <= 0) return false;
+      if (options.status === "complete" && row.pending > 0) return false;
+      if (
+        options.status === "without-order-date" &&
+        row.status !== "without-order-date"
+      ) {
+        return false;
+      }
+      if (!query) return true;
+      return [
+        row.client,
+        row.operation,
+        row.orderNumber,
+        row.clientCode,
+        row.uniqueCode,
+        row.source,
+        row.comments,
+      ].some((value) => normalizeSearch(value).includes(query));
+    })
+    .sort((left, right) => {
+      const leftDate = left.orderYear
+        ? new Date(
+            left.orderYear,
+            (left.orderMonth ?? 1) - 1,
+            Number(left.orderDate.slice(0, 2)) || 1,
+          ).getTime()
+        : 0;
+      const rightDate = right.orderYear
+        ? new Date(
+            right.orderYear,
+            (right.orderMonth ?? 1) - 1,
+            Number(right.orderDate.slice(0, 2)) || 1,
+          ).getTime()
+        : 0;
+      return rightDate - leftDate || right.rowIndex - left.rowIndex;
+    });
+
+  const limit = options.limit ?? 750;
+  const viewSummary: TangoIncomeViewSummary = {
+    totalRows: filteredRows.length,
+    totalQuantity: filteredRows.reduce((total, row) => total + row.quantity, 0),
+    totalDelivered: filteredRows.reduce(
+      (total, row) => total + row.delivered,
+      0,
+    ),
+    pendingQuantity: filteredRows.reduce((total, row) => total + row.pending, 0),
+    pendingRows: filteredRows.filter((row) => row.pending > 0).length,
+    unmatchedRows: filteredRows.filter((row) => !row.uniqueCode).length,
+  };
+  return {
+    rows: filteredRows.slice(0, limit),
+    totalFiltered: filteredRows.length,
+    viewSummary,
+  };
+}
+
+export function getTangoIncomeOptions() {
+  const rows = readTangoIncomeQueryRows();
+  return {
+    clients: Array.from(new Set(rows.map((row) => row.client))).sort((a, b) =>
+      a.localeCompare(b),
+    ),
+    operations: Array.from(new Set(rows.map((row) => row.operation))).sort(
+      (a, b) => a.localeCompare(b),
+    ),
+    years: Array.from(
+      new Set(rows.map((row) => row.orderYear).filter((year) => year !== null)),
+    ).sort((a, b) => Number(b) - Number(a)),
+  };
 }
 
 function matchesMonthYear(row: Record<string, unknown>, month?: number, year?: number) {

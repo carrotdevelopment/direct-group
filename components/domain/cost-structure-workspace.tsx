@@ -9,7 +9,6 @@ import {
   Save,
   Search,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 
@@ -796,7 +795,31 @@ export function CostStructureWorkspace() {
 
         {/* Table */}
         <div className="max-h-[calc(100vh-330px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
-          <table className="min-w-[1480px] table-fixed border-collapse text-left text-[8px]">
+          <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[8px]" style={{ borderSpacing: 0 }}>
+            <colgroup>
+              <col style={{ width: 36 }} />
+              <col style={{ width: 64 }} />
+              <col style={{ width: 76 }} />
+              <col style={{ width: 144 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 56 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 56 }} />
+              <col style={{ width: 64 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 56 }} />
+              <col style={{ width: 64 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 64 }} />
+              <col style={{ width: 48 }} />
+              <col style={{ width: 40 }} />
+              <col style={{ width: 32 }} />
+            </colgroup>
             <thead>
               <tr>
                 {/* Checkbox */}
@@ -974,7 +997,7 @@ export function CostStructureWorkspace() {
                       ? "bg-[#f7f8fa]"
                       : isProposed
                         ? "bg-[#edf7ff]"
-                        : "bg-white";
+                        : "bg-[#f8fafd]";
                 const stickyBg =
                   seg === "inactive_with_stock"
                     ? isProposed ? "bg-[#edf7ff] " : "bg-[#fff8f0] "
