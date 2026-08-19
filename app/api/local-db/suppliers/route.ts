@@ -8,6 +8,10 @@ import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 
+function canonicalMasterNameKey(value: string) {
+  return normalizeForDuplicateCheck(value).replace(/[^A-Z0-9]+/g, " ");
+}
+
 export function GET() {
   const suppliers = readSuppliersFromExcel();
   return NextResponse.json({ suppliers });
@@ -19,7 +23,7 @@ export async function PUT(request: Request) {
 
   const seen = new Map<string, string>();
   for (const supplier of suppliers) {
-    const key = normalizeForDuplicateCheck(supplier.name);
+    const key = canonicalMasterNameKey(supplier.name);
     if (!key) continue;
     if (seen.has(key)) {
       return NextResponse.json(

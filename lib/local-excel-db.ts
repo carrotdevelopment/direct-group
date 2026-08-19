@@ -156,6 +156,10 @@ type ExcelCache<T> = {
 let clientCodesCache: ExcelCache<ExcelClientCodeMapping> | null = null;
 let pricesCache: ExcelCache<ExcelPrice> | null = null;
 
+function canonicalMasterNameKey(value: string) {
+  return normalizeForDuplicateCheck(value).replace(/[^A-Z0-9]+/g, " ");
+}
+
 const productsSeed: ExcelProduct[] = [
   {
     id: "example-421000005",
@@ -762,7 +766,7 @@ export function readSuppliersFromExcel() {
   const filePath = getSuppliersFilePath();
   if (!fs.existsSync(filePath)) writeSuppliersToExcel(suppliersSeed);
   const rows = readSheetRows(filePath);
-  return rows
+  const suppliers = rows
     .map((row, index): ExcelSupplier => {
       const name = asString(row["Proveedor"] || row["Nombre"] || row["name"]);
       return {
@@ -772,6 +776,14 @@ export function readSuppliersFromExcel() {
       };
     })
     .filter((supplier) => supplier.name);
+  return Array.from(
+    new Map(
+      suppliers.map((supplier) => [
+        canonicalMasterNameKey(supplier.name),
+        { ...supplier, name: supplier.name.trim().replace(/\s+/g, " ") },
+      ]),
+    ).values(),
+  );
 }
 
 export function writeSuppliersToExcel(suppliers: ExcelSupplier[]) {
@@ -779,7 +791,7 @@ export function writeSuppliersToExcel(suppliers: ExcelSupplier[]) {
   const uniqueSuppliers = Array.from(
     new Map(
       suppliers.map((supplier) => [
-        normalizeForDuplicateCheck(supplier.name),
+        canonicalMasterNameKey(supplier.name),
         { ...supplier, name: supplier.name.trim().replace(/\s+/g, " ") },
       ]),
     ).values(),
@@ -800,7 +812,7 @@ export function readCategoriesFromExcel() {
   const filePath = getCategoriesFilePath();
   if (!fs.existsSync(filePath)) writeCategoriesToExcel(categoriesSeed);
   const rows = readSheetRows(filePath);
-  return rows
+  const categories = rows
     .map((row, index): ExcelCategory => {
       const name = asString(
         row["CategorÃ­a"] || row["Categoria"] || row["Nombre"] || row["name"],
@@ -812,6 +824,14 @@ export function readCategoriesFromExcel() {
       };
     })
     .filter((category) => category.name);
+  return Array.from(
+    new Map(
+      categories.map((category) => [
+        canonicalMasterNameKey(category.name),
+        { ...category, name: category.name.trim().replace(/\s+/g, " ") },
+      ]),
+    ).values(),
+  );
 }
 
 export function writeCategoriesToExcel(categories: ExcelCategory[]) {
@@ -819,7 +839,7 @@ export function writeCategoriesToExcel(categories: ExcelCategory[]) {
   const uniqueCategories = Array.from(
     new Map(
       categories.map((category) => [
-        normalizeForDuplicateCheck(category.name),
+        canonicalMasterNameKey(category.name),
         { ...category, name: category.name.trim().replace(/\s+/g, " ") },
       ]),
     ).values(),

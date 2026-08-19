@@ -3,10 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Tag, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DataList } from "@/components/domain/data-list";
 import { PageHeader } from "@/components/domain/page-header";
 import { SummaryStrip } from "@/components/domain/summary-strip";
-import { providerRows } from "@/lib/demo-data";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 type AdminItem = {
@@ -16,6 +14,23 @@ type AdminItem = {
 };
 
 type ApiKey = "suppliers" | "categories";
+
+function canonicalAdminKey(value: string) {
+  return normalizeForDuplicateCheck(value).replace(/[^A-Z0-9]+/g, " ");
+}
+
+function uniqueAdminItems(items: AdminItem[]) {
+  return Array.from(
+    new Map(
+      items
+        .filter((item) => item.name.trim())
+        .map((item) => [
+          canonicalAdminKey(item.name),
+          { ...item, name: item.name.trim().replace(/\s+/g, " ") },
+        ]),
+    ).values(),
+  );
+}
 
 function AdminList({
   id,
@@ -47,7 +62,7 @@ function AdminList({
         (response) => response.json() as Promise<Record<ApiKey, AdminItem[]>>,
       )
       .then((data) => {
-        setItems(data[apiKey] ?? []);
+        setItems(uniqueAdminItems(data[apiKey] ?? []));
         setStatus("Excel local sincronizado");
       })
       .catch(() => setStatus("No pude leer el Excel local"));
@@ -77,13 +92,14 @@ function AdminList({
   }, [items, query]);
 
   async function persist(next: AdminItem[]): Promise<string | null> {
-    setItems(next);
+    const uniqueNext = uniqueAdminItems(next);
+    setItems(uniqueNext);
     setStatus("Guardando en Excel...");
     try {
       const response = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [apiKey]: next }),
+        body: JSON.stringify({ [apiKey]: uniqueNext }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { message?: string };
@@ -102,12 +118,15 @@ function AdminList({
   async function addItem() {
     const name = normalizeForDuplicateCheck(draft);
     if (!name) return;
-    if (items.some((item) => normalizeForDuplicateCheck(item.name) === name)) {
+    if (items.some((item) => canonicalAdminKey(item.name) === canonicalAdminKey(name))) {
       setInputError("Ese nombre ya existe.");
       return;
     }
     setInputError("");
-    const error = await persist([...items, { id: crypto.randomUUID(), name, active: true }]);
+    const error = await persist([
+      ...items,
+      { id: crypto.randomUUID(), name, active: true },
+    ]);
     if (error) {
       setInputError(error);
     } else {
@@ -171,7 +190,7 @@ function AdminList({
       <div className="flex max-h-[260px] flex-wrap items-start gap-2 overflow-y-auto p-4">
         {visible.map((item) => (
           <button
-            key={item.id}
+            key={`${apiKey}-${canonicalAdminKey(item.name)}-${item.id}`}
             type="button"
             onClick={() => void toggleItem(item.id)}
             title={item.active ? "Desactivar" : "Activar"}
@@ -241,20 +260,6 @@ export function SupplierAdminWorkspace() {
           placeholder="Nueva categoría..."
         />
       </div>
-      <section className="mt-4">
-        <DataList
-          columns={[
-            "Proveedor",
-            "Catálogo",
-            "Moneda",
-            "Última lista",
-            "Vigencia",
-            "Documentos",
-          ]}
-          rows={providerRows}
-          searchPlaceholder="Buscar proveedor por nombre o CUIT..."
-        />
-      </section>
     </>
   );
 }
