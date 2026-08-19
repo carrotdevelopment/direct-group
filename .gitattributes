@@ -1,3 +1,6 @@
 *.xlsx filter=lfs diff=lfs merge=lfs -text
 *.xls filter=lfs diff=lfs merge=lfs -text
 *.pdf filter=lfs diff=lfs merge=lfs -text
+supplier-files/** filter=lfs diff=lfs merge=lfs -text
+local-data/** filter=lfs diff=lfs merge=lfs -text
+BASE[[:space:]]DE[[:space:]]DATOS[[:space:]]DG/** filter=lfs diff=lfs merge=lfs -text
