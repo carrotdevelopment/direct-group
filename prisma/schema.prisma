@@ -112,10 +112,11 @@ model Brand {
 }
 
 model Category {
-  id        String    @id @default(cuid())
-  name      String    @unique
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id        String        @id @default(cuid())
+  name      String        @unique
+  status    RecordStatus  @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   products  Product[]
 }
 
@@ -157,8 +158,27 @@ model Client {
   files             UploadedFile[]
   egressMappings    ClientEgressMapping[]
   costStructureRuns CostStructureRun[]
+  rateConfigs       ClientRateConfig[]
 
   @@index([name])
+}
+
+model ClientRateConfig {
+  id        String   @id @default(cuid())
+  clientId  String
+  key       String
+  name      String
+  active    Boolean  @default(true)
+  value     Decimal  @db.Decimal(7, 4)
+  appliesTo String
+  order     Int      @default(0)
+  validFrom DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client   @relation(fields: [clientId], references: [id])
+
+  @@unique([clientId, key, validFrom])
+  @@index([clientId, validFrom])
 }
 
 model Product {
