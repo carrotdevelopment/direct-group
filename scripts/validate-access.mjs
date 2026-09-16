@@ -57,7 +57,7 @@ try {
  const account={name:'Access validation temporary',email:`access-test-${Date.now()}@example.invalid`,password:randomBytes(18).toString('hex'),active:true,role:'VENDEDOR',moduleAccess:['compras']};
  const create=await admin('/api/users',{...json(account),method:'POST'});equal(create.status,200,'create');testId=(await create.json()).user.id;
  const restricted=jar();equal((await login(restricted,account.email,account.password)).id,testId,'new login');
- const update = async overrides => equal((await admin('/api/users',json({...account,id:testId,...overrides}))).status,200,'update');
+ const update = async overrides => equal((await admin('/api/users',json({...account,password:undefined,id:testId,...overrides}))).status,200,'update');
  for(const key of ['compras','precios','proveedores','clientes','productos','ventas','stock','importaciones']) {
    await update({moduleAccess:[key]});
    for(const [owner,path] of routes) equal((await restricted(path)).status,owner === key ? 200 : 307,`${key} page ${path}`);
