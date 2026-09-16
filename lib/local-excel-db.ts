@@ -7,6 +7,7 @@ export type ExcelProduct = {
   id: string;
   code: string;
   name: string;
+  active: boolean;
   brand: string;
   supplier: string;
   supplierCode: string;
@@ -44,6 +45,7 @@ export type ExcelCategory = {
 };
 
 export type ExcelPrice = {
+  missingFields?: Array<"vatRate" | "markup">;
   id: string;
   supplier: string;
   uniqueCode: string;
@@ -165,6 +167,7 @@ const productsSeed: ExcelProduct[] = [
     id: "example-421000005",
     code: "421000005",
     name: "Freidora Air 5 AF2050 Smart tek (421000005)",
+    active: true,
     brand: "Smart Teck",
     supplier: "ACEGAME",
     supplierCode: "421000005",
@@ -175,6 +178,7 @@ const productsSeed: ExcelProduct[] = [
     id: "example-425000031",
     code: "425000031",
     name: "Plancha a vapor GS1500 Smart Tek (425000031)",
+    active: true,
     brand: "Smart Teck",
     supplier: "ACEGAME",
     supplierCode: "425000031",
@@ -185,6 +189,7 @@ const productsSeed: ExcelProduct[] = [
     id: "example-191210001",
     code: "191210001",
     name: "Auriculares Bluetooth Xpods1 X-View (191210001)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "191210001",
@@ -195,6 +200,7 @@ const productsSeed: ExcelProduct[] = [
     id: "example-142200007",
     code: "142200007",
     name: "Tablet Titanium Colors Max X-View (142200007)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "142200007",
@@ -205,6 +211,7 @@ const productsSeed: ExcelProduct[] = [
     id: "example-191220000",
     code: "191220000",
     name: "Parlante Blast x3 X-View (191220000)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "191220000",
@@ -215,6 +222,7 @@ const productsSeed: ExcelProduct[] = [
     id: "example-142200009",
     code: "142200009",
     name: "Tablet Tungsten Max 10 X-View (142200009)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "142200009",
@@ -408,11 +416,15 @@ const categoriesSeed: ExcelCategory[] = Array.from(new Set(categoryNamesSeed))
   }));
 
 export function getLocalDbFolder() {
-  return (
-    process.env.DG_LOCAL_DB_DIR ||
-    path.resolve(process.cwd(), "local-data", "BASE DE DATOS DG") ||
-    path.resolve(process.cwd(), "..", "..", "BASE DE DATOS DG")
-  );
+  const configuredFolder = process.env.DG_LOCAL_DB_DIR?.trim();
+  return configuredFolder
+    ? path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredFolder)
+    : path.resolve(
+        /* turbopackIgnore: true */ process.cwd(),
+        "local-data",
+        "BASE DE DATOS DG",
+        "En uso",
+      );
 }
 
 function ensureFolder() {
@@ -441,10 +453,6 @@ export function getPricesFilePath() {
   return path.join(ensureFolder(), "Base Precios DG.xlsx");
 }
 
-function getPricesJsonFilePath() {
-  return path.join(ensureFolder(), "Base Precios DG.json");
-}
-
 export function getClientsFilePath() {
   return path.join(ensureFolder(), "Base Clientes DG.xlsx");
 }
@@ -455,10 +463,6 @@ export function getClientRatesFilePath() {
 
 export function getSantanderCostStructureFilePath() {
   return path.join(ensureFolder(), "Base Estructura Costos Santander DG.xlsx");
-}
-
-export function getFreightCriteriaFilePath() {
-  return path.join(ensureFolder(), "Base Criterios Flete DG.json");
 }
 
 export function getSantanderStockFilePath() {
@@ -601,6 +605,8 @@ export function readProductsFromExcel() {
         name: asString(
           row["Producto"] || row["Nombre Producto"] || row["name"],
         ),
+        active:
+          asString(row["Activo"] || row["active"]).toLowerCase() !== "no",
         brand: asString(row["Marca"] || row["brand"]),
         supplier: asString(row["Proveedor"] || row["supplier"]),
         supplierCode: asString(
@@ -634,6 +640,7 @@ export function writeProductsToExcel(products: ExcelProduct[]) {
     products.map((product) => ({
       ID: product.id,
       Producto: product.name,
+      Activo: product.active !== false ? "Si" : "No",
       Marca: product.brand,
       "Código Único": product.code,
       "Cód. Único Prov.": product.supplierCode,
@@ -868,21 +875,10 @@ export function readPricesFromExcel() {
     return pricesCache.rows;
   }
 
-  const jsonPath = getPricesJsonFilePath();
-  if (fs.existsSync(jsonPath) && fs.statSync(jsonPath).mtimeMs >= mtimeMs) {
-    const prices = withUniquePriceIds(
-      JSON.parse(fs.readFileSync(jsonPath, "utf8")) as ExcelPrice[],
-    );
-    pricesCache = {
-      filePath,
-      mtimeMs,
-      rows: prices,
-    };
-    return prices;
-  }
-
   const productsByCode = new Map(
-    readProductsFromExcel().map((product) => [product.code, product]),
+    readProductsFromExcel()
+      .filter((product) => product.active)
+      .map((product) => [product.code, product]),
   );
 
   const rows = readSheetRows(filePath);
@@ -930,7 +926,6 @@ export function readPricesFromExcel() {
     mtimeMs,
     rows: prices,
   };
-  fs.writeFileSync(jsonPath, JSON.stringify(prices));
 
   return prices;
 }
@@ -962,7 +957,6 @@ export function writePricesToExcel(prices: ExcelPrice[]) {
     mtimeMs: fs.statSync(filePath).mtimeMs,
     rows: uniquePrices,
   };
-  fs.writeFileSync(getPricesJsonFilePath(), JSON.stringify(uniquePrices));
   return filePath;
 }
 
@@ -1030,6 +1024,7 @@ export function readSantanderCostRowsFromExcel() {
 
 export function writeSantanderCostRowsToExcel(rows: ExcelSantanderCostRow[]) {
   const filePath = getSantanderCostStructureFilePath();
+  const freightCriteria = readFreightCriteria();
   writeWorkbook(
     filePath,
     "Santander",
@@ -1066,6 +1061,7 @@ export function writeSantanderCostRowsToExcel(rows: ExcelSantanderCostRow[]) {
       Origen: row.source,
     })),
   );
+  writeFreightCriteriaSheet(freightCriteria);
   return filePath;
 }
 
@@ -1079,11 +1075,67 @@ export type FreightCriterionEntry = {
 
 type FreightCriteriaStore = Record<string, FreightCriterionEntry[]>;
 
+const FREIGHT_SHEET_NAME = "Criterios Flete";
+
+function freightCriteriaToRows(store: FreightCriteriaStore) {
+  return Object.entries(store).flatMap(([uniqueCode, entries]) =>
+    entries.map((entry) => ({
+      "Codigo Unico": uniqueCode,
+      Modo: entry.mode,
+      Valor: entry.value,
+      "Vigente Desde": entry.effectiveFrom,
+    })),
+  );
+}
+
+function writeFreightCriteriaSheet(store: FreightCriteriaStore) {
+  const filePath = getSantanderCostStructureFilePath();
+  if (!fs.existsSync(filePath)) return;
+  const workbook = XLSX.read(fs.readFileSync(filePath), { type: "buffer" });
+  if (workbook.Sheets[FREIGHT_SHEET_NAME]) {
+    delete workbook.Sheets[FREIGHT_SHEET_NAME];
+    workbook.SheetNames = workbook.SheetNames.filter(
+      (sheetName) => sheetName !== FREIGHT_SHEET_NAME,
+    );
+  }
+  const rows = freightCriteriaToRows(store);
+  if (rows.length > 0) {
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(rows),
+      FREIGHT_SHEET_NAME,
+    );
+  }
+  const buffer = XLSX.write(workbook, {
+    type: "buffer",
+    bookType: "xlsx",
+  }) as Buffer;
+  fs.writeFileSync(filePath, buffer);
+}
+
 export function readFreightCriteria(): FreightCriteriaStore {
-  const filePath = getFreightCriteriaFilePath();
+  const filePath = getSantanderCostStructureFilePath();
   if (!fs.existsSync(filePath)) return {};
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as FreightCriteriaStore;
+    const workbook = XLSX.read(fs.readFileSync(filePath), { type: "buffer" });
+    const sheet = workbook.Sheets[FREIGHT_SHEET_NAME];
+    if (!sheet) return {};
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: "",
+    });
+    const store: FreightCriteriaStore = {};
+    for (const row of rows) {
+      const uniqueCode = asString(row["Codigo Unico"] || row["Código Único"]);
+      const mode = asString(row.Modo) === "fixed" ? "fixed" : "pct";
+      const value = asNumber(row.Valor);
+      const effectiveFrom = asString(row["Vigente Desde"]);
+      if (!uniqueCode || !effectiveFrom) continue;
+      store[uniqueCode] = [
+        ...(store[uniqueCode] ?? []),
+        { mode, value, effectiveFrom },
+      ];
+    }
+    return store;
   } catch {
     return {};
   }
@@ -1104,7 +1156,6 @@ export function upsertFreightCriterion(
   uniqueCode: string,
   entry: FreightCriterionEntry,
 ): void {
-  const filePath = getFreightCriteriaFilePath();
   const store = readFreightCriteria();
   const existing = store[uniqueCode] ?? [];
   const idx = existing.findIndex((e) => e.effectiveFrom === entry.effectiveFrom);
@@ -1114,7 +1165,7 @@ export function upsertFreightCriterion(
     existing.push(entry);
   }
   store[uniqueCode] = existing.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
-  fs.writeFileSync(filePath, JSON.stringify(store, null, 2), "utf-8");
+  writeFreightCriteriaSheet(store);
 }
 
 export function readSantanderStockRowsFromExcel() {

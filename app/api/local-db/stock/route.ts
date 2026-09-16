@@ -1,3 +1,4 @@
+import { checkApiAccess } from "@/server/lib/access";
 ﻿import { NextResponse } from "next/server";
 import {
   readClientCodesFromExcel,
@@ -6,6 +7,16 @@ import {
   readSantanderStockRowsFromExcel,
 } from "@/lib/local-excel-db";
 import { readEgressRows, readIncomeRows } from "@/lib/operation-excel-db";
+import { usesPostgres } from "@/lib/data-source";
+import {
+  readClientCodesFromPostgres,
+  readProductsFromPostgres,
+  readSantanderCostsFromPostgres,
+  readSantanderStockFromPostgres,
+} from "@/lib/postgres-replica-db";
+import {
+  readStockOperationRowsFromPostgres,
+} from "@/lib/postgres-operation-db";
 
 export const runtime = "nodejs";
 
@@ -83,16 +94,15 @@ function periodIndex(year: number, month: number) {
   return year * 12 + month;
 }
 
-function periodLabel(year: number, month: number) {
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
-
-function latestCostByCode(targetPeriod: number) {
+function latestCostByCode(
+  targetPeriod: number,
+  costRows: ReturnType<typeof readSantanderCostRowsFromExcel>,
+) {
   const map = new Map<
     string,
     ReturnType<typeof readSantanderCostRowsFromExcel>[number]
   >();
-  for (const row of readSantanderCostRowsFromExcel()) {
+  for (const row of costRows) {
     const rowPeriod = periodIndex(row.year, row.month);
     if (rowPeriod > targetPeriod) continue;
     const keys = [row.clientCode, row.uniqueCode]
@@ -108,7 +118,9 @@ function latestCostByCode(targetPeriod: number) {
   return map;
 }
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
+  const denied = await checkApiAccess(["stock"], false);
+  if (denied) return denied;
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
   const today = new Date();
@@ -123,8 +135,31 @@ export function GET(request: Request) {
     });
   }
 
+  const postgres = usesPostgres();
+  const [mappingRows, productRows, persistedStockRows, costRows] = postgres
+    ? await Promise.all([
+        readClientCodesFromPostgres(),
+        readProductsFromPostgres(),
+        readSantanderStockFromPostgres(),
+        readSantanderCostsFromPostgres(),
+      ])
+    : [
+        readClientCodesFromExcel(),
+        readProductsFromExcel(),
+        readSantanderStockRowsFromExcel(),
+        readSantanderCostRowsFromExcel(),
+      ];
+  const operationRows = postgres
+    ? await readStockOperationRowsFromPostgres()
+    : {
+        incomes: readIncomeRows({ client: "santander", limit: Number.MAX_SAFE_INTEGER }),
+        egresses: readEgressRows({ client: "Santander", limit: Number.MAX_SAFE_INTEGER }),
+      };
+  const incomeRows = operationRows.incomes;
+  const egressRows = operationRows.egresses;
+
   // All non-voided Santander assignments up to today
-  const allMappings = readClientCodesFromExcel().filter(
+  const allMappings = mappingRows.filter(
     (m) =>
       canonicalClient(m.client) === "santander" &&
       !m.voidedAt &&
@@ -163,30 +198,42 @@ export function GET(request: Request) {
     ...[...inactiveByCode.values()].map((m) => ({ ...m, vigente: false })),
   ].sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
   const products = new Map(
-    readProductsFromExcel().map((product) => [
+    productRows.filter((product) => product.active).map((product) => [
       normalizeCode(product.code),
       product,
     ]),
   );
-  const stockRows = readSantanderStockRowsFromExcel();
+  const stockRows = persistedStockRows;
   const stockByClientCode = new Map(
     stockRows.map((row) => [normalizeCode(row.clientCode), row]),
   );
   const stockByUniqueCode = new Map(
     stockRows.map((row) => [normalizeCode(row.uniqueCode), row]),
   );
-  const incomes = readIncomeRows({
-    client: "santander",
-    limit: Number.MAX_SAFE_INTEGER,
-  });
-  const egresses = readEgressRows({
-    client: "Santander",
-    limit: Number.MAX_SAFE_INTEGER,
-  }) as Array<Record<string, unknown>>;
-  const costs = latestCostByCode(targetPeriod);
+  const incomes = incomeRows;
+  const egresses = egressRows as Array<Record<string, unknown>>;
+  const costs = latestCostByCode(targetPeriod, costRows);
   const incomeOps = new Set(["COMPRA", "PASAJE", "ROBO/AJUSTE", "DEVOLUCION"]);
   const incomeDateOps = new Set(["COMPRA", "PASAJE"]);
   const egressOps = new Set(["CANJE", "ROBO/AJUSTE", "PASAJE", "CAMBIO"]);
+  const incomesByClientCode = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of incomes) {
+    const key = normalizeCode(
+      text(pick(row, ["Código Cliente", "CÃ³digo Cliente", "Codigo Cliente"])),
+    );
+    if (!key) continue;
+    const grouped = incomesByClientCode.get(key) ?? [];
+    grouped.push(row);
+    incomesByClientCode.set(key, grouped);
+  }
+  const egressesByClientCode = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of egresses) {
+    const key = normalizeCode(text(pick(row, ["SKU"])));
+    if (!key) continue;
+    const grouped = egressesByClientCode.get(key) ?? [];
+    grouped.push(row);
+    egressesByClientCode.set(key, grouped);
+  }
 
   const rows = assignments.map((assignment) => {
     const stock =
@@ -194,17 +241,8 @@ export function GET(request: Request) {
       stockByUniqueCode.get(normalizeCode(assignment.uniqueCode));
     const product = products.get(normalizeCode(assignment.uniqueCode));
     const clientCode = normalizeCode(assignment.clientCode);
-    const matchingIncomes = incomes.filter(
-      (row) =>
-        normalizeCode(
-          text(
-            pick(row, ["Código Cliente", "CÃ³digo Cliente", "Codigo Cliente"]),
-          ),
-        ) === clientCode,
-    );
-    const matchingEgresses = egresses.filter(
-      (row) => normalizeCode(text(pick(row, ["SKU"]))) === clientCode,
-    );
+    const matchingIncomes = incomesByClientCode.get(clientCode) ?? [];
+    const matchingEgresses = egressesByClientCode.get(clientCode) ?? [];
     const totalOrder = matchingIncomes
       .filter((row) =>
         incomeOps.has(operation(pick(row, ["Operación", "OperaciÃ³n"]))),
@@ -301,5 +339,6 @@ export function GET(request: Request) {
   return NextResponse.json({
     rows,
     message: `${vigentes} productos vigentes Santander · ${withStockData} con datos de stock cargados.`,
+    source: usesPostgres() ? "postgresql" : "excel",
   });
 }

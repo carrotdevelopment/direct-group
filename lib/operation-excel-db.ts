@@ -355,6 +355,12 @@ export type TangoIncomeViewSummary = {
 
 export type EgressClient = keyof typeof egressSchemas;
 
+export type EgressRow = Record<string, unknown> & {
+  __rowIndex: number;
+  __client: EgressClient;
+  __date: string;
+};
+
 function ensureFolder() {
   const folder = getLocalDbFolder();
   fs.mkdirSync(folder, { recursive: true });
@@ -378,15 +384,7 @@ function readSheet(filePath: string) {
   return workbook.Sheets[workbook.SheetNames[0]];
 }
 
-function jsonPath(filePath: string) {
-  return filePath.replace(/\.xlsx$/i, ".json");
-}
-
 function countRows(filePath: string) {
-  const sidecarPath = jsonPath(filePath);
-  if (fs.existsSync(sidecarPath)) {
-    return JSON.parse(fs.readFileSync(sidecarPath, "utf8")).length;
-  }
   if (!fs.existsSync(filePath)) return 0;
   const sheet = readSheet(filePath);
   const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:A1");
@@ -445,13 +443,6 @@ function parseWorkbook(buffer: Buffer, expectedHeaders: readonly string[]) {
 }
 
 function readRows(filePath: string) {
-  const sidecarPath = jsonPath(filePath);
-  if (fs.existsSync(sidecarPath)) {
-    return JSON.parse(fs.readFileSync(sidecarPath, "utf8")) as Record<
-      string,
-      unknown
-    >[];
-  }
   if (!fs.existsSync(filePath)) return [];
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(readSheet(filePath), {
     defval: "",
@@ -472,7 +463,23 @@ function writeRows(filePath: string, sheetName: string, rows: Record<string, unk
     bookType: "xlsx",
   }) as Buffer;
   fs.writeFileSync(filePath, buffer);
-  fs.writeFileSync(jsonPath(filePath), JSON.stringify(rows));
+}
+
+export function parseEgressWorkbook(client: EgressClient, buffer: Buffer) {
+  return parseWorkbook(buffer, egressSchemas[client]);
+}
+
+function normalizeEgressRecord(
+  client: EgressClient,
+  row: Record<string, unknown>,
+) {
+  return egressSchemas[client].reduce<Record<string, unknown>>(
+    (record, header) => {
+      record[header] = row[header] ?? "";
+      return record;
+    },
+    {},
+  );
 }
 
 export function appendEgressRows(client: EgressClient, buffer: Buffer) {
@@ -487,6 +494,61 @@ export function appendEgressRows(client: EgressClient, buffer: Buffer) {
     insertedRows: parsed.rows.length,
     totalRows: existingRows.length + parsed.rows.length,
   };
+}
+
+export function appendEgressRecords(
+  client: EgressClient,
+  records: Record<string, unknown>[],
+) {
+  const filePath = getEgressFilePath(client);
+  const existingRows = readRows(filePath);
+  const nextRows = records
+    .map((row) => normalizeEgressRecord(client, row))
+    .filter((row) => Object.values(row).some((value) => asText(value)));
+  writeRows(filePath, client, [...existingRows, ...nextRows]);
+  return {
+    filePath,
+    insertedRows: nextRows.length,
+    totalRows: existingRows.length + nextRows.length,
+  };
+}
+
+export function updateEgressRecord(
+  client: EgressClient,
+  rowIndex: number,
+  values: Record<string, unknown>,
+) {
+  const filePath = getEgressFilePath(client);
+  const rows = readRows(filePath);
+  if (!Number.isInteger(rowIndex) || rowIndex < 0 || !rows[rowIndex]) {
+    return false;
+  }
+  rows[rowIndex] = {
+    ...rows[rowIndex],
+    ...normalizeEgressRecord(client, values),
+  };
+  writeRows(filePath, client, rows);
+  return true;
+}
+
+export function deleteEgressRecords(
+  client: EgressClient,
+  rowIndexes: number[],
+) {
+  const filePath = getEgressFilePath(client);
+  const rows = readRows(filePath);
+  const targets = new Set(
+    rowIndexes.filter(
+      (rowIndex) => Number.isInteger(rowIndex) && rowIndex >= 0 && rowIndex < rows.length,
+    ),
+  );
+  if (targets.size === 0) return 0;
+  writeRows(
+    filePath,
+    client,
+    rows.filter((_, rowIndex) => !targets.has(rowIndex)),
+  );
+  return targets.size;
 }
 
 export function appendIncomeRows(buffer: Buffer) {
@@ -808,9 +870,10 @@ export function readEgressRows(options: {
   const clients = options.client
     ? [options.client]
     : (Object.keys(egressSchemas) as EgressClient[]);
-  const rows = clients.flatMap((client) =>
-    readAllRowsWithIndex(getEgressFilePath(client)).map((row) => ({
+  const rows: EgressRow[] = clients.flatMap((client) =>
+    readAllRowsWithIndex(getEgressFilePath(client)).map((row): EgressRow => ({
       ...row,
+      __rowIndex: Number(row.__rowIndex),
       __client: client,
       __date: dateValue(row),
     })),

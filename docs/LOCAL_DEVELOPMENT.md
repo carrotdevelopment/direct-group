@@ -15,3 +15,28 @@
 7. Antes de entregar, correr toda la suite de calidad.
 
 Nunca usar datos reales de clientes o proveedores en fixtures versionados.
+
+## Fuente de datos del frontend
+
+El navegador consume los endpoints `/api/local-db/*`; nunca se conecta directamente a PostgreSQL.
+
+La implementación del servidor se selecciona con:
+
+```env
+DG_DATA_SOURCE="postgresql"
+```
+
+Valores admitidos:
+
+- `postgresql`: usa `EXCEL_DATABASE_URL` y las tablas migradas.
+- `excel`: vuelve temporalmente a los archivos de `DG_LOCAL_DB_DIR`.
+
+Para trabajar con PostgreSQL local:
+
+```powershell
+docker compose up -d postgres
+npm run db:excel:generate
+npm run dev
+```
+
+El endpoint `/api/local-db/health` informa la fuente activa y los conteos principales.

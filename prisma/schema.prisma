@@ -96,6 +96,7 @@ model User {
   passwordHash String
   role         Role           @default(LECTURA)
   active       Boolean        @default(true)
+  moduleAccess String[]       @default([])
   lastLoginAt  DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt

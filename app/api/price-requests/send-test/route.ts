@@ -1,3 +1,4 @@
+import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import { getConfiguredMailFrom, sendSmtpMail } from "@/lib/smtp-mailer";
 
@@ -10,6 +11,8 @@ type SendPriceRequestBody = {
 };
 
 export async function POST(request: Request) {
+  const denied = await checkApiAccess(["precios"], true);
+  if (denied) return denied;
   let body: SendPriceRequestBody;
   try {
     const rawBody = await request.text();

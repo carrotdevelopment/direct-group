@@ -1,3 +1,4 @@
+import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import {
   readCategoriesFromExcel,
@@ -5,6 +6,11 @@ import {
   type ExcelCategory,
 } from "@/lib/local-excel-db";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
+import { usesPostgres } from "@/lib/data-source";
+import {
+  readCategoriesFromPostgres,
+  writeCategoriesToPostgres,
+} from "@/lib/postgres-replica-db";
 
 export const runtime = "nodejs";
 
@@ -12,12 +18,18 @@ function canonicalMasterNameKey(value: string) {
   return normalizeForDuplicateCheck(value).replace(/[^A-Z0-9]+/g, " ");
 }
 
-export function GET() {
-  const categories = readCategoriesFromExcel();
-  return NextResponse.json({ categories });
+export async function GET() {
+  const denied = await checkApiAccess(["productos"], false);
+  if (denied) return denied;
+  const categories = usesPostgres()
+    ? await readCategoriesFromPostgres()
+    : readCategoriesFromExcel();
+  return NextResponse.json({ categories, source: usesPostgres() ? "postgresql" : "excel" });
 }
 
 export async function PUT(request: Request) {
+  const denied = await checkApiAccess(["productos"], true);
+  if (denied) return denied;
   const body = (await request.json()) as { categories?: ExcelCategory[] };
   const categories = body.categories ?? [];
 
@@ -34,6 +46,10 @@ export async function PUT(request: Request) {
     seen.set(key, category.name.trim().replace(/\s+/g, " "));
   }
 
+  if (usesPostgres()) {
+    const saved = await writeCategoriesToPostgres(categories);
+    return NextResponse.json({ categories: saved, source: "postgresql" });
+  }
   writeCategoriesToExcel(categories);
-  return NextResponse.json({ categories });
+  return NextResponse.json({ categories, source: "excel" });
 }

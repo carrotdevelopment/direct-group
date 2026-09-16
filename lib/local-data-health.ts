@@ -59,10 +59,14 @@ export const localDataFileSpecs: LocalDataFileSpec[] = [
     description: "Histórico principal de precios cargados por proveedor.",
   },
   {
-    fileName: "Base Precios DG.json",
-    required: false,
-    description: "Cache derivado para acelerar lectura de precios.",
-    generatedByApp: true,
+    fileName: "Base Clientes DG.xlsx",
+    required: true,
+    description: "Maestro de clientes activos e inactivos.",
+  },
+  {
+    fileName: "Base Config Tasas Clientes DG.xlsx",
+    required: true,
+    description: "Configuraciones impositivas por cliente y vigencia.",
   },
   {
     fileName: "Base Estructura Costos Santander DG.xlsx",
@@ -80,35 +84,15 @@ export const localDataFileSpecs: LocalDataFileSpec[] = [
     description: "Ingresos/órdenes acumuladas.",
   },
   {
-    fileName: "Base Ingresos DG.json",
-    required: false,
-    description: "Cache derivado para ingresos.",
-    generatedByApp: true,
+    fileName: "Consulta ingresos Tango.xlsx",
+    required: true,
+    description: "Consulta de Tango utilizada por la pantalla de ingresos.",
   },
-  ...[
-    "Amex",
-    "Credicoop",
-    "HSBC",
-    "Importados",
-    "Massalin",
-    "Pampa",
-    "Producteca",
-    "Santander",
-    "Syngenta",
-    "Umiles",
-  ].flatMap((client): LocalDataFileSpec[] => [
-    {
-      fileName: `Base Egresos ${client} DG.xlsx`,
-      required: client === "Santander",
-      description: `Egresos históricos ${client}.`,
-    },
-    {
-      fileName: `Base Egresos ${client} DG.json`,
-      required: false,
-      description: `Cache derivado de egresos ${client}.`,
-      generatedByApp: true,
-    },
-  ]),
+  {
+    fileName: "Base Egresos Santander DG.xlsx",
+    required: true,
+    description: "Egresos históricos Santander.",
+  },
 ];
 
 export function formatBytes(bytes: number) {

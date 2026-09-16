@@ -1,3 +1,4 @@
+import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import { previewPriceImport } from "@/lib/price-importer";
 import { validateUploadedFile } from "@/lib/upload-validation";
@@ -5,6 +6,8 @@ import { validateUploadedFile } from "@/lib/upload-validation";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const denied = await checkApiAccess(["precios"], false);
+  if (denied) return denied;
   const formData = await request.formData();
   const supplier = String(formData.get("supplier") || "").trim();
   const month = Number(formData.get("month") || "0");

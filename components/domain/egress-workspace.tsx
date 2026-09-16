@@ -1,16 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Columns3, Layers, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
-import rawSantanderLotes from "@/lib/santander-lotes.json";
+import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
+import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type TipoEgreso = "PASAJE" | "ROBO_AJUSTE" | "CAMBIO" | "REENVIO" | "CANJE";
 type Fila = Record<string, string>;
-type Lote = { id: string; tipo: TipoEgreso; cliente: string; fecha: string; filas: Fila[] };
+type Lote = {
+  id: string;
+  tipo: TipoEgreso;
+  cliente: string;
+  fecha: string;
+  filas: Fila[];
+  excelRowIndex?: number;
+  source?: {
+    type: "FILE" | "PASTE" | "MANUAL";
+    fileName?: string;
+    fileHash?: string;
+    sheetName?: string;
+    headers?: string[];
+    values?: unknown[][];
+  };
+};
 type SortDir = "asc" | "desc";
 type ColDef = { key: string; label: string; required?: boolean; type?: "date" | "number" };
 type FieldMapping = { fechaDia: string; fechaMes: string; fechaAno: string; codigo: string; desc: string; cant: string };
@@ -59,7 +75,7 @@ const INITIAL_CONFIGS: ClienteConfig[] = [
       columnas: ["Dia","Mes","Año","Nro Pedido","Id Venta del Canal","Cliente","Estado del Pedido","Estado de Pago","Estado de Entrega","Nro de Guía","Notas Pedido","Artículo","Código","SKU","Marca","Color","Talle","Cantidad","Moneda","Precio","Monto","Costo de Envío Discriminado","Canal","Depósito","Medio de Pago","Metodo de Pago","Id Pago MercadoPago","Persona de Contacto","Email","Teléfono","CUIT/DNI","Lista de Precios","Dirección","Provincia","Localidad","Código Postal","Barrio","Notas Contacto","Tipo de documento","Nº de documento","Dirección de facturación","Comentarios","Código Postal","Localidad","Provincia","Razón social","Registro estatal","Condición ante el IVA","Nombre del comprador","Apellido del comprador","Tags","Id factura","Recibe","Medio de envío","Nro de Envío","Id alternativo","Nº de carrito","Notas de envío","Modalidad de envío"],
       mapping: { fechaDia: "Dia", fechaMes: "Mes", fechaAno: "Año", codigo: "SKU", desc: "Artículo", cant: "Cantidad" },
   }},
-  ...["Umiles","Syngenta","Pampa","Massalin","HSBC","Amex"].map((n): ClienteConfig => ({
+  ...["Umiles","Syngenta","Pampa","Massalin","HSBC","Amex","Importados"].map((n): ClienteConfig => ({
     nombre: n, configurado: false, canje: { columnas: [], filaInicio: 2, mapping: { ...DEFAULT_MAPPING } },
   })),
 ];
@@ -79,17 +95,48 @@ const TIPOS_STD  = ["PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as const;
 const TODAY      = new Date().toISOString().slice(0, 10);
 const THIS_MONTH_START = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; })();
 
-const MOCK_VALID_CODES = new Set([
-  "DIR116","DIR174","DIR023","DIR027","DIR154","DIR181","DIR156","DIR201",
-  "DG-4421","DG-4422","DG-4423","DG-3310","DIR183","DIR310","DIR007","DIR008",
-  "DIR013","DIR014","DIR040","DIR233",
-]);
-
 // ── Real Santander data ───────────────────────────────────────────────────────
 
-const SANTANDER_LOTES: Lote[] = (
-  rawSantanderLotes as Array<{ id: string; tipo: string; cliente: string; fecha: string; filas: Record<string, string>[] }>
-).map((l) => ({ ...l, tipo: l.tipo as TipoEgreso }));
+const EXCEL_OPERATION: Record<TipoEgreso, string> = {
+  PASAJE: "PASAJE",
+  ROBO_AJUSTE: "ROBO/AJUSTE",
+  CAMBIO: "CAMBIO",
+  REENVIO: "REENVIO",
+  CANJE: "CANJE",
+};
+
+function normalizeOperation(value: unknown): TipoEgreso {
+  const operation = String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_");
+  if (operation.includes("PASAJE")) return "PASAJE";
+  if (operation.includes("ROBO") || operation.includes("AJUSTE")) return "ROBO_AJUSTE";
+  if (operation.includes("CAMBIO")) return "CAMBIO";
+  if (operation.includes("REENVIO")) return "REENVIO";
+  return "CANJE";
+}
+
+function excelRowsToLotes(rows: Record<string, unknown>[], client: string): Lote[] {
+  return rows.map((row, index) => {
+    const excelRowIndex = Number(row.__rowIndex);
+    const fila = Object.fromEntries(
+      Object.entries(row)
+        .filter(([key]) => !key.startsWith("__"))
+        .map(([key, value]) => [key, String(value ?? "")]),
+    );
+    return {
+      id: `excel-${Number.isInteger(excelRowIndex) ? excelRowIndex : index}`,
+      tipo: normalizeOperation(row["Operación"] ?? row["Operacion"]),
+      cliente: client,
+      fecha: String(row.__date ?? ""),
+      filas: [fila],
+      excelRowIndex: Number.isInteger(excelRowIndex) ? excelRowIndex : undefined,
+    };
+  });
+}
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
@@ -106,12 +153,14 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
   const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
   const ws   = wb.Sheets[wb.SheetNames[sheetIdx] ?? wb.SheetNames[0]];
   const all  = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as string[][];
-  const filas = all.slice(startRow).filter((r) => r.some((c) => String(c).trim())).map((cells) => {
+  const headers = (all[Math.max(0, startRow - 1)] ?? cols).map((cell) => String(cell ?? "").trim());
+  const values = all.slice(startRow).filter((r) => r.some((c) => String(c).trim()));
+  const filas = values.map((cells) => {
     const row: Fila = {};
     cols.forEach((c, i) => { row[c] = String(cells[i] ?? "").trim(); });
     return row;
   });
-  return { filas, sheets: wb.SheetNames };
+  return { filas, values, headers, sheets: wb.SheetNames };
 }
 
 function deriveDisplay(fila: Fila, cfg: ClienteConfig) {
@@ -137,7 +186,7 @@ function deriveDisplay(fila: Fila, cfg: ClienteConfig) {
 // Converts a generic GridRow (from CargaOtrasOp) to the client's native field names
 function toFila(row: GridRow, mapping: FieldMapping): Fila {
   const fila: Fila = {};
-  const { _id, fecha, codigo_cliente, producto, cantidad, destino, comentarios } = row;
+  const { fecha, codigo_cliente, producto, cantidad, destino, comentarios } = row;
 
   // Date: split into day/month/year using mapped column names
   if (fecha) {
@@ -156,30 +205,49 @@ function toFila(row: GridRow, mapping: FieldMapping): Fila {
   return fila;
 }
 
+function toExcelRecord(fila: Fila, tipo: TipoEgreso, config: ClienteConfig) {
+  const record: Fila = { ...fila };
+  const derived = deriveDisplay(fila, config);
+  const display = {
+    fecha: fila.fecha || derived.fecha,
+    codigo: fila.codigo_cliente || derived.codigo,
+    desc: fila.producto || derived.desc,
+    cant: fila.cantidad || derived.cant,
+  };
+  const [year = "", month = "", day = ""] = display.fecha.split("-");
+  const mapping = config.canje.mapping;
+
+  if (day) record[mapping.fechaDia || "Dia"] = String(Number(day));
+  if (month) record[mapping.fechaMes || "Mes"] = String(Number(month));
+  if (year) record[mapping.fechaAno || "Año"] = year;
+  if (display.codigo) record[mapping.codigo || "SKU"] = display.codigo;
+  if (display.desc) record[mapping.desc || "ID"] = display.desc;
+  if (display.cant) record[mapping.cant || "Cantidad"] = display.cant;
+
+  record["Operación"] = EXCEL_OPERATION[tipo];
+  record.Destino = fila.Destino ?? fila.destino ?? "";
+  record.Comentario = fila.Comentario ?? fila.comentarios ?? "";
+  delete record.destino;
+  delete record.comentarios;
+  delete record.fecha;
+  delete record.codigo_cliente;
+  delete record.producto;
+  delete record.cantidad;
+  return record;
+}
+
 function emptyGridRow(cols: ColDef[], id: string, fillFecha = false): GridRow {
   return { _id: id, ...Object.fromEntries(cols.map((c) => [c.key, c.key === "fecha" && fillFecha ? TODAY : ""])) };
 }
 
-function validateRow(row: GridRow, cols: ColDef[]): { missing: boolean; invalidCode: boolean } {
+function validateRow(row: GridRow, cols: ColDef[], validCodes: Set<string>): { missing: boolean; invalidCode: boolean } {
   const missing     = cols.filter((c) => c.required && c.key !== "fecha").some((c) => !row[c.key]?.trim());
-  const code        = row.codigo_cliente?.trim();
-  const invalidCode = !!code && !MOCK_VALID_CODES.has(code);
+  const code        = row.codigo_cliente?.trim().toLowerCase();
+  const invalidCode = !!code && validCodes.size > 0 && !validCodes.has(code);
   return { missing, invalidCode };
 }
 
 // ── Other client mock lotes ───────────────────────────────────────────────────
-
-const OTHER_MOCK_LOTES: Lote[] = [
-  { id: "m1", tipo: "CANJE", cliente: "Credicoop", fecha: "2026-07-10",
-    filas: Array.from({ length: 38 }, (_, i) => ({ "Día":"10","Mes":"7","Año":"2026","IdRedencion":`R${3000+i}`,"Apellido_nombre":`Cliente ${i}`,"Domicilio":"Av. Siempreviva 742","Cantidad":"1","Localidad":"CABA" })) },
-  { id: "m2", tipo: "PASAJE", cliente: "Producteca", fecha: "2026-07-08",
-    filas: [
-      { fecha:"2026-07-08", codigo_cliente:"DG-4421", producto:"Arrocera Hudson", cantidad:"1", destino:"Corrientes", comentarios:"" },
-      { fecha:"2026-07-08", codigo_cliente:"DG-4422", producto:"Waflera B&D",     cantidad:"2", destino:"Corrientes", comentarios:"" },
-    ] },
-  { id: "m3", tipo: "CANJE", cliente: "Producteca", fecha: "2026-06-28",
-    filas: Array.from({ length: 61 }, (_, i) => ({ "Dia":"28","Mes":"6","Año":"2026","Nro Pedido":`PD${4000+i}`,"SKU":`DIR${200+i}`,"Cantidad":"1","Estado del Pedido":"Procesado" })) },
-];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -377,8 +445,8 @@ function ConfigPanel({ config, onChange, onClose }: {
 
 const INITIAL_ROWS = 5;
 
-function CargaOtrasOp({ cliente, cfg, onSave, onCancel }: {
-  cliente: string; cfg: ClienteConfig; onSave: (l: Omit<Lote, "id">) => void; onCancel: () => void;
+function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
+  cliente: string; cfg: ClienteConfig; validCodes: Set<string>; onSave: (l: Omit<Lote, "id">) => void; onCancel: () => void;
 }) {
   const [tipo,       setTipo]       = useState<Exclude<TipoEgreso, "CANJE"> | null>(null);
   const [rows,       setRows]       = useState<GridRow[]>([]);
@@ -448,11 +516,11 @@ function CargaOtrasOp({ cliente, cfg, onSave, onCancel }: {
   }
 
   function addRow()   { setRows((p) => [...p, emptyGridRow(cols, String(Date.now()))]); }
-  function toggleRow(id: string) { setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function toggleRow(id: string) { setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
   function toggleAll() { setSelected(selected.size === rows.length ? new Set() : new Set(rows.map((r) => r._id))); }
   function delSelected() { setRows((p) => p.filter((r) => !selected.has(r._id))); setSelected(new Set()); }
 
-  const validations = rows.map((r) => validateRow(r, cols));
+  const validations = rows.map((r) => validateRow(r, cols, validCodes));
   const hasErrors   = validations.some((v) => v.missing || v.invalidCode);
   const filledRows  = rows.filter((r) => cols.some((c) => c.key !== "fecha" && r[c.key]?.trim()));
 
@@ -584,6 +652,9 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
   const [xlSheets,   setXlSheets]   = useState<string[]>([]);
   const [xlSheetIdx, setXlSheetIdx] = useState(0);
   const [xlFilas,    setXlFilas]    = useState<Fila[]>([]);
+  const [xlValues,   setXlValues]   = useState<unknown[][]>([]);
+  const [xlHeaders,  setXlHeaders]  = useState<string[]>([]);
+  const [xlHash,     setXlHash]     = useState("");
   const [xlLoading,  setXlLoading]  = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cols    = config.canje.columnas;
@@ -594,14 +665,19 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     setXlFile(file); setXlLoading(true);
-    try   { const r = await readExcel(file, xlSheetIdx, config.canje.filaInicio, cols); setXlSheets(r.sheets); setXlFilas(r.filas); }
+    try   {
+      const r = await readExcel(file, xlSheetIdx, config.canje.filaInicio, cols);
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      setXlHash(Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+      setXlSheets(r.sheets); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers);
+    }
     catch { setXlFilas([]); }
     finally { setXlLoading(false); }
   }
   async function onSheetChange(idx: number) {
     setXlSheetIdx(idx); if (!xlFile || !cols.length) return;
     setXlLoading(true);
-    try   { const r = await readExcel(xlFile, idx, config.canje.filaInicio, cols); setXlFilas(r.filas); }
+    try   { const r = await readExcel(xlFile, idx, config.canje.filaInicio, cols); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); }
     catch { setXlFilas([]); }
     finally { setXlLoading(false); }
   }
@@ -617,7 +693,7 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
       </div>
       {!cols.length ? (
         <div className="rounded-xl border border-[#f5d4d4] bg-[#fff5f5] px-4 py-4 text-[11px] text-[#b7433f]">
-          Este cliente no tiene columnas configuradas. Usá "Configurar columnas CANJE" primero.
+          Este cliente no tiene columnas configuradas. Usá &quot;Configurar columnas CANJE&quot; primero.
         </div>
       ) : (
         <>
@@ -667,7 +743,26 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
       )}
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
-        <Button onClick={() => active.length && onSave({ tipo: "CANJE", cliente: config.nombre, fecha, filas: active })} disabled={!active.length}>
+        <Button onClick={() => active.length && onSave({
+          tipo: "CANJE",
+          cliente: config.nombre,
+          fecha,
+          filas: active,
+          source: mode === "excel"
+            ? {
+                type: "FILE",
+                fileName: xlFile?.name,
+                fileHash: xlHash,
+                sheetName: xlSheets[xlSheetIdx] ?? "",
+                headers: xlHeaders.length ? xlHeaders : cols,
+                values: xlValues,
+              }
+            : {
+                type: "PASTE",
+                headers: cols,
+                values: raw.trim().split("\n").filter((line) => line.trim()).map((line) => line.split("\t")),
+              },
+        })} disabled={!active.length}>
           <Check size={15} /> {active.length > 0 ? `Confirmar ${active.length} filas` : "Confirmar"}
         </Button>
       </div>
@@ -693,7 +788,8 @@ function TipoFilterDropdown({ selected, onChange }: {
 
   function toggle(t: TipoEgreso) {
     const n = new Set(selected);
-    n.has(t) ? n.delete(t) : n.add(t);
+    if (n.has(t)) n.delete(t);
+    else n.add(t);
     onChange(n);
   }
 
@@ -786,13 +882,12 @@ function ColPicker({ visibleCols, allKeys, onAdd, onRemove, onMove, onClose }: {
 // ── Column definitions ────────────────────────────────────────────────────────
 
 const CANONICAL_COLS = [
+  { key: "cliente", label: "Cliente"              },
   { key: "tipo",   label: "Tipo"                 },
   { key: "codigo", label: "Código cliente / SKU" },
   { key: "desc",   label: "Descripción"          },
   { key: "cant",   label: "Cant."                },
 ] as const;
-
-const CANONICAL_KEY_SET = new Set(CANONICAL_COLS.map((c) => c.key));
 
 function colLabel(k: string): string {
   return CANONICAL_COLS.find((c) => c.key === k)?.label ?? k;
@@ -801,17 +896,19 @@ function colLabel(k: string): string {
 // ── FlatHistoryTable ──────────────────────────────────────────────────────────
 
 type FlatRow = {
-  key: string; loteId: string; rowIdx: number; tipo: TipoEgreso;
+  key: string; loteId: string; rowIdx: number; cliente: string; tipo: TipoEgreso;
   fecha: string; codigo: string; desc: string; cant: string; raw: Fila;
 };
 
-function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }: {
+function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, onRangeChange }: {
   lotes: Lote[]; configs: ClienteConfig[]; cliente: string;
   onDeleteRows: (targets: { loteId: string; rowIdx: number }[]) => void;
   onUpdateRow: (loteId: string, rowIdx: number, fila: Fila) => void;
+  onRangeChange: (from: string, to: string) => void;
 }) {
   const [desde,        setDesde]        = useState(THIS_MONTH_START);
   const [hasta,        setHasta]        = useState(TODAY);
+  useEffect(() => { onRangeChange(desde, hasta); }, [desde, hasta, onRangeChange]);
   const [tipoFilter,   setTipoFilter]   = useState<Set<TipoEgreso>>(new Set());
   const [search,       setSearch]       = useState("");
   const [sortCol,      setSortCol]      = useState<string>("fecha");
@@ -828,7 +925,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
       const cfg = configs.find((c) => c.nombre === lote.cliente) ?? configs[0];
       return lote.filas.map((fila, ri) => {
         const d = deriveDisplay(fila, cfg);
-        return { key: `${lote.id}-${ri}`, loteId: lote.id, rowIdx: ri, tipo: lote.tipo, ...d, raw: fila };
+        return { key: `${lote.id}-${ri}`, loteId: lote.id, rowIdx: ri, cliente: lote.cliente, tipo: lote.tipo, ...d, raw: fila };
       });
     });
   }, [lotes, configs]);
@@ -839,7 +936,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
     const cfg = configs.find((c) => c.nombre === cliente);
     const m   = cfg?.canje.mapping ?? DEFAULT_MAPPING;
     // Internal std-op field names never appear in raw data (they're CargaOtrasOp keys)
-    const keys = new Set<string>(["fecha", "codigo_cliente", "producto", "cantidad", "destino", "comentarios"]);
+    const keys = new Set<string>(["Cliente", "cliente", "fecha", "codigo_cliente", "codigo_unico", "producto", "cantidad", "destino", "comentarios"]);
     if (m.codigo) keys.add(m.codigo);
     if (m.desc)   keys.add(m.desc);
     if (m.cant)   keys.add(m.cant);
@@ -870,7 +967,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
     const datePartKeys = [m.fechaDia, m.fechaMes, m.fechaAno].filter(Boolean);
     const datePartSet  = new Set(datePartKeys);
     const otherRaw     = allRawKeys.filter((k) => !datePartSet.has(k));
-    return ["tipo", ...datePartKeys, "codigo", "desc", "cant", ...otherRaw];
+    return ["ID egreso", "cliente", "tipo", ...datePartKeys, "codigo", "desc", "cant", ...otherRaw.filter(k => k !== "ID egreso")];
   }, [allRawKeys, configs, cliente]);
 
   // Per-client persistence — reconcile saved list against current available keys
@@ -889,6 +986,8 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
         const available = new Set(allDisplayKeys);
         const filtered  = savedList.filter((k) => available.has(k));
         const missing   = allDisplayKeys.filter((k) => !savedList.includes(k));
+        // Restore the user's persisted column layout for the selected client.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setVisibleCols([...filtered, ...missing]);
       } else {
         setVisibleCols([...allDisplayKeys]);
@@ -896,7 +995,6 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
     } catch {
       setVisibleCols([...allDisplayKeys]);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente, allDisplayKeys]);
 
   useEffect(() => {
@@ -920,6 +1018,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
       .sort((a, b) => {
         let cmp = 0;
         if      (sortCol === "fecha" || dateParts.has(sortCol)) cmp = a.fecha.localeCompare(b.fecha);
+        else if (sortCol === "cliente") cmp = a.cliente.localeCompare(b.cliente);
         else if (sortCol === "tipo")   cmp = a.tipo.localeCompare(b.tipo);
         else if (sortCol === "codigo") cmp = a.codigo.localeCompare(b.codigo);
         else if (sortCol === "desc")   cmp = a.desc.localeCompare(b.desc);
@@ -932,21 +1031,24 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
         }
         return sortDir === "asc" ? cmp : -cmp;
       });
-  }, [allFlat, hasFilter, tipoFilter, desde, hasta, search, sortCol, sortDir]);
+  }, [allFlat, hasFilter, tipoFilter, desde, hasta, search, sortCol, sortDir, dateParts]);
 
   const allSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.key));
   function toggleAll() {
     if (allSelected) setSelected((s) => { const n = new Set(s); filtered.forEach((r) => n.delete(r.key)); return n; });
     else             setSelected((s) => { const n = new Set(s); filtered.forEach((r) => n.add(r.key)); return n; });
   }
-  function toggleRow(key: string) { setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; }); }
+  function toggleRow(key: string) { setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; }); }
   function toggleSort(col: string) {
     if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortCol(col); setSortDir("desc"); }
   }
 
   function addCol(k: string)    { setVisibleCols((p) => [...p, k]); }
-  function removeCol(k: string) { setVisibleCols((p) => p.filter((c) => c !== k)); }
+  function removeCol(k: string) {
+    if (k === "cliente") return;
+    setVisibleCols((p) => p.filter((c) => c !== k));
+  }
   function moveCol(k: string, dir: -1 | 1) {
     setVisibleCols((p) => {
       const i = p.indexOf(k);
@@ -982,6 +1084,17 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
 
       {/* Filters: fechas → tipo → búsqueda */}
       <div className="flex flex-wrap items-end gap-3 border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-4">
+        <label className="text-xs">Fechas rápidas
+          <select aria-label="Fechas relativas" defaultValue="month" className="ml-2 h-9 rounded-lg border border-[#dbe4ef] bg-white px-2" onChange={e => {
+            if (!e.target.value) return;
+            const range = relativeDates(e.target.value as RelativeDateRange); setDesde(range.from); setHasta(range.to);
+            e.target.value = "";
+          }}>
+            <option value="">Personalizado</option><option value="today">Hoy</option><option value="yesterday">Ayer</option>
+            <option value="7days">Últimos 7 días</option><option value="30days">Últimos 30 días</option>
+            <option value="month">Este mes</option><option value="lastMonth">Mes anterior</option>
+          </select>
+        </label>
         {/* Date range */}
         <div className="flex items-center gap-2">
           <label className={`${L} flex items-center gap-1.5`}>
@@ -1015,7 +1128,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
         {selectedRows.length > 0 && (
           <button type="button" onClick={() => setDeleteTarget(selectedRows)}
             className="flex items-center gap-1.5 rounded-md border border-[#f0cfcc] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#b7433f] hover:bg-[#fff0ef]">
-            <Trash2 size={11} /> Eliminar {selectedRows.length} {selectedRows.length === 1 ? "fila" : "filas"}
+            <Trash2 size={11} /> Inactivar {selectedRows.length} {selectedRows.length === 1 ? "fila" : "filas"}
           </button>
         )}
         <div className="relative ml-auto">
@@ -1066,7 +1179,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
                         <Pencil size={11} />
                       </button>
                       <button type="button" onClick={() => setDeleteTarget([row])}
-                        className="grid h-6 w-6 place-items-center rounded border border-[#f0cfcc] text-[#b7433f] hover:bg-[#fff0ef]" title="Eliminar">
+                        className="grid h-6 w-6 place-items-center rounded border border-[#f0cfcc] text-[#b7433f] hover:bg-[#fff0ef]" title="Inactivar">
                         <Trash2 size={11} />
                       </button>
                     </div>
@@ -1078,6 +1191,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
                         <span className={`rounded-md px-2 py-0.5 text-[9px] font-black ${TIPO_COLORS[row.tipo]}`}>{TIPO_LABELS[row.tipo]}</span>
                       </td>
                     );
+                    if (k === "cliente") return <td key={k} className={`${td} font-bold text-[#10233f]`}>{row.cliente}</td>;
                     if (k === "codigo") return <td key={k} className={`${td} font-mono text-xs`}>{row.codigo || "—"}</td>;
                     if (k === "desc")   return <td key={k} className={`${td} max-w-[200px] truncate text-[#425979]`} title={row.desc}>{row.desc || "—"}</td>;
                     if (k === "cant")   return <td key={k} className={`${td} text-right tabular-nums font-semibold`}>{row.cant || "—"}</td>;
@@ -1105,8 +1219,8 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
 
       {/* Delete confirm */}
       {deleteTarget !== null && (
-        <Modal title={`Eliminar ${deleteTarget.length} ${deleteTarget.length === 1 ? "fila" : "filas"}`} onClose={() => setDeleteTarget(null)}>
-          <p className="text-[12px] text-[#62728a]">¿Confirmás? Esta acción no se puede deshacer.</p>
+        <Modal title={`Inactivar ${deleteTarget.length} ${deleteTarget.length === 1 ? "fila" : "filas"}`} onClose={() => setDeleteTarget(null)}>
+          <p className="text-[12px] text-[#62728a]">Los egresos dejarán de estar activos y de contar en Stock. Se conserva el respaldo original.</p>
           <div className="mt-3 max-h-48 overflow-auto rounded-xl border border-[#dbe4ef] bg-[#f8fafd] p-3 text-[10px]">
             {deleteTarget.map((r) => (
               <div key={r.key} className="py-0.5">
@@ -1122,7 +1236,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow }
               setSelected((s) => { const n = new Set(s); deleteTarget.forEach((r) => n.delete(r.key)); return n; });
               setDeleteTarget(null);
             }} className="bg-[#b7433f] hover:bg-[#922e2b] focus:ring-[#f5d4d4]">
-              <Trash2 size={15} /> Eliminar
+              <Trash2 size={15} /> Inactivar
             </Button>
           </div>
         </Modal>
@@ -1148,8 +1262,19 @@ function EditForm({ fila, tipo, configs, cliente, onSave, onCancel }: {
   fila: Fila; tipo: TipoEgreso; configs: ClienteConfig[]; cliente: string;
   onSave: (f: Fila) => void; onCancel: () => void;
 }) {
-  const [data, setData] = useState({ ...fila });
   const cfg     = configs.find((c) => c.nombre === cliente) ?? configs[0];
+  const display = deriveDisplay(fila, cfg);
+  const [data, setData] = useState<Fila>({
+    ...fila,
+    ...(tipo === "CANJE" ? {} : {
+      fecha: display.fecha,
+      codigo_cliente: display.codigo,
+      producto: display.desc,
+      cantidad: display.cant,
+      destino: fila.Destino ?? fila.destino ?? "",
+      comentarios: fila.Comentario ?? fila.comentarios ?? "",
+    }),
+  });
   const colDefs = tipo === "CANJE"
     ? cfg.canje.columnas.map((c) => ({ key: c, label: c }))
     : (STD_COLS[tipo as Exclude<TipoEgreso, "CANJE">] ?? []);
@@ -1179,20 +1304,155 @@ function EditForm({ fila, tipo, configs, cliente, onSave, onCancel }: {
 // ── EgressWorkspace ───────────────────────────────────────────────────────────
 
 export function EgressWorkspace() {
+  const latestLoad = useRef(0);
+  const [batches, setBatches] = useState<EgressBatchOption[]>([]);
+  const [historyRange, setHistoryRange] = useState({ from: THIS_MONTH_START, to: TODAY });
+  const onRangeChange = useCallback((from: string, to: string) => {
+    setHistoryRange(current => current.from === from && current.to === to ? current : { from, to });
+  }, []);
   const [configs, setConfigs] = useState<ClienteConfig[]>(INITIAL_CONFIGS);
-  const [lotes,   setLotes]   = useState<Lote[]>([...SANTANDER_LOTES, ...OTHER_MOCK_LOTES]);
+  const [lotes,   setLotes]   = useState<Lote[]>([]);
   const [cliente, setCliente] = useState(INITIAL_CONFIGS[0].nombre);
   const [view,    setView]    = useState<"list" | "ops" | "canje" | "config">("list");
+  const [status,  setStatus]  = useState("Leyendo egresos desde PostgreSQL...");
+  const [saving,  setSaving]  = useState(false);
+  const [validCodesByClient, setValidCodesByClient] = useState<Record<string, string[]>>({});
 
   const cfg          = configs.find((c) => c.nombre === cliente) ?? configs[0];
   const clienteLotes = lotes.filter((l) => l.cliente === cliente);
 
-  function addLote(data: Omit<Lote, "id">) {
-    setLotes((prev) => [{ ...data, id: String(Date.now()) }, ...prev]);
-    setView("list");
+  const loadEgresses = useCallback(async (selectedClient: string) => {
+    const loadId = ++latestLoad.current;
+    const query = new URLSearchParams({ client: selectedClient, limit: "5000", ...historyRange });
+    const response = await fetch(`/api/local-db/egresos?${query}`);
+    const data = (await response.json()) as {
+      rows?: Record<string, unknown>[];
+      batches?: EgressBatchOption[];
+      summary?: Array<{ client: string; rows: number }>;
+      message?: string;
+    };
+    if (!response.ok) throw new Error(data.message || "No se pudo leer la base de egresos.");
+    if (loadId !== latestLoad.current) return;
+    setBatches(data.batches ?? []);
+    const excelLotes = excelRowsToLotes(data.rows ?? [], selectedClient);
+    const totalRows = data.summary?.find((item) => item.client === selectedClient)?.rows;
+    setLotes((current) => [
+      ...excelLotes,
+      ...current.filter((lote) => lote.cliente !== selectedClient),
+    ]);
+    setStatus(
+      totalRows && totalRows > excelLotes.length
+        ? `${excelLotes.length.toLocaleString()} egresos recientes cargados de ${totalRows.toLocaleString()} filas en PostgreSQL.`
+        : `${excelLotes.length.toLocaleString()} egresos de ${selectedClient} cargados.`,
+    );
+  }, [historyRange]);
+
+  useEffect(() => {
+    // The async loader synchronizes the UI with the canonical egress table.
+    void loadEgresses(cliente).catch((error: unknown) => {
+      setStatus(error instanceof Error ? error.message : "No se pudo leer la base de egresos.");
+    });
+  }, [cliente, loadEgresses]);
+
+  useEffect(() => {
+    fetch("/api/local-db/egress-profiles")
+      .then(async (response) => {
+        const data = await response.json() as {
+          profiles?: Array<{
+            client: string;
+            headerRow: number;
+            columns: string[];
+            mapping: Record<string, string[]>;
+          }>;
+          message?: string;
+        };
+        if (!response.ok) throw new Error(data.message || "No se pudieron cargar los perfiles de egresos.");
+        const next = (data.profiles ?? []).map((profile): ClienteConfig => ({
+          nombre: profile.client,
+          configurado: true,
+          canje: {
+            columnas: profile.columns,
+            filaInicio: profile.headerRow,
+            mapping: {
+              fechaDia: profile.mapping.dateDay?.[0] ?? "",
+              fechaMes: profile.mapping.dateMonth?.[0] ?? "",
+              fechaAno: profile.mapping.dateYear?.[0] ?? "",
+              codigo: profile.mapping.clientCode?.[0] ?? "",
+              desc: profile.mapping.product?.[0] ?? "",
+              cant: profile.mapping.quantity?.[0] ?? "",
+            },
+          },
+        }));
+        if (next.length) setConfigs(next);
+      })
+      .catch((error: unknown) => setStatus(error instanceof Error ? error.message : "No se pudieron cargar los perfiles."));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/lookups?kind=client-codes")
+      .then((response) => response.json())
+      .then((data: { mappings?: Array<{ client: string; clientCode: string; active: boolean }> }) => {
+        const grouped: Record<string, string[]> = {};
+        for (const mapping of data.mappings ?? []) {
+          if (!mapping.active || !mapping.clientCode) continue;
+          grouped[mapping.client] = [...(grouped[mapping.client] ?? []), mapping.clientCode.toLowerCase()];
+        }
+        setValidCodesByClient(grouped);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function addLote(data: Omit<Lote, "id">) {
+    setSaving(true);
+    setStatus(`Guardando egresos de ${data.cliente}...`);
+    try {
+      const response = await fetch("/api/local-db/egresos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client: data.cliente,
+          records: data.filas.map((fila) => toExcelRecord(fila, data.tipo, cfg)),
+          source: data.source ?? { type: "MANUAL" },
+        }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "No se pudo guardar en PostgreSQL.");
+      await loadEgresses(data.cliente);
+      setStatus(result.message || "Egresos guardados.");
+      setView("list");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "No se pudieron guardar los egresos.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function deleteRows(targets: { loteId: string; rowIdx: number }[]) {
+  async function deleteRows(targets: { loteId: string; rowIdx: number }[]) {
+    const excelRowIndexes = targets
+      .map((target) => lotes.find((lote) => lote.id === target.loteId)?.excelRowIndex)
+      .filter((rowIndex): rowIndex is number => rowIndex !== undefined);
+    if (excelRowIndexes.length > 0) {
+      const targetClient = lotes.find((lote) => lote.id === targets[0]?.loteId)?.cliente ?? cliente;
+      setSaving(true);
+      setStatus("Inactivando egresos de PostgreSQL...");
+      try {
+        const response = await fetch("/api/local-db/egresos", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client: targetClient, rowIndexes: excelRowIndexes }),
+        });
+        const result = (await response.json()) as { message?: string };
+        if (!response.ok) throw new Error(result.message || "No se pudo inactivar egresos.");
+        await loadEgresses(targetClient);
+        setStatus(result.message || "Egresos inactivados.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "No se pudo inactivar egresos.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     const byLote = new Map<string, Set<number>>();
     targets.forEach(({ loteId, rowIdx }) => {
       if (!byLote.has(loteId)) byLote.set(loteId, new Set());
@@ -1209,13 +1469,72 @@ export function EgressWorkspace() {
     );
   }
 
-  function updateRow(loteId: string, rowIdx: number, fila: Fila) {
+  async function updateRow(loteId: string, rowIdx: number, fila: Fila) {
+    const lote = lotes.find((item) => item.id === loteId);
+    if (lote?.excelRowIndex !== undefined) {
+      setSaving(true);
+      setStatus("Actualizando egreso en PostgreSQL...");
+      try {
+        const response = await fetch("/api/local-db/egresos", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client: lote.cliente,
+            rowIndex: lote.excelRowIndex,
+            values: toExcelRecord(fila, lote.tipo, cfg),
+          }),
+        });
+        const result = (await response.json()) as { message?: string };
+        if (!response.ok) throw new Error(result.message || "No se pudo actualizar el Excel.");
+        await loadEgresses(lote.cliente);
+        setStatus(result.message || "Egreso actualizado en PostgreSQL.");
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "No se pudo actualizar el Excel.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     setLotes((prev) => prev.map((l) =>
       l.id !== loteId ? l : { ...l, filas: l.filas.map((f, i) => (i === rowIdx ? fila : f)) }
     ));
   }
 
   function changeCliente(c: string) { setCliente(c); setView("list"); }
+
+  async function saveConfig(config: ClienteConfig) {
+    setConfigs((current) => current.map((item) => item.nombre === config.nombre ? config : item));
+    setStatus(`Guardando configuración de ${config.nombre}...`);
+    const mapping = config.canje.mapping;
+    try {
+      const response = await fetch("/api/local-db/egress-profiles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client: config.nombre,
+          columns: config.canje.columnas,
+          headerRow: config.canje.filaInicio,
+          mapping: {
+            dateDay: mapping.fechaDia ? [mapping.fechaDia] : [],
+            dateMonth: mapping.fechaMes ? [mapping.fechaMes] : [],
+            dateYear: mapping.fechaAno ? [mapping.fechaAno] : [],
+            date: ["Fecha", "Fecha Canje", "Fecha pedido", "Fecha canje"],
+            clientCode: mapping.codigo ? [mapping.codigo] : [],
+            product: mapping.desc ? [mapping.desc] : [],
+            quantity: mapping.cant ? [mapping.cant] : [],
+            destination: ["Destino", "Provincia"],
+            comments: ["Comentario", "Comentarios", "Observaciones"],
+            operation: ["Operación", "Operacion", "Tipo de operacion"],
+          },
+        }),
+      });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message || "No se pudo guardar la configuración.");
+      setStatus(result.message || "Configuración guardada.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "No se pudo guardar la configuración.");
+    }
+  }
 
   return (
     <>
@@ -1246,6 +1565,10 @@ export function EgressWorkspace() {
           ? <span className="rounded-full bg-[#e8fdf0] px-2 py-0.5 text-[9px] font-black text-[#1a8a4a]">configurado</span>
           : <span className="rounded-full bg-[#fdf0e8] px-2 py-0.5 text-[9px] font-black text-[#c0520e]">sin configurar</span>}
 
+        <span className="text-[10px] font-semibold text-[#62728a]">
+          {saving ? "Procesando egresos..." : status}
+        </span>
+
         {cfg.configurado && (
           <div className="ml-auto flex gap-2">
             <Button variant="secondary" onClick={() => setView(view === "ops" ? "list" : "ops")}
@@ -1263,22 +1586,24 @@ export function EgressWorkspace() {
         <div className="mb-5 rounded-2xl border border-[#f5d4c4] bg-[#fff8f4] px-5 py-4">
           <div className="text-sm font-black text-[#7c3a1a]">Cliente sin configurar</div>
           <p className="mt-1 text-[12px] text-[#a05030]">
-            Usá "Configurar columnas CANJE" para definir las columnas del Excel de <strong>{cliente}</strong>.
+            Usá &quot;Configurar columnas CANJE&quot; para definir las columnas del Excel de <strong>{cliente}</strong>.
           </p>
         </div>
       )}
 
       {view === "config" && (
         <ConfigPanel config={cfg}
-          onChange={(c) => setConfigs((p) => p.map((x) => x.nombre === c.nombre ? c : x))}
+          onChange={(c) => void saveConfig(c)}
           onClose={() => setView("list")} />
       )}
-      {view === "ops"   && <CargaOtrasOp cliente={cliente} cfg={cfg} onSave={addLote} onCancel={() => setView("list")} />}
+      {view === "ops"   && <CargaOtrasOp cliente={cliente} cfg={cfg} validCodes={new Set(validCodesByClient[cliente] ?? [])} onSave={addLote} onCancel={() => setView("list")} />}
       {view === "canje" && <CargaCanjeForm config={cfg} onSave={addLote} onCancel={() => setView("list")} />}
 
+      <EgressBulkDeactivate key={cliente} client={cliente} batches={batches} onComplete={() => loadEgresses(cliente)} />
       <FlatHistoryTable
         lotes={clienteLotes} configs={configs} cliente={cliente}
         onDeleteRows={deleteRows} onUpdateRow={updateRow}
+        onRangeChange={onRangeChange}
       />
     </>
   );

@@ -1,16 +1,21 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { costRowChanged, displayedPvcPeriod } from "@/lib/cost-structure-rows";
+import { calculate, proposedPvcNoVat, selectRateConfig } from "@/lib/cost-structure-calculation";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Calculator,
   ChevronDown,
   ChevronUp,
+  Download,
   Save,
   Search,
 } from "lucide-react";
+import { ColumnFormula } from "@/components/domain/column-formula";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { createClientPricePdf, type ClientPriceExportRow } from "@/lib/client-price-pdf";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,7 +40,8 @@ type CostRow = {
   clientCode: string;
   uniqueCode: string;
   costDgUpdatedAt: string | null;
-  publicPriceUpdatedAt: string | null;
+  pvcUpdatedAt: string | null;
+  previousAdjustment?: { period: string; freightNoVat: number; pvcNoVat: number; pvcWithVat: number } | null;
   product: string;
   supplier: string;
   category: string;
@@ -70,10 +76,15 @@ type HistoryRow = {
   profitPercentage: number;
 };
 
+type SaveError = {
+  summary: string;
+  solution: string;
+  technical: string;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const now = new Date();
-const currentPeriodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const currentMonth = now.getMonth() + 1;
 const currentYear = now.getFullYear();
 
@@ -104,59 +115,6 @@ function displayPeriod(value: string | null) {
   const [y, m] = value.split("-");
   return y && m ? `${m}/${y}` : value;
 }
-
-type CalcResult = {
-  ppNoVat: number;
-  costoBreakdown: Array<RateItem & { amount: number }>;
-  precioBreakdown: Array<RateItem & { amount: number }>;
-  totalCost: number;
-  profit: number;
-  profitPct: number;
-};
-
-function calculate(row: CostRow, costoItems: RateItem[], precioItems: RateItem[]): CalcResult {
-  const ppNoVat = row.vatRate > 0 ? round2(row.publicPrice / (1 + row.vatRate / 100)) : row.publicPrice;
-  const costoBreakdown = costoItems.map((r) => ({
-    ...r,
-    amount: round2((row.costDgNoVat * r.valuePct) / 100),
-  }));
-  const precioBreakdown = precioItems.map((r) => ({
-    ...r,
-    amount: round2((row.pvcNoVat * r.valuePct) / 100),
-  }));
-  const totalCost = round2(
-    row.costDgNoVat +
-      costoBreakdown.reduce((s, r) => s + r.amount, 0) +
-      precioBreakdown.reduce((s, r) => s + r.amount, 0) +
-      row.freightNoVat,
-  );
-  const profit = round2(row.pvcNoVat - totalCost);
-  const profitPct = totalCost === 0 ? 0 : round2((profit / totalCost) * 100);
-  return { ppNoVat, costoBreakdown, precioBreakdown, totalCost, profit, profitPct };
-}
-
-// Closed-form formula: pvcNoVat = A(1+p) / (1 - R(1+p))
-// A = costDg × (1 + Σ costoRates) + freight
-// R = Σ precioRates (as fractions)
-// p = targetProfitPct / 100
-function proposedPvcNoVat(
-  costDg: number,
-  freight: number,
-  targetProfitPct: number,
-  costoItems: RateItem[],
-  precioItems: RateItem[],
-): number | null {
-  const p = targetProfitPct / 100;
-  const costoSum = costoItems.reduce((s, r) => s + r.valuePct / 100, 0);
-  const A = costDg * (1 + costoSum) + freight;
-  const R = precioItems.reduce((s, r) => s + r.valuePct / 100, 0);
-  const denominator = 1 - R * (1 + p);
-  if (denominator <= 0 || !Number.isFinite(denominator)) return null;
-  return round2((A * (1 + p)) / denominator);
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
 export function CostStructureWorkspace() {
   const [clientList, setClientList] = useState<ClientData[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
@@ -168,6 +126,7 @@ export function CostStructureWorkspace() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("Elegí un cliente y cargá la estructura.");
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const [inactiveStockOpen, setInactiveStockOpen] = useState(true);
@@ -185,7 +144,7 @@ export function CostStructureWorkspace() {
   const [showRates, setShowRates] = useState(false);
 
   const [sortKey, setSortKey] = useState<
-    "costDgUpdatedAt" | "publicPriceUpdatedAt" | "profitAmt" | "profitPct" | null
+    "costDgUpdatedAt" | "pvcUpdatedAt" | "profitAmt" | "profitPct" | null
   >(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -209,16 +168,26 @@ export function CostStructureWorkspace() {
   const [supplierFilter, setSupplierFilter] = useState("");
 
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
+  const latestLoad = useRef(0);
 
   // ── Data loading ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetch("/api/local-db/clients")
+    fetch("/api/lookups?kind=clients")
       .then((r) => r.json())
       .then((data: { clients: ClientData[] }) => {
         const list = data.clients ?? [];
         setClientList(list);
-        if (list.length > 0) setClient(list[0].name);
+        let remembered = "";
+        try {
+          remembered = localStorage.getItem("dg:cost-structure:client") ?? "";
+          const period = localStorage.getItem("dg:cost-structure:period") ?? "";
+          if (/^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= `${currentYear}-${String(currentMonth).padStart(2, "0")}`) {
+            const [year, month] = period.split("-");
+            setSaveYear(year); setSaveMonth(String(Number(month)));
+          }
+        } catch { /* Storage may be unavailable. */ }
+        if (list.length > 0) setClient(list.find(c => c.name === remembered)?.name ?? list[0].name);
       })
       .catch(() => setStatus("No se pudieron cargar los clientes."))
       .finally(() => setClientsLoading(false));
@@ -229,12 +198,8 @@ export function CostStructureWorkspace() {
   const activeRateConfig = useMemo(() => {
     const cd = clientList.find((c) => c.name === client);
     if (!cd) return null;
-    return (
-      cd.configs
-        .filter((cfg) => cfg.effectiveFrom <= currentPeriodKey)
-        .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] ?? null
-    );
-  }, [clientList, client]);
+    return selectRateConfig(cd.configs, `${saveYear}-${saveMonth.padStart(2, "0")}`);
+  }, [clientList, client, saveMonth, saveYear]);
 
   const costoRates = useMemo(
     () => activeRateConfig?.items.filter((r) => r.applies && r.appliesTo === "COSTO") ?? [],
@@ -280,12 +245,14 @@ export function CostStructureWorkspace() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  async function loadStructure(overrideMonth?: number, overrideYear?: number) {
+  const loadStructure = useCallback(async () => {
     if (!client) return;
-    const m = overrideMonth ?? Number(saveMonth);
-    const y = overrideYear ?? Number(saveYear);
+    const loadId = ++latestLoad.current;
+    const m = Number(saveMonth);
+    const y = Number(saveYear);
     setLoading(true);
     setSaved(false);
+    setSaveError(null);
     setSelectedIds(new Set());
     setProposedIds(new Set());
     setExpandedIds(new Set());
@@ -295,17 +262,27 @@ export function CostStructureWorkspace() {
         `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&month=${m}&year=${y}`,
       );
       const data = (await res.json()) as { rows: CostRow[]; message?: string };
+      if (loadId !== latestLoad.current) return;
       if (!res.ok) throw new Error(data.message || "No pude cargar");
       setRows(data.rows);
       setOriginalRows(data.rows);
       setStatus(data.message || "Estructura cargada.");
+      try { localStorage.setItem("dg:cost-structure:period", `${y}-${String(m).padStart(2, "0")}`); } catch { /* Storage is optional. */ }
     } catch (err) {
+      if (loadId !== latestLoad.current) return;
       setRows([]);
       setStatus(err instanceof Error ? err.message : "Error al cargar.");
     } finally {
-      setLoading(false);
+      if (loadId === latestLoad.current) setLoading(false);
     }
-  }
+  }, [client, saveMonth, saveYear]);
+
+  useEffect(() => {
+    // Synchronize the table with the selected server-side client and period.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadStructure();
+    return () => { latestLoad.current += 1; };
+  }, [loadStructure]);
 
   function updateRow(
     id: string,
@@ -377,41 +354,130 @@ export function CostStructureWorkspace() {
   }
 
   function pendingChanges() {
-    const origMap = new Map(originalRows.map((r) => [r.id, r]));
-    return rows.filter((row) => {
-      const orig = origMap.get(row.id);
-      if (!orig) return false;
-      return (
-        Math.abs(row.freightNoVat - orig.freightNoVat) > 0.001 ||
-        Math.abs(row.pvcNoVat - orig.pvcNoVat) > 0.001 ||
-        Math.abs(row.pvcWithVat - orig.pvcWithVat) > 0.001
-      );
-    });
+    return rows.filter(row => costRowChanged(row, origMap.get(row.id)));
   }
 
   async function saveStructure() {
-    if (rows.length === 0) return;
+    const changes = pendingChanges();
+    if (changes.length === 0) return;
     setSaving(true);
+    setSaveError(null);
     setStatus("Guardando...");
     try {
       const res = await fetch("/api/local-db/cost-structures", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, month: Number(saveMonth), year: Number(saveYear), rows }),
+        body: JSON.stringify({ client, month: Number(saveMonth), year: Number(saveYear), rows: changes }),
       });
-      const data = (await res.json()) as { ok?: boolean; message?: string };
-      if (!res.ok || data.ok === false) throw new Error(data.message || "Error al guardar");
+      const responseText = await res.text();
+      let data: { ok?: boolean; message?: string } = {};
+      try {
+        data = responseText ? JSON.parse(responseText) as { ok?: boolean; message?: string } : {};
+      } catch {
+        data = {};
+      }
+      if (!res.ok || data.ok === false) {
+        const fallbackDetail = responseText
+          ? `HTTP ${res.status}: ${responseText.slice(0, 500)}`
+          : `HTTP ${res.status}: respuesta vacía del servidor`;
+        throw new Error(data.message || fallbackDetail);
+      }
       setStatus(data.message || "Estructura guardada.");
       setProposedIds(new Set());
-      setOriginalRows(rows);
+      const changedIds = new Set(changes.map(row => row.id));
+      const committed = rows.map(row => changedIds.has(row.id)
+        ? { ...row, pvcUpdatedAt: `${saveYear}-${saveMonth.padStart(2, "0")}`,
+            previousAdjustment: !row.previousAdjustment || row.previousAdjustment.period <= `${saveYear}-${saveMonth.padStart(2, "0")}`
+              ? { period: `${saveYear}-${saveMonth.padStart(2, "0")}`, freightNoVat: row.freightNoVat, pvcNoVat: row.pvcNoVat, pvcWithVat: row.pvcWithVat }
+              : row.previousAdjustment }
+        : row);
+      setRows(committed);
+      setOriginalRows(committed);
       setShowConfirmModal(false);
       setSaved(true);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Error al guardar.");
+      const technical = err instanceof Error ? err.message : "Error desconocido al guardar.";
+      const affected = changes.slice(0, 4).map((row) => row.clientCode || row.uniqueCode).join(", ");
+      setStatus("No se pudieron guardar los cambios.");
+      setSaveError({
+        summary: `No se guardaron las ${changes.length} fila${changes.length === 1 ? "" : "s"} modificada${changes.length === 1 ? "" : "s"}${affected ? ` (${affected}${changes.length > 4 ? ", ..." : ""})` : ""}.`,
+        solution: "Revisá que la base de datos esté disponible y volvé a presionar Guardar. Tus cambios siguen visibles en pantalla.",
+        technical,
+      });
+      setShowConfirmModal(false);
       setSaved(false);
     } finally {
       setSaving(false);
     }
+  }
+
+  function exportRows(): ClientPriceExportRow[] {
+    const validity = `${String(saveMonth).padStart(2, "0")}/${saveYear}`;
+    return rows
+      .filter((row) => row.segment === "active")
+      .map((row) => ({
+        clientCode: row.clientCode,
+        uniqueCode: row.uniqueCode,
+        product: row.product,
+        category: row.category,
+        priceWithVat: row.pvcWithVat,
+        validity,
+      }));
+  }
+
+  function downloadBlob(content: BlobPart, type: string, extension: string) {
+    const safeClient = client.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "cliente";
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `precios-${safeClient}-${saveYear}-${String(saveMonth).padStart(2, "0")}.${extension}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportExcel() {
+    const exportable = exportRows();
+    if (exportable.length === 0) return;
+    const XLSX = await import("xlsx");
+    const validity = `${String(saveMonth).padStart(2, "0")}/${saveYear}`;
+    const data = [
+      [`Lista de precios · ${client}`],
+      [`Vigencia: ${validity} · Precios con IVA incluido`],
+      [],
+      ["Código cliente", "Código único", "Producto", "Categoría", "Precio con IVA", "Vigencia"],
+      ...exportable.map((row) => [
+        row.clientCode,
+        row.uniqueCode,
+        row.product,
+        row.category,
+        row.priceWithVat,
+        row.validity,
+      ]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(data);
+    sheet["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+    ];
+    sheet["!cols"] = [
+      { wch: 18 }, { wch: 18 }, { wch: 48 }, { wch: 24 }, { wch: 18 }, { wch: 12 },
+    ];
+    sheet["!autofilter"] = { ref: `A4:F${data.length}` };
+    for (let rowIndex = 4; rowIndex < data.length; rowIndex += 1) {
+      const cell = sheet[`E${rowIndex + 1}`];
+      if (cell) cell.z = '"$" #,##0.00';
+    }
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Precios vigentes");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    downloadBlob(buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx");
+  }
+
+  function exportPdf() {
+    const exportable = exportRows();
+    if (exportable.length === 0) return;
+    const validity = `${String(saveMonth).padStart(2, "0")}/${saveYear}`;
+    downloadBlob(createClientPricePdf(client, validity, exportable), "application/pdf", "pdf");
   }
 
   function updateFreight(id: string, newFreight: number) {
@@ -472,9 +538,9 @@ export function CostStructureWorkspace() {
     if (!sortKey) return rows;
     return [...rows].sort((a, b) => {
       let cmp: number;
-      if (sortKey === "costDgUpdatedAt" || sortKey === "publicPriceUpdatedAt") {
-        const av = a[sortKey] ?? "";
-        const bv = b[sortKey] ?? "";
+      if (sortKey === "costDgUpdatedAt" || sortKey === "pvcUpdatedAt") {
+        const av = (sortKey === "pvcUpdatedAt" ? a.previousAdjustment?.period : a.costDgUpdatedAt) ?? "";
+        const bv = (sortKey === "pvcUpdatedAt" ? b.previousAdjustment?.period : b.costDgUpdatedAt) ?? "";
         if (!av && !bv) return 0;
         if (!av) return 1;
         if (!bv) return -1;
@@ -582,8 +648,11 @@ export function CostStructureWorkspace() {
             <select
               value={client}
               onChange={(e) => {
+                if (pendingChanges().length > 0 && !window.confirm("Hay cambios sin guardar. ¿Cambiar de cliente y descartarlos?")) return;
                 setClient(e.target.value);
+                try { localStorage.setItem("dg:cost-structure:client", e.target.value); } catch { /* Keep selection usable without storage. */ }
                 setSaved(false);
+                setSaveError(null);
                 setRows([]);
               }}
               disabled={clientsLoading}
@@ -627,6 +696,27 @@ export function CostStructureWorkspace() {
             </button>
           )}
         </div>
+
+        {saveError && (
+          <div className="mt-3 rounded-xl border border-[#efb8b5] bg-[#fff1f0] px-4 py-3 text-[11px] text-[#7c2f2b]" role="alert">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-[#b7433f]" />
+              <div className="min-w-0 flex-1">
+                <div className="font-black text-[#9b3732]">No se pudo guardar</div>
+                <div className="mt-1 font-semibold">{saveError.summary}</div>
+                <div className="mt-1">
+                  <span className="font-bold">Qué hacer:</span> {saveError.solution}
+                </div>
+                <details className="mt-2 rounded-lg border border-[#efcfcd] bg-white/70 px-3 py-2">
+                  <summary className="cursor-pointer font-bold">Ver detalle técnico</summary>
+                  <div className="mt-1 break-words font-mono text-[10px] text-[#694542]">
+                    {saveError.technical}
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Rates panel */}
         {showRates && activeRateConfig && (
@@ -744,7 +834,6 @@ export function CostStructureWorkspace() {
                   if (rows.length > 0) {
                     if (pendingChanges().length > 0 && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${saveYear} y descartar?`)) return;
                     setSaveMonth(newMonth);
-                    loadStructure(Number(newMonth), Number(saveYear));
                   } else {
                     setSaveMonth(newMonth);
                   }
@@ -768,7 +857,6 @@ export function CostStructureWorkspace() {
                     if (pendingChanges().length > 0 && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${newYear} y descartar?`)) return;
                     setSaveYear(String(newYear));
                     setSaveMonth(newMonth);
-                    loadStructure(Number(newMonth), newYear);
                   } else {
                     setSaveYear(String(newYear));
                     setSaveMonth(newMonth);
@@ -782,8 +870,30 @@ export function CostStructureWorkspace() {
               </select>
             </div>
             <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={rows.every((row) => row.segment !== "active")}
+              onClick={() => void exportExcel()}
+              className="h-8 text-[10px]"
+              title="Descargar precios activos en Excel"
+            >
+              <Download size={13} /> Excel
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={rows.every((row) => row.segment !== "active")}
+              onClick={exportPdf}
+              className="h-8 text-[10px]"
+              title="Descargar precios activos en PDF"
+            >
+              <Download size={13} /> PDF
+            </Button>
+            <Button
               onClick={() => setShowConfirmModal(true)}
-              disabled={rows.length === 0 || saving || loading}
+              disabled={pendingChanges().length === 0 || saving || loading}
               size="sm"
               className="h-8 text-[10px]"
             >
@@ -841,21 +951,21 @@ export function CostStructureWorkspace() {
                   <div>Cód.Único</div>
                   <InlineSearch value={uniqueCodeSearch} onChange={setUniqueCodeSearch} />
                 </th>
-                <th
+                <th title="Descripción guardada en estructura; si falta, maestro de productos."
                   className={`${stickyTh} left-[176px] z-50 w-36 shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)]`}
                 >
                   <div>Producto</div>
                   <InlineSearch value={productSearch} onChange={setProductSearch} />
-                </th>
+                <ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
                 {/* Regular cols */}
-                <th className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
+                <th title="Proveedor guardado en estructura; si falta, maestro de productos." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
                   Proveedor
-                </th>
-                <th className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
+                <ColumnFormula text="Proveedor guardado en estructura; si falta, maestro de productos." /></th>
+                <th title="Categoría guardada en estructura; si falta, maestro de productos." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
                   Categoría
-                </th>
+                <ColumnFormula text="Categoría guardada en estructura; si falta, maestro de productos." /></th>
                 {/* Price-file cols — blue tint */}
-                <th
+                <th title="Fecha del último costo proveedor disponible. Puede diferir de la fecha del costo aplicado."
                   className="sticky top-0 z-10 w-14 cursor-pointer select-none border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c] hover:bg-[#cfe0f5]"
                   onClick={() => toggleSort("costDgUpdatedAt")}
                 >
@@ -865,51 +975,51 @@ export function CostStructureWorkspace() {
                       {sortKey === "costDgUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
-                </th>
-                <th className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
+                <ColumnFormula text="Fecha del último costo proveedor disponible. Puede diferir de la fecha del costo aplicado." /></th>
+                <th title="Costo DG aplicado: último costo guardado; si falta, último precio proveedor válido hasta el período." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
                   Costo DG s/IVA
-                </th>
-                <th className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
+                <ColumnFormula text="Costo DG aplicado: último costo guardado; si falta, último precio proveedor válido hasta el período." /></th>
+                <th title="Precio público con IVA / (1 + IVA / 100)." className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
                   PP s/IVA
-                </th>
-                <th className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
+                <ColumnFormula text="Precio público con IVA / (1 + IVA / 100)." /></th>
+                <th title="último precio público positivo hasta el período; si falta, precio público guardado." className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
                   PP c/IVA
-                </th>
+                <ColumnFormula text="último precio público positivo hasta el período; si falta, precio público guardado." /></th>
                 {/* Reference cols (anterior) — Fecha PVC ant primero */}
-                <th
+                <th title="Período del último ajuste guardado de este producto, independientemente del período seleccionado arriba."
                   className="sticky top-0 z-10 w-14 cursor-pointer select-none border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a] hover:bg-[#fce6df]"
-                  onClick={() => toggleSort("publicPriceUpdatedAt")}
+                  onClick={() => toggleSort("pvcUpdatedAt")}
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Fecha PVC ant
                     <span className="text-[7px]">
-                      {sortKey === "publicPriceUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+                      {sortKey === "pvcUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
-                </th>
-                <th className="sticky top-0 z-10 w-16 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
+                <ColumnFormula text="Período del último ajuste guardado de este producto, independientemente del período seleccionado arriba." /></th>
+                <th title="Flete del último ajuste guardado del producto. No se recalcula con el criterio del período seleccionado." className="sticky top-0 z-10 w-16 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
                   Flete ant
-                </th>
-                <th className="sticky top-0 z-10 w-20 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
+                <ColumnFormula text="Flete del último ajuste guardado del producto. No se recalcula con el criterio del período seleccionado." /></th>
+                <th title="Precio de venta cliente sin IVA guardado. Es una referencia histórica." className="sticky top-0 z-10 w-20 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
                   PVC s/IVA ant
-                </th>
-                <th className="sticky top-0 z-10 w-20 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
+                <ColumnFormula text="Precio de venta cliente sin IVA guardado. Es una referencia histórica." /></th>
+                <th title="Precio de venta cliente con IVA guardado. No se recalcula sumando el precio público y el flete." className="sticky top-0 z-10 w-20 border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a]">
                   PVC c/IVA ant
-                </th>
+                <ColumnFormula text="Precio de venta cliente con IVA guardado. No se recalcula sumando el precio público y el flete." /></th>
                 {/* Editable cols — current period */}
-                <th className="sticky top-0 z-10 w-14 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
+                <th title="Conserva el período guardado de cada producto. Solo una fila modificada toma el período seleccionado; se confirma al guardar." className="sticky top-0 z-10 w-14 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
                   Fecha PVC
-                </th>
-                <th className="sticky top-0 z-10 w-16 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
+                <ColumnFormula text="Conserva el período guardado de cada producto. Solo una fila modificada toma el período seleccionado; se confirma al guardar." /></th>
+                <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="sticky top-0 z-10 w-16 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
                   Flete s/IVA
-                </th>
-                <th className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
+                <ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
+                <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
                   PVC s/IVA
-                </th>
-                <th className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
+                <ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
+                <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
                   PVC c/IVA
-                </th>
-                <th
+                <ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
+                <th title="PVC sin IVA − costo total. Costo total = costo DG + flete + cargos sobre costo y precio."
                   className="sticky top-0 z-10 w-16 cursor-pointer select-none border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f] hover:bg-[#d8e8cb]"
                   onClick={() => toggleSort("profitAmt")}
                 >
@@ -919,8 +1029,8 @@ export function CostStructureWorkspace() {
                       {sortKey === "profitAmt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
-                </th>
-                <th
+                <ColumnFormula text="PVC sin IVA − costo total. Costo total = costo DG + flete + cargos sobre costo y precio." /></th>
+                <th title="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%."
                   className="sticky top-0 z-10 w-12 cursor-pointer select-none border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f] hover:bg-[#d8e8cb]"
                   onClick={() => toggleSort("profitPct")}
                 >
@@ -930,7 +1040,7 @@ export function CostStructureWorkspace() {
                       {sortKey === "profitPct" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
-                </th>
+                <ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%." /></th>
                 <th className="sticky top-0 z-10 w-10 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
                   Stock
                 </th>
@@ -1075,20 +1185,20 @@ export function CostStructureWorkspace() {
                       </td>
                       {/* Reference cols — last loaded values (Fecha PVC ant primero) */}
                       <td className="bg-[#fff5f3] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#7a4a3a]">
-                        {displayPeriod(origMap.get(row.id)?.publicPriceUpdatedAt ?? null)}
+                        {displayPeriod(row.previousAdjustment?.period ?? null)}
                       </td>
                       <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
-                        {origMap.has(row.id) ? money(origMap.get(row.id)!.freightNoVat) : "—"}
+                        {row.previousAdjustment ? money(row.previousAdjustment.freightNoVat) : "—"}
                       </td>
                       <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
-                        {origMap.has(row.id) ? money(origMap.get(row.id)!.pvcNoVat) : "—"}
+                        {row.previousAdjustment ? money(row.previousAdjustment.pvcNoVat) : "—"}
                       </td>
                       <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
-                        {origMap.has(row.id) ? money(origMap.get(row.id)!.pvcWithVat) : "—"}
+                        {row.previousAdjustment ? money(row.previousAdjustment.pvcWithVat) : "—"}
                       </td>
                       {/* Fecha PVC actual (período seleccionado) */}
                       <td className="bg-[#fce6df] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#5c2a24]">
-                        {displayPeriod(`${saveYear}-${String(saveMonth).padStart(2, "0")}`)}
+                        {displayPeriod(displayedPvcPeriod(row, origMap.get(row.id), `${saveYear}-${saveMonth.padStart(2, "0")}`))}
                       </td>
                       {/* Flete editable — recalcula PVC manteniendo margen */}
                       <td className="bg-[#fce6df] px-1.5 py-1">
@@ -1203,6 +1313,19 @@ export function CostStructureWorkspace() {
                               </div>
                             </div>
 
+                            <div className="rounded-lg border border-[#c3d0df] bg-white p-3">
+                              <div className="mb-2 font-extrabold text-[#10233f]">Cómo se llega al precio final</div>
+                              <ol className="space-y-2 text-[#334b6b]">
+                                <li>1. Costo DG: ${money(row.costDgNoVat)} + flete sin IVA: ${money(row.freightNoVat)}.</li>
+                                <li>2. Cargos sobre costo: ${money(calc.costoBreakdown.reduce((sum, item) => sum + item.amount, 0))}; sobre PVC sin IVA: ${money(calc.precioBreakdown.reduce((sum, item) => sum + item.amount, 0))}.</li>
+                                <li>3. Costo total: <strong>${money(calc.totalCost)}</strong>.</li>
+                                <li>4. PVC sin IVA: ${money(row.pvcNoVat)}. Utilidad: ${money(row.pvcNoVat)} − ${money(calc.totalCost)} = <strong>${money(calc.profit)}</strong> ({calc.profitPct}% sobre costo).</li>
+                                <li>5. IVA ({row.vatRate}%): ${money(round2(row.pvcNoVat * row.vatRate / 100))}. PVC con IVA calculado: <strong>${money(round2(row.pvcNoVat * (1 + row.vatRate / 100)))}</strong>.</li>
+                              </ol>
+                              <p className="mt-2 text-[#62728a]">El PVC se carga manualmente o se propone por rentabilidad. El precio público es una referencia. Los valores anteriores conservan la referencia cargada.</p>
+                              {Math.abs(row.pvcWithVat - round2(row.pvcNoVat * (1 + row.vatRate / 100))) > 0.02 && <p className="mt-2 font-bold text-[#b7433f]">El PVC con IVA mostrado (${money(row.pvcWithVat)}) difiere del cálculo con la alícuota actual. Revisá el precio antes de guardar.</p>}
+                            </div>
+
                             {/* Costos sobre PVC */}
                             <div>
                               <div className="mb-2 font-extrabold uppercase tracking-wide text-[#62728a]">
@@ -1275,7 +1398,7 @@ export function CostStructureWorkspace() {
                                       )}
                                     </div>
                                     <div className="mt-1 text-[9px]">
-                                      Seleccioná esta fila y usá "Proponer PVC" para
+                                      Seleccioná esta fila y usá &quot;Proponer PVC&quot; para
                                       actualizar el precio manteniendo el margen.
                                     </div>
                                   </div>
@@ -1298,7 +1421,7 @@ export function CostStructureWorkspace() {
                                   <thead>
                                     <tr className="border-b border-[#dbe4ef] text-[9px] font-extrabold text-[#8190a4]">
                                       <th className="pb-1 text-left">Período</th>
-                                      <th className="pb-1 text-right">PVC c/IVA</th>
+                                      <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="pb-1 text-right">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -1393,11 +1516,11 @@ export function CostStructureWorkspace() {
                       <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-left text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Período</th>
                       <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-left text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Cód.</th>
                       <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-left text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Cód.Único</th>
-                      <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-left text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Producto</th>
-                      <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Flete s/IVA</th>
-                      <th className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC s/IVA</th>
-                      <th className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC c/IVA</th>
-                      <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Util.%</th>
+                      <th title="Descripción guardada en estructura; si falta, maestro de productos." className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-left text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Producto<ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
+                      <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Flete s/IVA<ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
+                      <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC s/IVA<ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
+                      <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
+                      <th title="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%." className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Util.%<ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%." /></th>
                       <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-center text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Acciones</th>
                     </tr>
                   </thead>
@@ -1556,11 +1679,11 @@ export function CostStructureWorkspace() {
                     <thead>
                       <tr className="border-b border-[#dbe4ef] text-[9px] font-extrabold uppercase tracking-wide text-[#8190a4]">
                         <th className="pb-2 text-left">Cód.</th>
-                        <th className="pb-2 text-left">Producto</th>
-                        <th className="pb-2 text-right">Flete antes</th>
-                        <th className="pb-2 text-right">Flete después</th>
-                        <th className="pb-2 text-right">PVC c/IVA antes</th>
-                        <th className="pb-2 text-right">PVC c/IVA después</th>
+                        <th title="Descripción guardada en estructura; si falta, maestro de productos." className="pb-2 text-left">Producto<ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
+                        <th title="Flete de referencia al cargar, incluyendo el criterio vigente si existe." className="pb-2 text-right">Flete antes<ColumnFormula text="Flete de referencia al cargar, incluyendo el criterio vigente si existe." /></th>
+                        <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="pb-2 text-right">Flete después<ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
+                        <th title="Precio de venta cliente con IVA guardado. No se recalcula sumando el precio público y el flete." className="pb-2 text-right">PVC c/IVA antes<ColumnFormula text="Precio de venta cliente con IVA guardado. No se recalcula sumando el precio público y el flete." /></th>
+                        <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="pb-2 text-right">PVC c/IVA después<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1606,7 +1729,7 @@ export function CostStructureWorkspace() {
                   >
                     Cancelar
                   </Button>
-                  <Button size="sm" onClick={saveStructure} disabled={saving}>
+                  <Button size="sm" onClick={saveStructure} disabled={saving || changes.length === 0}>
                     <Save size={13} />
                     {saving ? "Guardando..." : "Confirmar y guardar"}
                   </Button>

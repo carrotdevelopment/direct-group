@@ -228,7 +228,7 @@ Motivos:
 La UI de Ingresos lee:
 
 ```txt
-local-data/BASE DE DATOS DG/Consulta ingresos Tango.xlsx
+local-data/BASE DE DATOS DG/En uso/Consulta ingresos Tango.xlsx
 ```
 
 Sirve para validar columnas, filtros, KPIs y experiencia de usuario antes de conectar SQL Server.

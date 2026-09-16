@@ -1,65 +1,46 @@
 # Archivos locales de datos
 
-La web usa archivos Excel/JSON locales desde la carpeta configurada en `DG_LOCAL_DB_DIR`.
+La plataforma lee y escribe las bases operativas desde `DG_LOCAL_DB_DIR`.
+Los datos reales no se versionan: toda la carpeta `local-data/` está ignorada
+por Git.
 
-En esta máquina, si no se define `DG_LOCAL_DB_DIR`, la carpeta por defecto es:
+## Carpeta local recomendada
 
-```text
-C:\Users\ignac\OneDrive - Carrot\Desktop\BASE DE DATOS DG
+```env
+DG_LOCAL_DB_DIR="./local-data/BASE DE DATOS DG/En uso"
 ```
 
-Para que otra persona pueda levantar el proyecto igual en su computadora, tiene que copiar esa carpeta completa y configurar su `.env.local`:
+También se puede usar una ruta absoluta a una carpeta privada de OneDrive o
+Drive. Si la variable no está definida, la aplicación usa automáticamente la
+ruta local anterior.
+
+## Fuentes requeridas actualmente
+
+| Archivo | Hoja esperada | Uso |
+| --- | --- | --- |
+| `Base Productos DG.xlsx` | `Productos` | Catálogo y referencias de producto |
+| `Base Codigo Cliente DG.xlsx` | `Codigos Cliente` | Equivalencias cliente-producto |
+| `Base Proveedores DG.xlsx` | `Proveedores` | Maestro de proveedores |
+| `Base Categorias DG.xlsx` | `Categorias` | Maestro de categorías |
+| `Base Precios DG.xlsx` | `Precios` | Histórico de precios |
+| `Base Clientes DG.xlsx` | `Clientes` | Maestro de clientes |
+| `Base Config Tasas Clientes DG.xlsx` | `Tasas` | Tasas por cliente y vigencia |
+| `Base Estructura Costos Santander DG.xlsx` | `Santander`, `Criterios Flete` | Estructura, histórico de costos y criterios de flete |
+| `Base Stock Santander DG.xlsx` | `Santander` | Datos base de stock |
+| `Base Ingresos DG.xlsx` | `Ingresos` | Ingresos usados en el cálculo de stock |
+| `Consulta ingresos Tango.xlsx` | `Consulta1` | Pantalla de ingresos Tango |
+| `Base Egresos Santander DG.xlsx` | `Santander` | Egresos usados en el cálculo de stock |
+
+La carpeta operativa no requiere archivos JSON. Productos, precios, ingresos,
+egresos, stock y estructura de costos leen y escriben exclusivamente Excel.
+Los criterios de flete se guardan en una segunda hoja del Excel de estructura
+de costos.
+
+## Verificación
 
 ```bash
-DG_LOCAL_DB_DIR="C:\\ruta\\local\\BASE DE DATOS DG"
+npm run data:check
 ```
 
-## Archivos detectados
-
-- `Base Categorias DG.xlsx`
-- `Base Codigo Cliente DG.xlsx`
-- `Base Egresos Amex DG.json`
-- `Base Egresos Amex DG.xlsx`
-- `Base Egresos Credicoop DG.json`
-- `Base Egresos Credicoop DG.xlsx`
-- `Base Egresos HSBC DG.json`
-- `Base Egresos HSBC DG.xlsx`
-- `Base Egresos Importados DG.json`
-- `Base Egresos Importados DG.xlsx`
-- `Base Egresos Massalin DG.json`
-- `Base Egresos Massalin DG.xlsx`
-- `Base Egresos Pampa DG.json`
-- `Base Egresos Pampa DG.xlsx`
-- `Base Egresos Producteca DG.json`
-- `Base Egresos Producteca DG.xlsx`
-- `Base Egresos Santander DG.json`
-- `Base Egresos Santander DG.xlsx`
-- `Base Egresos Syngenta DG.json`
-- `Base Egresos Syngenta DG.xlsx`
-- `Base Egresos Umiles DG.json`
-- `Base Egresos Umiles DG.xlsx`
-- `Base Estructura Costos Santander DG.bak-20260629162929.xlsx`
-- `Base Estructura Costos Santander DG.xlsx`
-- `Base Ingresos DG.json`
-- `Base Ingresos DG.xlsx`
-- `Base Precios DG.json`
-- `Base Precios DG.xlsx`
-- `Base Productos DG.xlsx`
-- `Base Proveedores DG.xlsx`
-- `Base Stock Santander DG.xlsx`
-
-## Recomendación
-
-No subir estos archivos al repo público. Si el repo es privado y se decide versionarlos, usar Git LFS. Ya quedó configurado LFS para:
-
-- `*.xlsx`
-- `*.xls`
-- `*.pdf`
-
-Los archivos `.json` pueden ser grandes; si también se quieren versionar, agregarlos a Git LFS antes de hacer commit.
-
-```bash
-git lfs track "*.json"
-```
-
-La opción más simple para traspaso es compartir la carpeta `BASE DE DATOS DG` por OneDrive/Drive privado y que el otro dev configure `DG_LOCAL_DB_DIR`.
+El mismo diagnóstico está disponible en `/configuracion` y en
+`/api/local-db/health` con la aplicación levantada.

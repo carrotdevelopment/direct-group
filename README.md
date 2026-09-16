@@ -20,6 +20,19 @@ Los datos visibles del dashboard son una capa demo intencional. Permiten validar
 
 Requisitos: Node.js 24 LTS y Docker.
 
+Antes de levantar la aplicación, copiá únicamente los Excel operativos
+enumerados en [`docs/LOCAL-DATA-FILES.md`](docs/LOCAL-DATA-FILES.md) dentro de:
+
+```text
+local-data/BASE DE DATOS DG/En uso
+```
+
+Luego verificá la conexión local:
+
+```bash
+npm run data:check
+```
+
 ```bash
 cp .env.example .env
 docker compose up -d

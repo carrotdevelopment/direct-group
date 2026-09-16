@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TRPCContext } from "./context";
+import { hasModule } from "@/lib/module-access";
 import type { Role } from "@/lib/permissions";
 
 const t = initTRPC.context<TRPCContext>().create({ transformer: superjson });
@@ -12,5 +13,10 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 });
 export const requireRoles = (roles: Role[]) => protectedProcedure.use(({ ctx, next }) => {
   if (!roles.includes(ctx.session.user.role)) throw new TRPCError({ code: "FORBIDDEN" });
+  return next({ ctx });
+});
+
+export const requireModule = (module: string, write = false) => protectedProcedure.use(({ ctx, next }) => {
+  if (!hasModule(ctx.session.user, module) || (write && ctx.session.user.role === "LECTURA")) throw new TRPCError({ code: "FORBIDDEN" });
   return next({ ctx });
 });

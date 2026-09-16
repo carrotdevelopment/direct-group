@@ -2,7 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { inspectLocalDataFolder } from "@/lib/local-data-health";
+import {
+  inspectLocalDataFolder,
+  localDataFileSpecs,
+} from "@/lib/local-data-health";
 
 const tempFolders: string[] = [];
 
@@ -41,5 +44,17 @@ describe("inspectLocalDataFolder", () => {
 
     expect(categories?.exists).toBe(true);
     expect(categories?.reviewRecommended).toBe(true);
+  });
+
+  it("considera lista una carpeta con todas las fuentes Excel activas", () => {
+    const folder = makeTempFolder();
+    for (const file of localDataFileSpecs.filter((item) => item.required)) {
+      fs.writeFileSync(path.join(folder, file.fileName), "source-data");
+    }
+
+    const health = inspectLocalDataFolder(folder);
+
+    expect(health.ok).toBe(true);
+    expect(health.missingRequired).toBe(0);
   });
 });

@@ -1,3 +1,4 @@
+import { requirePageModule } from "@/server/lib/access";
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Boxes, CircleAlert, FileClock, HandCoins, PackageCheck, ShoppingCart, Sparkles, Warehouse } from "lucide-react";
 import { OperationsChart } from "@/components/charts/operations-chart";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,8 @@ const alerts = [
   { title: "Sincronización Tango completa", meta: "246 compras procesadas", color: "bg-[#3d9464]", icon: PackageCheck },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  await requirePageModule("admin");
   return (
     <div>
       <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between animate-enter">

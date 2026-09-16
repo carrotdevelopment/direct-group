@@ -21,11 +21,16 @@ test-results/
 storage/uploads/*
 !storage/uploads/.gitkeep
 
+# Operational Excel/JSON data (kept outside version control)
+/local-data/
+
 # Tooling
 *.tsbuildinfo
 .DS_Store
 npm-debug.log*
 .dev-server*.log
+.codex-*.log
+dev/null/
 
 # Prisma local artifacts
 prisma/*.db

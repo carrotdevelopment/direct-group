@@ -8,6 +8,8 @@ import {
   type ExcelPrice,
   type ExcelProduct,
 } from "@/lib/local-excel-db";
+import { usesPostgres } from "@/lib/data-source";
+import { readProductsFromPostgres } from "@/lib/postgres-replica-db";
 
 type ImportInput = {
   supplier: string;
@@ -169,15 +171,14 @@ function isLikelyProductCode(value: string) {
   return /\d/.test(normalized) && normalized !== "observaciones";
 }
 
-function productsForSupplier(supplier: string) {
+function productsForSupplier(supplier: string, allProducts: ExcelProduct[]) {
   const canonicalSupplier = supplier.trim().toLowerCase();
-  const products = readProductsFromExcel();
-  const exactMatches = products.filter(
+  const exactMatches = allProducts.filter(
     (product) => product.supplier.trim().toLowerCase() === canonicalSupplier,
   );
   if (exactMatches.length) return exactMatches;
   if (canonicalSupplier === "alpaca") {
-    return products.filter((product) =>
+    return allProducts.filter((product) =>
       product.supplier.trim().toLowerCase().includes("alpaca"),
     );
   }
@@ -248,8 +249,8 @@ function rowToPrice(
   };
 }
 
-function parseExcel(input: ImportInput): PriceImportPreview {
-  const products = productsForSupplier(input.supplier);
+function parseExcel(input: ImportInput, allProducts: ExcelProduct[]): PriceImportPreview {
+  const products = productsForSupplier(input.supplier, allProducts);
   const lookup = productLookup(products);
   const workbook = XLSX.read(input.buffer, {
     type: "buffer",
@@ -343,8 +344,9 @@ function parseExcel(input: ImportInput): PriceImportPreview {
 function parseSilvestrinCatalogText(
   textContent: string,
   input: ImportInput,
+  allProducts: ExcelProduct[],
 ): ParsedPdf {
-  const products = productsForSupplier(input.supplier);
+  const products = productsForSupplier(input.supplier, allProducts);
   const lookup = productLookup(products);
   const seen = new Set<string>();
   const unmatched = new Set<string>();
@@ -418,8 +420,9 @@ function findAlpacaPriceNearCode(textContent: string, code: string) {
 function parseAlpacaCatalogText(
   textContent: string,
   input: ImportInput,
+  allProducts: ExcelProduct[],
 ): ParsedPdf {
-  const products = productsForSupplier(input.supplier);
+  const products = productsForSupplier(input.supplier, allProducts);
   const prices: ExcelPrice[] = [];
   let unmatchedCount = 0;
 
@@ -458,15 +461,18 @@ function parseAlpacaCatalogText(
   };
 }
 
-async function parsePdf(input: ImportInput): Promise<PriceImportPreview> {
+async function parsePdf(
+  input: ImportInput,
+  allProducts: ExcelProduct[],
+): Promise<PriceImportPreview> {
   const parser = new PDFParse({ data: input.buffer });
   try {
     const result = await parser.getText();
     const supplier = input.supplier.trim().toUpperCase();
     const parsed = supplier.includes("ALPACA")
-      ? parseAlpacaCatalogText(result.text || "", input)
+      ? parseAlpacaCatalogText(result.text || "", input, allProducts)
       : supplier === "SILVESTRIN"
-        ? parseSilvestrinCatalogText(result.text || "", input)
+        ? parseSilvestrinCatalogText(result.text || "", input, allProducts)
         : { prices: [], unmatchedCount: 0, productCount: 0, warnings: [] };
 
     return {
@@ -496,10 +502,14 @@ async function parsePdf(input: ImportInput): Promise<PriceImportPreview> {
 export async function previewPriceImport(
   input: ImportInput,
 ): Promise<PriceImportPreview> {
+  const productSource = usesPostgres()
+    ? await readProductsFromPostgres()
+    : readProductsFromExcel();
+  const allProducts = productSource.filter((product) => product.active);
   const extension = input.fileName.split(".").pop()?.toLowerCase();
-  if (extension === "pdf") return parsePdf(input);
+  if (extension === "pdf") return parsePdf(input, allProducts);
   if (["xlsx", "xls", "xlsm", "csv"].includes(extension || "")) {
-    return parseExcel(input);
+    return parseExcel(input, allProducts);
   }
   return {
     prices: [],

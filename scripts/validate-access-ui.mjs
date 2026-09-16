@@ -1,0 +1,57 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { PrismaClient } from '@prisma/client';
+import nextEnv from '@next/env';
+nextEnv.loadEnvConfig(process.cwd());
+const db=new PrismaClient();
+const base=process.env.ACCESS_TEST_URL || 'http://localhost:3015';
+const credentials=fs.readFileSync('local-data/private/admin-access.txt','utf8');
+const email=credentials.match(/Email: (.+)/)[1].trim();
+const password=credentials.split('\n')[2].split(': ').slice(1).join(': ').trim();
+const testEmail=`access-ui-${Date.now()}@example.invalid`;
+const testPassword=randomBytes(18).toString('hex');
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+const tabs=await(await fetch('http://localhost:9335/json')).json();
+const ws=new WebSocket(tabs.find(t=>t.type==='page').webSocketDebuggerUrl);
+await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+let seq=0;const pending=new Map();const errors=[];
+ws.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);if(m.error)p.reject(m.error);else p.resolve(m.result);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);});
+const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.text);return r.result.value;};
+const wait=async expression=>{for(let i=0;i<160;i++){try{if(await evaluate(expression))return;}catch{}await pause(150);}throw Error('Timed out: '+expression);};
+const fill=async(selector,value)=>evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw Error('Missing input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+const click=async text=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)});if(!b)throw Error('Missing button');b.click()})()`);
+try {
+ await send('Runtime.enable');await send('Page.enable');await send('Network.enable');await send('Network.clearBrowserCookies');
+ await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+ await send('Page.navigate',{url:base+'/login'});await wait('Object.keys(document.querySelector("form") || {}).some(key => key.startsWith("__reactProps") && typeof document.querySelector("form")[key].onSubmit === "function")');
+ await fill('input[name=email]',email);await fill('input[name=password]','bad-password-123');await evaluate('document.querySelector("form").requestSubmit()');await wait('!!document.querySelector("[role=alert]")');
+ assert.equal(await evaluate('location.pathname'),'/login');
+ await fill('input[name=password]',password);await evaluate('document.querySelector("form").requestSubmit()');await wait('location.pathname === "/dashboard" && [...document.querySelectorAll("a")].some(a=>a.getAttribute("href")==="/permisos")');
+ await evaluate(`document.querySelector('a[href="/permisos"]').click()`);await wait('location.pathname === "/permisos" && !!document.querySelector("tbody tr") && !!document.querySelector("form")');
+ await fill('form input:not([type])','UI validation temporary');await fill('form input[type=email]',testEmail);await fill('form input[type=password]',testPassword);
+ await evaluate('document.querySelector("form fieldset fieldset input[type=checkbox]").click()');
+ await click('Guardar usuario');await wait(`document.querySelector('tbody').textContent.includes(${JSON.stringify(testEmail)})`);
+ await evaluate(`(()=>{const tr=[...document.querySelectorAll('tbody tr')].find(tr=>tr.textContent.includes(${JSON.stringify(testEmail)}));tr.querySelector('button').click()})()`);
+ await wait('document.querySelector("form input[type=email]").value === '+JSON.stringify(testEmail));
+ assert.equal(await evaluate('document.querySelector("form fieldset fieldset input[type=checkbox]").checked'),true);
+ await evaluate('document.querySelectorAll("form fieldset fieldset input[type=checkbox]")[1].click()');
+ await click('Guardar usuario');await wait('document.querySelector("form input[type=email]").value === ""');
+ const saved=await db.user.findUnique({where:{email:testEmail}});assert.deepEqual(saved.moduleAccess,['compras','precios']);
+ fs.writeFileSync('local-data/private/access-permissions-desktop.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ await click('Salir');await wait('location.pathname === "/login" && Object.keys(document.querySelector("form") || {}).some(key => key.startsWith("__reactProps") && typeof document.querySelector("form")[key].onSubmit === "function")');
+ await fill('input[name=email]',testEmail);await fill('input[name=password]',testPassword);await evaluate('document.querySelector("form").requestSubmit()');await wait('location.pathname === "/compras" && !!document.querySelector("nav a")');
+ const hrefs=await evaluate('[...document.querySelectorAll("nav a")].map(a=>a.getAttribute("href"))');assert.ok(hrefs.includes('/compras'));assert.ok(hrefs.includes('/precios'));assert.ok(!hrefs.includes('/permisos'));assert.ok(!hrefs.includes('/clientes'));
+ await send('Page.navigate',{url:base+'/permisos'});await wait('location.pathname === "/sin-acceso"');
+ await click('Salir');await wait('location.pathname === "/login" && Object.keys(document.querySelector("form") || {}).some(key => key.startsWith("__reactProps") && typeof document.querySelector("form")[key].onSubmit === "function")');
+ await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true);
+ fs.writeFileSync('local-data/private/access-login-mobile.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ assert.deepEqual(errors,[]);
+ console.log('PASS browser: invalid/valid login, menu, create/edit via UI, persisted permissions, logout, restricted menu, direct URL denial, mobile login, zero uncaught JS exceptions.');
+} finally {
+ const test=await db.user.findUnique({where:{email:testEmail}});
+ if(test){await db.auditLog.deleteMany({where:{entity:'User',recordId:test.id}});await db.user.delete({where:{id:test.id}});}
+ await db.$disconnect();ws.close();
+}

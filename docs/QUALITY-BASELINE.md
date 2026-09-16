@@ -7,7 +7,7 @@ Este documento resume los controles transversales mínimos para dejar la platafo
 La app usa la carpeta definida por `DG_LOCAL_DB_DIR`. En esta máquina quedó configurada como:
 
 ```env
-DG_LOCAL_DB_DIR="./local-data/BASE DE DATOS DG"
+DG_LOCAL_DB_DIR="./local-data/BASE DE DATOS DG/En uso"
 ```
 
 La carpeta `local-data/` está ignorada por Git para evitar subir bases reales por accidente.

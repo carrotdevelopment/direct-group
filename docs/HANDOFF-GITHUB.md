@@ -38,7 +38,7 @@ La app lee y escribe bases Excel desde `DG_LOCAL_DB_DIR`.
 Si la variable no está definida, usa esta carpeta relativa al proyecto:
 
 ```text
-../../BASE DE DATOS DG
+./local-data/BASE DE DATOS DG/En uso
 ```
 
 Archivos principales esperados/generados:
@@ -48,7 +48,6 @@ Archivos principales esperados/generados:
 - `Base Proveedores DG.xlsx`
 - `Base Categorias DG.xlsx`
 - `Base Precios DG.xlsx`
-- `Base Precios DG.json`
 - `Base Estructura Costos Santander DG.xlsx`
 - `Base Stock Santander DG.xlsx`
 - `Base Ingresos DG.xlsx`
@@ -57,7 +56,7 @@ Archivos principales esperados/generados:
 Para otro desarrollador, copiar la carpeta real de bases Excel y configurar en `.env.local`:
 
 ```bash
-DG_LOCAL_DB_DIR="C:\\ruta\\a\\BASE DE DATOS DG"
+DG_LOCAL_DB_DIR="./local-data/BASE DE DATOS DG/En uso"
 ```
 
 ## Sobre subir Excels a GitHub

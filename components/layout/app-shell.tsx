@@ -4,16 +4,17 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import {
   ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator, ChartNoAxesCombined,
-  ChevronDown, CircleDollarSign, ClipboardList, FileKey2, FileUp, LayoutDashboard,
+  CircleDollarSign, ClipboardList, FileKey2, FileUp, LayoutDashboard,
   Menu, PackageSearch, Search, Settings, ShieldCheck, Truck, Users, Warehouse, X,
 } from "lucide-react";
+import { hasModule, pageModule } from "@/lib/module-access";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-type NavItem = { label: string; href: string; icon: React.ElementType; adminOnly?: true };
+type NavItem = { label: string; href: string; icon: React.ElementType };
 type NavGroup = { label: string; items: NavItem[] };
 
 const navigation: NavGroup[] = [
@@ -29,6 +30,7 @@ const navigation: NavGroup[] = [
     { label: "Estructura de costos", href: "/estructura-costos", icon: Calculator },
   ]},
   { label: "Movimientos", items: [
+    { label: "Compras", href: "/compras", icon: ClipboardList },
     { label: "Ingresos", href: "/ingresos", icon: ArrowDownToLine },
     { label: "Egresos", href: "/egresos", icon: ArrowUpFromLine },
   ]},
@@ -36,10 +38,11 @@ const navigation: NavGroup[] = [
     { label: "Stock", href: "/stock", icon: Warehouse },
   ]},
   { label: "Entidades", items: [
-    { label: "Clientes", href: "/clientes", icon: Users, adminOnly: true },
+    { label: "Clientes", href: "/clientes", icon: Users },
     { label: "Proveedores", href: "/proveedores", icon: Truck },
   ]},
   { label: "Sistema", items: [
+    { label: "Permisos", href: "/permisos", icon: ShieldCheck },
     { label: "Importaciones", href: "/importaciones", icon: FileUp },
     { label: "Integraciones", href: "/integraciones", icon: ChartNoAxesCombined },
     { label: "Auditoría", href: "/auditoria", icon: ShieldCheck },
@@ -50,11 +53,6 @@ const navigation: NavGroup[] = [
 function SidebarContent({ close }: { close?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase());
-  const isAdmin =
-    process.env.NODE_ENV === "development" ||
-    session?.user?.role === "ADMIN" ||
-    (!!session?.user?.email && adminEmails.includes(session.user.email.toLowerCase()));
 
   return (
     <div className="flex h-full flex-col">
@@ -65,7 +63,7 @@ function SidebarContent({ close }: { close?: () => void }) {
 
       <nav className="scrollbar-none flex-1 overflow-y-auto px-3 py-5">
         {navigation.map((group) => {
-          const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
+          const visibleItems = group.items.filter((item) => hasModule(session?.user, pageModule(item.href)));
           if (visibleItems.length === 0) return null;
           return (
             <div key={group.label} className="mb-5">
@@ -92,12 +90,12 @@ function SidebarContent({ close }: { close?: () => void }) {
 
       <div className="m-3 rounded-2xl border border-[#dbe4ef] bg-[#f4f7fb] p-3">
         <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#dce9f8] text-xs font-black text-[#0b5bbb]">JM</div>
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#dce9f8] text-xs font-black text-[#0b5bbb]">{session?.user?.name?.slice(0, 2).toUpperCase()}</div>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-bold text-[#10233f]">Juan Martín</div>
-            <div className="text-[10px] font-semibold text-[#74849a]">Administrador</div>
+            <div className="truncate text-xs font-bold text-[#10233f]">{session?.user?.name}</div>
+            <div className="text-[10px] font-semibold text-[#74849a]">{session?.user?.role === "ADMIN" ? "Administrador" : "Usuario"}</div>
           </div>
-          <ChevronDown size={14} className="text-[#74849a]" />
+          <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-xs text-[#0b5bbb]">Salir</button>
         </div>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import {
   readClientsFromExcel,
@@ -8,12 +9,25 @@ import {
   type ExcelClientRateItem,
 } from "@/lib/local-excel-db";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
+import { usesPostgres } from "@/lib/data-source";
+import {
+  readClientsFromPostgres,
+  readClientRatesFromPostgres,
+  writeClientsToPostgres,
+  writeClientRatesToPostgres,
+} from "@/lib/postgres-replica-db";
 
 export const runtime = "nodejs";
 
-export function GET() {
-  const clients = readClientsFromExcel();
-  const rates = readClientRatesFromExcel();
+export async function GET() {
+  const denied = await checkApiAccess(["clientes"], false);
+  if (denied) return denied;
+  const [clients, rates] = usesPostgres()
+    ? await Promise.all([
+        readClientsFromPostgres(),
+        readClientRatesFromPostgres(),
+      ])
+    : [readClientsFromExcel(), readClientRatesFromExcel()];
 
   // Group rates by clientId + effectiveFrom, sorted newest first
   const ratesByClient: Record<string, ExcelClientRateItem[]> = {};
@@ -38,10 +52,15 @@ export function GET() {
     return { ...client, configs };
   });
 
-  return NextResponse.json({ clients: result });
+  return NextResponse.json({
+    clients: result,
+    source: usesPostgres() ? "postgresql" : "excel",
+  });
 }
 
 export async function PUT(request: Request) {
+  const denied = await checkApiAccess(["clientes"], true);
+  if (denied) return denied;
   const body = (await request.json()) as {
     clients?: ExcelClient[];
     rates?: ExcelClientRateItem[];
@@ -60,12 +79,17 @@ export async function PUT(request: Request) {
       }
       seen.set(key, client.name.trim());
     }
-    writeClientsToExcel(body.clients);
+    if (usesPostgres()) await writeClientsToPostgres(body.clients);
+    else writeClientsToExcel(body.clients);
   }
 
   if (body.rates) {
-    writeClientRatesToExcel(body.rates);
+    if (usesPostgres()) await writeClientRatesToPostgres(body.rates);
+    else writeClientRatesToExcel(body.rates);
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    source: usesPostgres() ? "postgresql" : "excel",
+  });
 }

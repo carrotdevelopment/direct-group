@@ -1,17 +1,25 @@
+import { checkApiAccess } from "@/server/lib/access";
 ﻿import { NextResponse } from "next/server";
 import {
-  readClientCodesFromExcel,
   type ExcelPrice,
-  readPricesFromExcel,
-  readProductsFromExcel,
-  readSantanderCostRowsFromExcel,
-  writeSantanderCostRowsToExcel,
   type ExcelSantanderCostRow,
-  readFreightCriteria,
   getActiveCriterion,
-  upsertFreightCriterion,
   type FreightCriterionEntry,
 } from "@/lib/local-excel-db";
+import { calculate, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import {
+  readClientCodesFromPostgres,
+  readClientsFromPostgres,
+  readClientRatesFromPostgres,
+  readFreightCriteriaFromPostgres,
+  readPricesFromPostgres,
+  readProductsFromPostgres,
+  readSantanderCostsFromPostgres,
+  replaceSantanderCostsInPostgres,
+  upsertSantanderCostsInPostgres,
+  upsertFreightCriterionInPostgres,
+} from "@/lib/postgres-replica-db";
+
 
 export const runtime = "nodejs";
 
@@ -23,7 +31,8 @@ type CostStructureRow = {
   clientCode: string;
   uniqueCode: string;
   costDgUpdatedAt: string | null;
-  publicPriceUpdatedAt: string | null;
+  pvcUpdatedAt: string | null;
+  previousAdjustment?: { period: string; freightNoVat: number; pvcNoVat: number; pvcWithVat: number } | null;
   product: string;
   supplier: string;
   category: string;
@@ -43,22 +52,6 @@ type CostStructureRow = {
   // Transient — only present in PUT body, not returned by GET:
   freightMode?: "pct" | "fixed";
   freightValue?: number;
-};
-
-type Rates = {
-  insurance: number;
-  grossIncome: number;
-  debitTax: number;
-  creditTax: number;
-  missionsTax: number;
-};
-
-const defaultRates: Rates = {
-  insurance: 1.2,
-  grossIncome: 5,
-  debitTax: 0.6,
-  creditTax: 0.6,
-  missionsTax: 1.25,
 };
 
 function canonicalClient(value: string) {
@@ -92,7 +85,8 @@ function latestPriceValue(
   field: "costDg" | "publicPrice" | "vatRate" | "markup",
 ) {
   return prices
-    .filter((price) => pricePeriod(price) <= targetPeriod && price[field] > 0)
+    .filter((price) => pricePeriod(price) <= targetPeriod && Number.isFinite(price[field]) &&
+      ((field === "vatRate" || field === "markup") ? price[field] >= 0 && !price.missingFields?.includes(field) : price[field] > 0))
     .sort((left, right) => {
       const periodDiff = pricePeriod(right) - pricePeriod(left);
       return periodDiff || right.informedAt.localeCompare(left.informedAt);
@@ -107,34 +101,21 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function calculateSantanderCost(row: CostStructureRow, rates: Rates) {
-  const ppNoVat = row.publicPrice / (1 + row.vatRate / 100);
-  const insurance = (row.costDgNoVat * rates.insurance) / 100;
-  const grossIncome = (row.pvcNoVat * rates.grossIncome) / 100;
-  const debitTax = (row.pvcNoVat * rates.debitTax) / 100;
-  const creditTax = (row.pvcNoVat * rates.creditTax) / 100;
-  const missionsTax = (row.pvcNoVat * rates.missionsTax) / 100;
-  const totalCost =
-    row.costDgNoVat +
-    insurance +
-    grossIncome +
-    debitTax +
-    creditTax +
-    row.freightNoVat +
-    missionsTax;
-  const profit = row.pvcNoVat - totalCost;
+async function ratesForPeriod(client: string, period: string): Promise<CostRate[]> {
+  const [clients, rates] = await Promise.all([readClientsFromPostgres(), readClientRatesFromPostgres()]);
+  const owner = clients.find(c => canonicalClient(c.name) === canonicalClient(client));
+  const items = rates.filter(r => r.clientId === owner?.id);
+  const config = selectRateConfig(items, period);
+  return config ? items.filter(r => r.effectiveFrom === config.effectiveFrom && r.applies) : [];
+}
 
-  return {
-    ppNoVat: roundMoney(ppNoVat),
-    insurance: roundMoney(insurance),
-    grossIncome: roundMoney(grossIncome),
-    debitTax: roundMoney(debitTax),
-    creditTax: roundMoney(creditTax),
-    missionsTax: roundMoney(missionsTax),
-    totalCost: roundMoney(totalCost),
-    profit: roundMoney(profit),
-    profitPercentage: totalCost === 0 ? 0 : roundMoney((profit / totalCost) * 100),
-  };
+function calculateSantanderCost(row: CostStructureRow, rates: CostRate[]) {
+  const calc = calculate(row, rates.filter(r => r.appliesTo === "COSTO"), rates.filter(r => r.appliesTo === "PRECIO"));
+  const charges = [...calc.costoBreakdown, ...calc.precioBreakdown];
+  const amount = (key: string) => roundMoney(charges.filter(r => r.rateKey === key).reduce((sum,r) => sum + r.amount, 0));
+  return { ...calc, profitPercentage: calc.profitPct,
+    insurance: amount("seguro"), grossIncome: amount("ingresos_brutos"),
+    debitTax: amount("impuesto_debito"), creditTax: amount("impuesto_credito"), missionsTax: amount("impuesto_misiones") };
 }
 
 function latestByUniqueCode<T extends { uniqueCode: string }>(
@@ -153,12 +134,13 @@ function latestByUniqueCode<T extends { uniqueCode: string }>(
   return map;
 }
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
+  const denied = await checkApiAccess(["precios"], false);
+  if (denied) return denied;
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
   const historyFor = url.searchParams.get("historyFor") || "";
   const today = new Date();
-  const currentPeriodKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
   if (canonicalClient(client) !== "santander") {
     return NextResponse.json({
@@ -166,6 +148,15 @@ export function GET(request: Request) {
       message: "Por ahora solo está cargada la estructura real de Santander.",
     });
   }
+
+  const [assignmentSource, productSource, priceSource, allCostRows, freightCriteriaStore] =
+    await Promise.all([
+          readClientCodesFromPostgres(),
+          readProductsFromPostgres(),
+          readPricesFromPostgres(),
+          readSantanderCostsFromPostgres(),
+          readFreightCriteriaFromPostgres(),
+        ]);
 
   // Period filter — default to current month/year
   const reqMonth = url.searchParams.get("month");
@@ -178,7 +169,7 @@ export function GET(request: Request) {
   // History search mode — return all periods for codes matching clientCode
   if (historyFor) {
     const needle = historyFor.trim().toLowerCase();
-    const matched = readSantanderCostRowsFromExcel()
+    const matched = allCostRows
       .filter((row) => row.clientCode.toLowerCase().includes(needle))
       .sort(
         (a, b) =>
@@ -203,8 +194,9 @@ export function GET(request: Request) {
   }
 
   // All assignments for this client — deduplicate by uniqueCode, keeping the latest batch
-  const allAssignments = readClientCodesFromExcel().filter(
-    (mapping) => canonicalClient(mapping.client) === "santander",
+  const allAssignments = assignmentSource.filter(
+    (mapping) => canonicalClient(mapping.client) === "santander" &&
+      !mapping.voidedAt && periodIndex(mapping.assignedYear, mapping.assignedMonth) <= targetPeriod,
   );
   const latestAssignmentByCode = new Map<string, typeof allAssignments[0]>();
   for (const assignment of allAssignments) {
@@ -219,10 +211,12 @@ export function GET(request: Request) {
   }
 
   const products = new Map(
-    readProductsFromExcel().map((product) => [product.code, product]),
+    productSource
+      .filter((product) => product.active)
+      .map((product) => [product.code, product]),
   );
   const pricesByUniqueCode = new Map<string, ExcelPrice[]>();
-  for (const price of readPricesFromExcel()) {
+  for (const price of priceSource) {
     const code = normalizeCode(price.uniqueCode);
     const current = pricesByUniqueCode.get(code) ?? [];
     current.push(price);
@@ -230,16 +224,19 @@ export function GET(request: Request) {
   }
 
   // Latest saved cost row per uniqueCode, up to the requested period
-  const allCostRows = readSantanderCostRowsFromExcel();
   const latestCosts = latestByUniqueCode(
     allCostRows,
     (row) => periodIndex(row.year, row.month),
     targetPeriod,
   );
+  // Reference columns show the latest saved adjustment, not the selected period.
+  const latestAdjustments = latestByUniqueCode(
+    allCostRows,
+    row => periodIndex(row.year, row.month),
+    Number.POSITIVE_INFINITY,
+  );
 
   // Freight criteria — keyed by uniqueCode
-  const freightCriteriaStore = readFreightCriteria();
-
   // History map: last 3 periods per uniqueCode up to targetPeriod (desc)
   const historyByCode = new Map<string, Array<{ period: string; pvcWithVat: number }>>();
   for (const row of allCostRows) {
@@ -258,6 +255,7 @@ export function GET(request: Request) {
   const rows: CostStructureRow[] = Array.from(latestAssignmentByCode.values())
     .map((assignment) => {
       const cost = latestCosts.get(assignment.uniqueCode);
+      const previous = latestAdjustments.get(assignment.uniqueCode);
       const prices = pricesByUniqueCode.get(normalizeCode(assignment.uniqueCode)) ?? [];
       const costDgPrice = latestPriceValue(prices, targetPeriod, "costDg");
       const publicPricePrice = latestPriceValue(prices, targetPeriod, "publicPrice");
@@ -285,13 +283,17 @@ export function GET(request: Request) {
         clientCode: assignment.clientCode,
         uniqueCode: assignment.uniqueCode,
         costDgUpdatedAt: costDgDate,
-        publicPriceUpdatedAt: cost?.period ?? null,
+        pvcUpdatedAt: cost?.period ?? null,
+        previousAdjustment: previous ? {
+          period: previous.period, freightNoVat: previous.freightNoVat,
+          pvcNoVat: previous.pvcNoVat, pvcWithVat: previous.pvcWithVat,
+        } : null,
         product: cost?.product || product?.name || "",
         supplier: cost?.supplier || product?.supplier || "",
         category: cost?.category || product?.category || "",
         publicPrice: valueFromPrice(publicPricePrice?.publicPrice, cost?.publicPrice ?? 0),
-        vatRate: valueFromPrice(vatPrice?.vatRate, cost?.vatRate ?? 21),
-        markup: valueFromPrice(markupPrice?.markup, cost?.markup ?? 0),
+        vatRate: vatPrice?.vatRate ?? cost?.vatRate ?? 21,
+        markup: markupPrice?.markup ?? cost?.markup ?? 0,
         costDgNoVat: savedCostDg > 0 ? savedCostDg : liveCostDg,
         freightNoVat: (() => {
           const costDg = savedCostDg > 0 ? savedCostDg : liveCostDg;
@@ -329,15 +331,17 @@ export function GET(request: Request) {
   return NextResponse.json({
     rows,
     message: `${activeCount} activos · ${inactiveStockCount} inactivos con stock · ${inactiveCount} inactivos — ${rows.length} códigos en total.`,
+    source: "postgresql",
   });
 }
 
 export async function PUT(request: Request) {
+  const denied = await checkApiAccess(["precios"], true);
+  if (denied) return denied;
   const body = (await request.json()) as {
     client?: string;
     month?: number;
     year?: number;
-    rates?: Partial<Rates>;
     rows?: CostStructureRow[];
   };
   const client = body.client || "";
@@ -354,11 +358,7 @@ export async function PUT(request: Request) {
   }
 
   const period = periodLabel(year, month);
-  const rates = { ...defaultRates, ...body.rates };
-  const existing = readSantanderCostRowsFromExcel().filter(
-    (row) =>
-      !(row.period === period && canonicalClient(row.client) === "santander"),
-  );
+  const rates = await ratesForPeriod(client, period);
   const nextRows: ExcelSantanderCostRow[] = rows.map((row) => {
     const calc = calculateSantanderCost(row, rates);
     return {
@@ -371,7 +371,7 @@ export async function PUT(request: Request) {
       uniqueCode: row.uniqueCode,
       costUpdated:
         row.costDgUpdatedAt?.startsWith(period) &&
-        row.publicPriceUpdatedAt?.startsWith(period)
+        row.pvcUpdatedAt?.startsWith(period)
           ? "OK"
           : "",
       product: row.product,
@@ -399,27 +399,31 @@ export async function PUT(request: Request) {
     };
   });
 
-  writeSantanderCostRowsToExcel([...existing, ...nextRows]);
+  await upsertSantanderCostsInPostgres(nextRows);
 
   // Persist freight criteria for rows where one was applied this session
   for (const row of rows) {
     if (row.freightMode && row.freightValue != null) {
-      upsertFreightCriterion(row.uniqueCode, {
+      const entry = {
         mode: row.freightMode,
         value: row.freightValue,
         effectiveFrom: period,
-      });
+      } as const;
+      await upsertFreightCriterionInPostgres(row.uniqueCode, entry);
     }
   }
 
   return NextResponse.json({
     ok: true,
     rows,
-    message: `Estructura Santander ${period} guardada.`,
+    message: `${rows.length} fila${rows.length === 1 ? "" : "s"} de Santander ${period} guardada${rows.length === 1 ? "" : "s"}.`,
+    source: "postgresql",
   });
 }
 
 export async function PATCH(request: Request) {
+  const denied = await checkApiAccess(["precios"], true);
+  if (denied) return denied;
   const body = (await request.json()) as {
     client?: string;
     uniqueCode?: string;
@@ -439,7 +443,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
-  const allRows = readSantanderCostRowsFromExcel();
+  const allRows = await readSantanderCostsFromPostgres();
   const idx = allRows.findIndex((r) => r.uniqueCode === uniqueCode && r.period === period);
   if (idx === -1) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
@@ -458,7 +462,7 @@ export async function PATCH(request: Request) {
     clientCode: existing.clientCode,
     uniqueCode: existing.uniqueCode,
     costDgUpdatedAt: null,
-    publicPriceUpdatedAt: null,
+    pvcUpdatedAt: null,
     product: existing.product,
     supplier: existing.supplier,
     category: existing.category,
@@ -477,7 +481,7 @@ export async function PATCH(request: Request) {
     freightCriterion: null,
   };
 
-  const calc = calculateSantanderCost(tempRow, defaultRates);
+  const calc = calculateSantanderCost(tempRow, await ratesForPeriod(body.client!, period));
   allRows[idx] = {
     ...existing,
     freightNoVat,
@@ -493,12 +497,14 @@ export async function PATCH(request: Request) {
     profit: calc.profit,
     profitPercentage: calc.profitPercentage,
   };
-  writeSantanderCostRowsToExcel(allRows);
+  await upsertSantanderCostsInPostgres([allRows[idx]]);
 
   return NextResponse.json({ ok: true, profitPercentage: calc.profitPercentage, message: "Registro actualizado." });
 }
 
-export function DELETE(request: Request) {
+export async function DELETE(request: Request) {
+  const denied = await checkApiAccess(["precios"], true);
+  if (denied) return denied;
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
   const uniqueCode = url.searchParams.get("uniqueCode") || "";
@@ -511,7 +517,7 @@ export function DELETE(request: Request) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
-  const allRows = readSantanderCostRowsFromExcel();
+  const allRows = await readSantanderCostsFromPostgres();
   const filtered = allRows.filter(
     (r) => !(r.uniqueCode === uniqueCode && r.period === period),
   );
@@ -520,6 +526,6 @@ export function DELETE(request: Request) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
   }
 
-  writeSantanderCostRowsToExcel(filtered);
+  await replaceSantanderCostsInPostgres(filtered);
   return NextResponse.json({ ok: true, message: "Registro eliminado." });
 }

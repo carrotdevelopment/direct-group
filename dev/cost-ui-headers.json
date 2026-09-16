@@ -1,0 +1,90 @@
+[
+  {
+    "label": "",
+    "title": ""
+  },
+  {
+    "label": "Cód.",
+    "title": ""
+  },
+  {
+    "label": "Cód.Único",
+    "title": ""
+  },
+  {
+    "label": "Producto?",
+    "title": "Descripción guardada en estructura; si falta, maestro de productos."
+  },
+  {
+    "label": "Proveedor?",
+    "title": "Proveedor guardado en estructura; si falta, maestro de productos."
+  },
+  {
+    "label": "Categoría?",
+    "title": "Categoría guardada en estructura; si falta, maestro de productos."
+  },
+  {
+    "label": "Fecha costo↕?",
+    "title": "Fecha del último costo proveedor disponible. Puede diferir de la fecha del costo aplicado."
+  },
+  {
+    "label": "Costo DG s/IVA?",
+    "title": "Costo DG aplicado: último costo guardado; si falta, último precio proveedor válido hasta el período."
+  },
+  {
+    "label": "PP s/IVA?",
+    "title": "Precio público con IVA / (1 + IVA / 100)."
+  },
+  {
+    "label": "PP c/IVA?",
+    "title": "último precio público positivo hasta el período; si falta, precio público guardado."
+  },
+  {
+    "label": "Fecha PVC ant↕?",
+    "title": "Período del último ajuste guardado de este producto, independientemente del período seleccionado arriba."
+  },
+  {
+    "label": "Flete ant?",
+    "title": "Flete del último ajuste guardado del producto. No se recalcula con el criterio del período seleccionado."
+  },
+  {
+    "label": "PVC s/IVA ant?",
+    "title": "Precio de venta cliente sin IVA guardado. Es una referencia histórica."
+  },
+  {
+    "label": "PVC c/IVA ant?",
+    "title": "Precio de venta cliente con IVA guardado. No se recalcula sumando el precio público y el flete."
+  },
+  {
+    "label": "Fecha PVC?",
+    "title": "Conserva el período guardado de cada producto. Solo una fila modificada toma el período seleccionado; se confirma al guardar."
+  },
+  {
+    "label": "Flete s/IVA?",
+    "title": "Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente."
+  },
+  {
+    "label": "PVC s/IVA?",
+    "title": "Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)."
+  },
+  {
+    "label": "PVC c/IVA?",
+    "title": "PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA."
+  },
+  {
+    "label": "Utilidad $↕?",
+    "title": "PVC sin IVA − costo total. Costo total = costo DG + flete + cargos sobre costo y precio."
+  },
+  {
+    "label": "Util. %↕?",
+    "title": "Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%."
+  },
+  {
+    "label": "Stock",
+    "title": ""
+  },
+  {
+    "label": "",
+    "title": ""
+  }
+]

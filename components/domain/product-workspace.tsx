@@ -4,16 +4,19 @@ import {
   type MouseEvent,
   useDeferredValue,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
   Boxes,
+  Check,
   ChevronDown,
   ChevronUp,
   Layers3,
   PackageCheck,
+  Power,
   Plus,
   Search,
   Trash2,
@@ -29,6 +32,7 @@ type Product = {
   id: string;
   code: string;
   name: string;
+  active: boolean;
   brand: string;
   supplier: string;
   supplierCode: string;
@@ -52,6 +56,7 @@ type Category = {
 
 type SortKey =
   | "updatedAt"
+  | "active"
   | "name"
   | "brand"
   | "supplier"
@@ -80,6 +85,7 @@ const seed: Product[] = [
     id: "example-421000005",
     code: "421000005",
     name: "Freidora Air 5 AF2050 Smart tek (421000005)",
+    active: true,
     brand: "Smart Teck",
     supplier: "ACEGAME",
     supplierCode: "421000005",
@@ -90,6 +96,7 @@ const seed: Product[] = [
     id: "example-425000031",
     code: "425000031",
     name: "Plancha a vapor GS1500 Smart Tek (425000031)",
+    active: true,
     brand: "Smart Teck",
     supplier: "ACEGAME",
     supplierCode: "425000031",
@@ -100,6 +107,7 @@ const seed: Product[] = [
     id: "example-191210001",
     code: "191210001",
     name: "Auriculares Bluetooth Xpods1 X-View (191210001)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "191210001",
@@ -110,6 +118,7 @@ const seed: Product[] = [
     id: "example-142200007",
     code: "142200007",
     name: "Tablet Titanium Colors Max X-View (142200007)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "142200007",
@@ -120,6 +129,7 @@ const seed: Product[] = [
     id: "example-191220000",
     code: "191220000",
     name: "Parlante Blast x3 X-View (191220000)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "191220000",
@@ -130,6 +140,7 @@ const seed: Product[] = [
     id: "example-142200009",
     code: "142200009",
     name: "Tablet Tungsten Max 10 X-View (142200009)",
+    active: true,
     brand: "X-View",
     supplier: "ACEGAME",
     supplierCode: "142200009",
@@ -221,6 +232,156 @@ function uniqueActiveOptions<T extends { name: string; active: boolean }>(
   ).sort((left, right) => left.name.localeCompare(right.name, "es"));
 }
 
+type ProductOptionPickerProps = {
+  label: string;
+  placeholder: string;
+  value: string;
+  options: string[];
+  type: "supplier" | "category";
+  onChange: (value: string) => void;
+};
+
+function ProductOptionPicker({
+  label,
+  placeholder,
+  value,
+  options,
+  type,
+  onChange,
+}: ProductOptionPickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listboxId = useId();
+  const normalizedValue = normalizeForDuplicateCheck(value);
+  const filteredOptions = options.filter((option) =>
+    normalizeForDuplicateCheck(option).includes(normalizedValue),
+  );
+  const LeadingIcon = type === "supplier" ? Truck : Layers3;
+  const optionLabel = type === "supplier" ? "proveedores" : "categorías";
+
+  function selectOption(option: string) {
+    onChange(option);
+    setIsOpen(false);
+    setActiveIndex(0);
+  }
+
+  return (
+    <label className="relative text-[11px] font-extrabold text-[#334b6b]">
+      {label}
+      <div
+        className={`mt-2 flex h-11 items-center rounded-xl border bg-white transition-all ${
+          isOpen
+            ? "border-[#7da4d3] ring-3 ring-[#e5eef9]"
+            : "border-[#dbe4ef] hover:border-[#b8c9dd]"
+        }`}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
+        }}
+      >
+        <LeadingIcon className="ml-3 shrink-0 text-[#7690ae]" size={15} />
+        <input
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          value={value}
+          onFocus={() => setIsOpen(true)}
+          onClick={() => setIsOpen(true)}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setActiveIndex(0);
+            setIsOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setIsOpen(true);
+              setActiveIndex((index) =>
+                Math.max(0, Math.min(index + 1, filteredOptions.length - 1)),
+              );
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveIndex((index) => Math.max(index - 1, 0));
+            } else if (event.key === "Enter" && isOpen && filteredOptions[activeIndex]) {
+              event.preventDefault();
+              selectOption(filteredOptions[activeIndex]);
+            } else if (event.key === "Escape") {
+              setIsOpen(false);
+            }
+          }}
+          placeholder={placeholder}
+          className="h-full min-w-0 flex-1 bg-transparent px-2 text-xs font-medium text-[#233a58] outline-none placeholder:text-[#9aa8b8]"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={`Mostrar ${optionLabel}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setIsOpen((current) => !current)}
+          className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#7690ae] transition-colors hover:bg-[#edf3fa] hover:text-[#315d8f]"
+        >
+          <ChevronDown
+            size={16}
+            className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+      </div>
+
+      {isOpen && (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-[#d6e0ec] bg-white p-1.5 shadow-[0_16px_40px_rgba(31,55,86,.16)]"
+        >
+          <div className="flex items-center justify-between px-2.5 py-2 text-[9px] font-black uppercase tracking-[.1em] text-[#8493a6]">
+            <span>{type === "supplier" ? "Proveedores disponibles" : "Categorías disponibles"}</span>
+            <span className="rounded-full bg-[#edf3fa] px-2 py-0.5 text-[#52769f]">
+              {filteredOptions.length}
+            </span>
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option, index) => {
+                const selected = normalizeForDuplicateCheck(option) === normalizedValue;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => selectOption(option)}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors ${
+                      index === activeIndex
+                        ? "bg-[#edf4fc] text-[#214f82]"
+                        : "text-[#405570] hover:bg-[#f5f8fc]"
+                    }`}
+                  >
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[#f0f4f8] text-[#6e87a4]">
+                      <LeadingIcon size={13} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-bold">{option}</span>
+                    {selected && <Check size={14} className="shrink-0 text-[#3975b8]" />}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-3 py-5 text-center text-[11px] font-medium leading-5 text-[#8493a6]">
+                No hay {optionLabel} que coincidan con “{value}”.
+              </div>
+            )}
+          </div>
+          <div className="border-t border-[#edf1f5] px-2.5 py-2 text-[9px] font-medium text-[#98a4b2]">
+            Escribí para filtrar · ↑↓ para navegar · Enter para elegir
+          </div>
+        </div>
+      )}
+    </label>
+  );
+}
+
 export function ProductWorkspace() {
   const [products, setProducts] = useState<Product[]>(seed);
   const [query, setQuery] = useState("");
@@ -234,7 +395,7 @@ export function ProductWorkspace() {
     key: "updatedAt",
     direction: "desc",
   });
-  const [dbStatus, setDbStatus] = useState("Leyendo Excel local...");
+  const [dbStatus, setDbStatus] = useState("Leyendo base de datos...");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [visibleLimit, setVisibleLimit] = useState(visibleBatchSize);
@@ -251,10 +412,10 @@ export function ProductWorkspace() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/local-db/products").then(
+      fetch("/api/local-db/products?includeInactive=true").then(
         (response) => response.json() as Promise<{ products: Product[] }>,
       ),
-      fetch("/api/local-db/suppliers").then(
+      fetch("/api/lookups?kind=suppliers").then(
         (response) => response.json() as Promise<{ suppliers: Supplier[] }>,
       ),
       fetch("/api/local-db/categories").then(
@@ -265,10 +426,10 @@ export function ProductWorkspace() {
         setProducts(productsData.products);
         setSuppliers(suppliersData.suppliers);
         setCategories(categoriesData.categories);
-        setDbStatus("Excel local sincronizado");
+        setDbStatus("PostgreSQL sincronizado");
       })
       .catch(() => {
-        setDbStatus("No pude leer el Excel local, usando datos demo");
+        setDbStatus("No pude leer la base de datos, usando datos demo");
       });
   }, []);
 
@@ -292,17 +453,17 @@ export function ProductWorkspace() {
 
   async function persist(next: Product[]) {
     setProducts(next);
-    setDbStatus("Guardando en Excel...");
+    setDbStatus("Guardando en PostgreSQL...");
     try {
       const response = await fetch("/api/local-db/products", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: next }),
       });
-      if (!response.ok) throw new Error("Excel write failed");
-      setDbStatus("Excel local sincronizado");
+      if (!response.ok) throw new Error("database write failed");
+      setDbStatus("PostgreSQL sincronizado");
     } catch {
-      setDbStatus("No pude guardar en el Excel local");
+      setDbStatus("No pude guardar en PostgreSQL");
     }
   }
 
@@ -418,9 +579,8 @@ export function ProductWorkspace() {
         : null,
     };
     const now = new Date().toISOString();
-    if (editingId)
-      await persist(
-        products.map((product) =>
+    const nextProducts = editingId
+      ? products.map((product) =>
           product.id === editingId
             ? {
                 ...product,
@@ -429,22 +589,23 @@ export function ProductWorkspace() {
                 updatedAt: now,
               }
             : product,
-        ),
-      );
-    else
-      await persist([
-        ...products,
-        {
-          id: crypto.randomUUID(),
-          ...values,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+        )
+      : [
+          ...products,
+          {
+            id: crypto.randomUUID(),
+            ...values,
+            active: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ];
+
     setForm(emptyForm);
     setEditingId(null);
     setError("");
     setOpen(false);
+    await persist(nextProducts);
   }
 
   function openCreate() {
@@ -471,16 +632,24 @@ export function ProductWorkspace() {
     setOpen(true);
   }
 
-  async function removeProduct() {
+  async function toggleProductActive() {
     if (!editingId) return;
     const product = products.find((item) => item.id === editingId);
     if (
       !product ||
-      !window.confirm(`¿Eliminar ${product.code} · ${product.name}?`)
+      !window.confirm(
+        `¿${product.active ? "Desactivar" : "Reactivar"} ${product.code} · ${product.name}?`,
+      )
     )
       return;
-    await persist(products.filter((item) => item.id !== editingId));
     setOpen(false);
+    await persist(
+      products.map((item) =>
+        item.id === editingId
+          ? { ...item, active: !item.active, updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
     setEditingId(null);
     setForm(emptyForm);
   }
@@ -506,13 +675,19 @@ export function ProductWorkspace() {
     setVisibleLimit(visibleBatchSize);
   }
 
-  async function removeSelected() {
+  async function deactivateSelected() {
     if (
       selected.size === 0 ||
-      !window.confirm(`¿Eliminar los ${selected.size} productos seleccionados?`)
+      !window.confirm(`¿Desactivar los ${selected.size} productos seleccionados?`)
     )
       return;
-    await persist(products.filter((product) => !selected.has(product.id)));
+    await persist(
+      products.map((product) =>
+        selected.has(product.id)
+          ? { ...product, active: false, updatedAt: new Date().toISOString() }
+          : product,
+      ),
+    );
     setSelected(new Set());
   }
 
@@ -595,6 +770,7 @@ export function ProductWorkspace() {
         id: crypto.randomUUID(),
         code: key,
         name: row.name.trim(),
+        active: true,
         brand: row.brand.trim() || "Sin marca",
         supplier: row.supplier.trim() || "Sin proveedor",
         supplierCode: row.supplierCode.trim(),
@@ -637,8 +813,8 @@ export function ProductWorkspace() {
         items={[
           {
             label: "Productos cargados",
-            value: String(products.length),
-            meta: "Maestro único",
+            value: String(products.filter((product) => product.active).length),
+            meta: `${products.filter((product) => !product.active).length} inactivos`,
             icon: PackageCheck,
           },
           {
@@ -691,14 +867,14 @@ export function ProductWorkspace() {
               variant={selected.size > 0 ? "danger" : "secondary"}
               size="sm"
               disabled={selected.size === 0}
-              onClick={removeSelected}
+              onClick={deactivateSelected}
               className={
                 selected.size === 0
                   ? "border-[#e1e5ea] bg-[#f1f3f5] text-[#9aa3ad] opacity-100"
                   : ""
               }
             >
-              <Trash2 size={14} /> Eliminar seleccionados ({selected.size})
+              <Power size={14} /> Desactivar seleccionados ({selected.size})
             </Button>
             <Button size="sm" onClick={openCreate}>
               <Plus size={15} /> Nuevo producto
@@ -706,7 +882,7 @@ export function ProductWorkspace() {
           </div>
         </div>
         <div className="max-h-[470px] overflow-auto">
-          <table className="w-full min-w-[1040px] table-fixed text-left text-[10.5px]">
+          <table className="w-full min-w-[1120px] table-fixed text-left text-[10.5px]">
             <thead className="sticky top-0 z-[1]">
               <tr className="border-b border-[#dbe4ef] bg-[#edf4fc] font-bold text-[#334b6b]">
                 <th className="w-10 px-2 py-2 text-center">
@@ -724,6 +900,9 @@ export function ProductWorkspace() {
                   />
                 </th>
                 <th className="w-20 px-2 py-2 text-center">Acción</th>
+                <th className="w-20 px-2 py-2 text-center">
+                  {sortHeader("active", "Estado")}
+                </th>
                 <th className="w-[27%] px-3 py-2 text-center">
                   {sortHeader("name", "Producto")}
                 </th>
@@ -751,7 +930,13 @@ export function ProductWorkspace() {
               {visibleProducts.map((product) => (
                 <tr
                   key={product.id}
-                  className={`transition-colors ${selected.has(product.id) ? "bg-[#edf4fc]" : "hover:bg-[#f8fafd]"}`}
+                  className={`transition-colors ${
+                    selected.has(product.id)
+                      ? "bg-[#edf4fc]"
+                      : product.active
+                        ? "hover:bg-[#f8fafd]"
+                        : "bg-[#f7f8fa] text-[#7d8997] hover:bg-[#f1f3f6]"
+                  }`}
                 >
                   <td className="px-2 py-1.5 text-center">
                     <input
@@ -771,6 +956,17 @@ export function ProductWorkspace() {
                     >
                       Editar
                     </Button>
+                  </td>
+                  <td className="px-2 py-1.5 text-center">
+                    <span
+                      className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black ${
+                        product.active
+                          ? "bg-[#e8f6ed] text-[#277345]"
+                          : "bg-[#eceff3] text-[#687789]"
+                      }`}
+                    >
+                      {product.active ? "Activo" : "Inactivo"}
+                    </span>
                   </td>
                   <td className="px-3 py-1.5">
                     <div
@@ -819,7 +1015,8 @@ export function ProductWorkspace() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e9ece9] bg-[#fafbfa] px-5 py-3 text-[10px] font-semibold text-[#7e8780]">
           <span>
             Mostrando {visibleProducts.length} de {filtered.length} filtrados ·{" "}
-            {products.length} productos totales
+            {products.filter((product) => product.active).length} activos ·{" "}
+            {products.filter((product) => !product.active).length} inactivos
           </span>
           {hasMoreProducts && (
             <Button
@@ -1079,22 +1276,6 @@ export function ProductWorkspace() {
             <h2 className="mt-2 text-xl font-black">
               {editingId ? `Editar ${form.code}` : "Nuevo producto"}
             </h2>
-            <datalist id="dg-supplier-options">
-              {activeSuppliers.map((supplier) => (
-                <option
-                  key={`supplier-${normalizeForDuplicateCheck(supplier.name)}`}
-                  value={supplier.name}
-                />
-              ))}
-            </datalist>
-            <datalist id="dg-category-options">
-              {activeCategories.map((category) => (
-                <option
-                  key={`category-${normalizeForDuplicateCheck(category.name)}`}
-                  value={category.name}
-                />
-              ))}
-            </datalist>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               {[
                 ["name", "Nombre del producto *", "Descripción comercial"],
@@ -1108,32 +1289,43 @@ export function ProductWorkspace() {
                   "Código único proveedor",
                   "Código del proveedor",
                 ],
-              ].map(([key, label, placeholder], index) => (
-                <label
-                  key={key}
-                  className={`text-[11px] font-extrabold text-[#334b6b] ${index === 0 ? "sm:col-span-2" : ""}`}
-                >
-                  {label}
-                  <input
-                    type={key === "unitsPerPackage" ? "number" : "text"}
-                    list={
-                      key === "supplier"
-                        ? "dg-supplier-options"
-                        : key === "category"
-                          ? "dg-category-options"
-                          : undefined
-                    }
-                    min="1"
-                    readOnly={key === "code" && Boolean(editingId)}
-                    value={form[key as keyof typeof form]}
-                    onChange={(event) =>
-                      setForm({ ...form, [key]: event.target.value })
-                    }
-                    placeholder={placeholder}
-                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3] read-only:bg-[#f2f5f9] read-only:text-[#74849a]"
-                  />
-                </label>
-              ))}
+              ].map(([key, label, placeholder], index) => {
+                if (key === "supplier" || key === "category") {
+                  return (
+                    <ProductOptionPicker
+                      key={key}
+                      label={label}
+                      placeholder={placeholder}
+                      value={form[key]}
+                      options={(key === "supplier" ? activeSuppliers : activeCategories).map(
+                        (option) => option.name,
+                      )}
+                      type={key}
+                      onChange={(value) => setForm({ ...form, [key]: value })}
+                    />
+                  );
+                }
+
+                return (
+                  <label
+                    key={key}
+                    className={`text-[11px] font-extrabold text-[#334b6b] ${index === 0 ? "sm:col-span-2" : ""}`}
+                  >
+                    {label}
+                    <input
+                      type={key === "unitsPerPackage" ? "number" : "text"}
+                      min="1"
+                      readOnly={key === "code" && Boolean(editingId)}
+                      value={form[key as keyof typeof form]}
+                      onChange={(event) =>
+                        setForm({ ...form, [key]: event.target.value })
+                      }
+                      placeholder={placeholder}
+                      className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3] read-only:bg-[#f2f5f9] read-only:text-[#74849a]"
+                    />
+                  </label>
+                );
+              })}
             </div>
             {error && (
               <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
@@ -1145,10 +1337,16 @@ export function ProductWorkspace() {
                 {editingId && (
                   <Button
                     type="button"
-                    variant="danger"
-                    onClick={removeProduct}
+                    variant={
+                      products.find((product) => product.id === editingId)?.active
+                        ? "danger"
+                        : "secondary"
+                    }
+                    onClick={toggleProductActive}
                   >
-                    Eliminar producto
+                    {products.find((product) => product.id === editingId)?.active
+                      ? "Desactivar producto"
+                      : "Reactivar producto"}
                   </Button>
                 )}
               </div>

@@ -1,10 +1,12 @@
 import { PrismaClient, Role } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { passwordSchema } from "../lib/password-policy";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const passwordHash = await hash(process.env.SEED_ADMIN_PASSWORD ?? "DirectGroup2026!", 12);
+  if (!process.env.SEED_ADMIN_PASSWORD) throw new Error("Configurá SEED_ADMIN_PASSWORD o usá npm run db:admin para crear un administrador con contraseña aleatoria.");
+  const passwordHash = await hash(passwordSchema.parse(process.env.SEED_ADMIN_PASSWORD), 12);
   const admin = await prisma.user.upsert({ where: { email: "admin@directgroup.local" }, update: {}, create: { name: "Administrador DG", email: "admin@directgroup.local", passwordHash, role: Role.ADMIN } });
   const [warehouse, client, supplier, brand, category] = await Promise.all([
     prisma.warehouse.upsert({ where: { code: "DEP-CENTRAL" }, update: {}, create: { code: "DEP-CENTRAL", name: "Depósito central" } }),

@@ -52,7 +52,7 @@ function AdminList({
   const [items, setItems] = useState<AdminItem[]>([]);
   const [draft, setDraft] = useState("");
   const [inputError, setInputError] = useState("");
-  const [status, setStatus] = useState("Leyendo Excel local...");
+  const [status, setStatus] = useState("Leyendo base de datos...");
   const [query, setQuery] = useState("");
   const draftInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,9 +63,9 @@ function AdminList({
       )
       .then((data) => {
         setItems(uniqueAdminItems(data[apiKey] ?? []));
-        setStatus("Excel local sincronizado");
+        setStatus("PostgreSQL sincronizado");
       })
-      .catch(() => setStatus("No pude leer el Excel local"));
+      .catch(() => setStatus("No pude leer PostgreSQL"));
   }, [apiKey, endpoint]);
 
   useEffect(() => {
@@ -94,7 +94,7 @@ function AdminList({
   async function persist(next: AdminItem[]): Promise<string | null> {
     const uniqueNext = uniqueAdminItems(next);
     setItems(uniqueNext);
-    setStatus("Guardando en Excel...");
+    setStatus("Guardando en PostgreSQL...");
     try {
       const response = await fetch(endpoint, {
         method: "PUT",
@@ -103,14 +103,14 @@ function AdminList({
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { message?: string };
-        const message = body.message ?? "No pude guardar en el Excel local";
+        const message = body.message ?? "No pude guardar en PostgreSQL";
         setStatus(message);
         return message;
       }
-      setStatus("Excel local sincronizado");
+      setStatus("PostgreSQL sincronizado");
       return null;
     } catch {
-      setStatus("No pude guardar en el Excel local");
+      setStatus("No pude guardar en PostgreSQL");
       return null;
     }
   }

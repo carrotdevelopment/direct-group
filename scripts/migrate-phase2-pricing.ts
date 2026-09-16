@@ -36,7 +36,12 @@ function asIntOrNull(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-type PriceJsonRow = {
+function asNumber(value: unknown) {
+  const parsed = Number.parseFloat(asString(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+type PriceRow = {
   id: string;
   supplier: string;
   uniqueCode: string;
@@ -71,9 +76,25 @@ function printReport(label: string, report: Report) {
 }
 
 async function migrateSupplierPrices() {
-  const jsonPath = path.join(getFolder(), "Base Precios DG.json");
-  const rows = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as PriceJsonRow[];
-  console.log(`\nLeyendo ${rows.length} precios desde el JSON sidecar...`);
+  const rows = readSheetRows("Base Precios DG.xlsx").map((row, index): PriceRow => {
+    const year = asIntOrNull(row["Año"] || row["Anio"]);
+    const month = asIntOrNull(row["Mes"]);
+    const day = asIntOrNull(row["Día"] || row["Dia"]);
+    return {
+      id: asString(row.ID) || `excel-price-${index}`,
+      supplier: asString(row.Proveedor),
+      uniqueCode: asString(row["Codigo Unico"] || row["Código Único"]),
+      informedAt:
+        year && month && day
+          ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+          : asString(row.Fecha),
+      costDg: asNumber(row["Costo DG"]),
+      vatRate: asNumber(row.IVA),
+      publicPrice: asNumber(row["Precio Publico"] || row["Precio Público"]),
+      markup: asNumber(row["Mark Up"]),
+    };
+  });
+  console.log(`\nLeyendo ${rows.length} precios desde el Excel...`);
 
   const products = await prisma.product.findMany({ select: { id: true, internalCode: true } });
   const productsByCode = new Map(products.map((p) => [p.internalCode.toLowerCase(), p.id]));
@@ -123,7 +144,7 @@ async function migrateSupplierPrices() {
       continue;
     }
     // Same source file can carry more than one entry for the same product/supplier/day;
-    // keep the last one seen (the JSON sidecar preserves the original row order).
+    // keep the last one seen (the Excel preserves the original row order).
     const key = `${productId}|${supplierId}|${validFrom.toISOString()}`;
     if (seenKeys.has(key)) {
       const previousIndex = pending.findIndex(

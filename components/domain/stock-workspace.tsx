@@ -124,6 +124,8 @@ export function StockWorkspace() {
 
   useEffect(() => {
     const controller = new AbortController();
+    // The async loader owns the state transition and cancellation lifecycle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadStock(controller.signal);
     return () => controller.abort();
   }, [loadStock]);

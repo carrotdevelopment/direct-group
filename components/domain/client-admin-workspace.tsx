@@ -252,7 +252,6 @@ export function ClientAdminWorkspace() {
   }
 
   const activeClients = clients.filter((c) => c.active);
-  const inactiveClients = clients.filter((c) => !c.active);
 
   return (
     <>

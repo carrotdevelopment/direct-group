@@ -1,3 +1,4 @@
+import { requirePageModule } from "@/server/lib/access";
 import {
   AlertTriangle,
   Bell,
@@ -17,7 +18,8 @@ import { inspectLocalDataFolder } from "@/lib/local-data-health";
 const sections = [{ label: "General", icon: Settings }, { label: "Usuarios y roles", icon: Users }, { label: "Seguridad", icon: LockKeyhole }, { label: "Notificaciones", icon: Bell }, { label: "Datos y backups", icon: Database }];
 
 export const metadata = { title: "Configuración" };
-export default function ConfiguracionPage() {
+export default async function ConfiguracionPage() {
+  await requirePageModule("admin");
   const dataHealth = inspectLocalDataFolder();
   const requiredFiles = dataHealth.files.filter((file) => file.required);
   const generatedFiles = dataHealth.files.filter((file) => file.reviewRecommended);

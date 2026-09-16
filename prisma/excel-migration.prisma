@@ -1,0 +1,561 @@
+// Esquema de destino para la migracion 1:1 desde los Excel de "En uso".
+// Se mantiene separado temporalmente del schema.prisma de la plataforma actual
+// para poder crear y validar las nuevas tablas sin romper funcionalidad existente.
+
+generator excelClient {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/excel-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("EXCEL_DATABASE_URL")
+}
+
+model ExcelSourceFile {
+  id             BigInt             @id @default(autoincrement()) @db.BigInt
+  fileName       String             @map("file_name") @db.VarChar(255)
+  relativePath   String             @map("relative_path")
+  checksumSha256 String?            @map("checksum_sha256") @db.VarChar(64)
+  fileModifiedAt DateTime?          @map("file_modified_at") @db.Timestamptz(6)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  importBatches  ExcelImportBatch[]
+
+  @@map("source_files")
+}
+
+model ExcelImportBatch {
+  id           BigInt                  @id @default(autoincrement()) @db.BigInt
+  sourceFileId BigInt                  @map("source_file_id") @db.BigInt
+  sheetName    String                  @map("sheet_name") @db.VarChar(255)
+  status       String                  @db.VarChar(30)
+  totalRows    Int?                    @map("total_rows")
+  importedRows Int?                    @map("imported_rows")
+  rejectedRows Int?                    @map("rejected_rows")
+  startedAt    DateTime                @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime?               @map("finished_at") @db.Timestamptz(6)
+  errorDetail  String?                 @map("error_detail")
+  sourceFile   ExcelSourceFile         @relation(fields: [sourceFileId], references: [id])
+  categories   ExcelCategory[]
+  clients      ExcelClient[]
+  suppliers    ExcelSupplier[]
+  brands       ExcelBrand[]
+  products     ExcelProduct[]
+  clientCodes  ExcelClientCode[]
+  clientRates  ExcelClientRate[]
+  prices       ExcelPrice[]
+  incomes      ExcelIncome[]
+  egresses     ExcelSantanderEgress[]
+  costs        ExcelSantanderCost[]
+  freightRules ExcelFreightCriterion[]
+  stockRows    ExcelSantanderStock[]
+  tangoClients TangoClient[]
+  tangoIncomes TangoIncome[]
+
+  @@index([sourceFileId, sheetName])
+  @@index([status])
+  @@map("import_batches")
+}
+
+model ExcelCategory {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  legacyId        String?           @map("legacy_id") @db.VarChar(100)
+  categoryCode    String            @unique @map("codigo_categoria") @db.VarChar(20)
+  category        String?           @map("categoria") @db.VarChar(255)
+  active          Boolean?          @map("activo")
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+  products        ExcelProduct[]
+
+  @@map("base_categorias")
+}
+
+model ExcelClient {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  legacyId        String?           @map("legacy_id") @db.VarChar(100)
+  name            String?           @map("nombre") @db.VarChar(255)
+  active          Boolean?          @map("activo")
+  sourceCreatedAt DateTime?         @map("creado") @db.Timestamptz(6)
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@map("base_clientes")
+}
+
+model ExcelSupplier {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  supplierCode    String            @unique @map("codigo_proveedor") @db.VarChar(20)
+  legacyId        String?           @map("legacy_id") @db.VarChar(100)
+  supplier        String?           @map("proveedor") @db.VarChar(255)
+  active          Boolean?          @map("activo")
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+  products        ExcelProduct[]
+
+  @@index([supplier])
+  @@map("base_proveedores")
+}
+
+model ExcelBrand {
+  id            BigInt            @id @default(autoincrement()) @db.BigInt
+  brandCode     String            @unique @map("codigo_marca") @db.VarChar(20)
+  name          String            @unique @map("nombre") @db.VarChar(255)
+  active        Boolean           @default(true) @map("activo")
+  importBatchId BigInt?           @map("import_batch_id") @db.BigInt
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch   ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+  products      ExcelProduct[]
+
+  @@map("marcas")
+}
+
+model ExcelProduct {
+  id                 BigInt            @id @default(autoincrement()) @db.BigInt
+  legacyId           String?           @map("legacy_id") @db.VarChar(100)
+  product            String?           @map("producto")
+  active             Boolean           @default(true) @map("activo")
+  brandId            BigInt?           @map("marca_id") @db.BigInt
+  brandOriginal      String?           @map("marca_original") @db.VarChar(255)
+  uniqueCode         String?           @map("codigo_unico") @db.VarChar(255)
+  supplierUniqueCode String?           @map("codigo_unico_proveedor") @db.VarChar(255)
+  supplierId         BigInt?           @map("proveedor_id") @db.BigInt
+  supplierOriginal   String?           @map("proveedor_original") @db.VarChar(255)
+  categoryId         BigInt?           @map("categoria_id") @db.BigInt
+  categoryOriginal   String?           @map("categoria_original") @db.VarChar(255)
+  packageSize        Decimal?          @map("bulto") @db.Decimal(18, 4)
+  sourceCreatedAt    DateTime?         @map("creado") @db.Timestamptz(6)
+  sourceUpdatedAt    DateTime?         @map("actualizado") @db.Timestamptz(6)
+  importBatchId      BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber    Int?              @map("source_row_number")
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  brand              ExcelBrand?       @relation(fields: [brandId], references: [id])
+  supplier           ExcelSupplier?    @relation(fields: [supplierId], references: [id])
+  category           ExcelCategory?    @relation(fields: [categoryId], references: [id])
+  importBatch        ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([uniqueCode])
+  @@index([brandId])
+  @@index([supplierId])
+  @@index([categoryId])
+  @@map("base_productos")
+}
+
+model ExcelClientCode {
+  id               BigInt            @id @default(autoincrement()) @db.BigInt
+  legacyId         String?           @map("legacy_id") @db.VarChar(100)
+  client           String?           @map("cliente") @db.VarChar(255)
+  uniqueCode       String?           @map("codigo_unico") @db.VarChar(255)
+  clientCode       String?           @map("codigo_cliente") @db.VarChar(255)
+  assignmentMonth  Int?              @map("mes_asignacion") @db.SmallInt
+  assignmentYear   Int?              @map("anio_asignacion") @db.SmallInt
+  active           Boolean?          @map("activo")
+  reactivatedAt    DateTime?         @map("reactivado") @db.Timestamptz(6)
+  correctedAt      DateTime?         @map("corregido") @db.Timestamptz(6)
+  correctionReason String?           @map("motivo_correccion")
+  voidedAt         DateTime?         @map("anulado") @db.Timestamptz(6)
+  voidReason       String?           @map("motivo_anulacion")
+  importBatchId    BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber  Int?              @map("source_row_number")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch      ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([client])
+  @@index([uniqueCode])
+  @@index([clientCode])
+  @@map("base_codigo_cliente")
+}
+
+model ExcelClientRate {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  legacyId        String?           @map("legacy_id") @db.VarChar(100)
+  clientLegacyId  String?           @map("cliente_id") @db.VarChar(100)
+  client          String?           @map("cliente") @db.VarChar(255)
+  validFrom       DateTime?         @map("vigente_desde") @db.Date
+  rateName        String?           @map("nombre_tasa") @db.VarChar(255)
+  key             String?           @map("clave") @db.VarChar(255)
+  applies         Boolean?          @map("aplica")
+  percentageValue Decimal?          @map("valor_porcentaje") @db.Decimal(18, 6)
+  appliesTo       String?           @map("aplica_sobre") @db.VarChar(255)
+  sortOrder       Int?              @map("orden")
+  sourceCreatedAt DateTime?         @map("creado") @db.Timestamptz(6)
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([clientLegacyId])
+  @@index([clientLegacyId, validFrom])
+  @@map("base_config_tasas_clientes")
+}
+
+model ExcelPrice {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  legacyId        String?           @map("legacy_id") @db.VarChar(100)
+  supplier        String?           @map("proveedor") @db.VarChar(255)
+  uniqueCode      String?           @map("codigo_unico") @db.VarChar(255)
+  day             Int?              @map("dia") @db.SmallInt
+  month           Int?              @map("mes") @db.SmallInt
+  year            Int?              @map("anio") @db.SmallInt
+  dgCost          Decimal?          @map("costo_dg") @db.Decimal(18, 4)
+  vat             Decimal?          @map("iva") @db.Decimal(18, 6)
+  publicPrice     Decimal?          @map("precio_publico") @db.Decimal(18, 4)
+  markup          Decimal?          @map("mark_up") @db.Decimal(18, 6)
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([uniqueCode])
+  @@index([supplier])
+  @@index([year, month, day])
+  @@map("base_precios")
+}
+
+model ExcelIncome {
+  id                BigInt            @id @default(autoincrement()) @db.BigInt
+  client            String?           @map("cliente") @db.VarChar(255)
+  operation         String?           @map("operacion") @db.VarChar(255)
+  orderDay          Int?              @map("dia_pedido") @db.SmallInt
+  orderMonth        Int?              @map("mes_pedido") @db.SmallInt
+  orderYear         Int?              @map("anio_pedido") @db.SmallInt
+  purchaseOrder     String?           @map("orden_de_compra") @db.VarChar(255)
+  clientCode        String?           @map("codigo_cliente") @db.VarChar(255)
+  quantity          Decimal?          @map("cantidad") @db.Decimal(18, 4)
+  transferOrigin    String?           @map("origen_del_pasaje") @db.VarChar(255)
+  deliveryDay       Int?              @map("dia_entrega") @db.SmallInt
+  deliveryMonth     Int?              @map("mes_entrega") @db.SmallInt
+  deliveryYear      Int?              @map("anio_entrega") @db.SmallInt
+  deliveredQuantity Decimal?          @map("entregado") @db.Decimal(18, 4)
+  comments          String?           @map("comentarios")
+  importBatchId     BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber   Int?              @map("source_row_number")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch       ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([client])
+  @@index([operation])
+  @@index([clientCode])
+  @@index([purchaseOrder])
+  @@map("base_ingresos")
+}
+
+model ExcelSantanderEgress {
+  id               BigInt            @id @default(autoincrement()) @db.BigInt
+  day              Int?              @map("dia") @db.SmallInt
+  month            Int?              @map("mes") @db.SmallInt
+  year             Int?              @map("anio") @db.SmallInt
+  guideNumber      String?           @map("nro_guia") @db.VarChar(255)
+  date             DateTime?         @map("fecha") @db.Date
+  legacyId         String?           @map("legacy_id") @db.VarChar(100)
+  sku              String?           @db.VarChar(255)
+  locality         String?           @map("localidad") @db.VarChar(255)
+  province         String?           @map("provincia") @db.VarChar(255)
+  postalCode       String?           @map("cp") @db.VarChar(50)
+  quantity         Decimal?          @map("cantidad") @db.Decimal(18, 4)
+  quantityOriginal String?           @map("cantidad_original")
+  migrationWarning String?           @map("migration_warning")
+  operation        String?           @map("operacion") @db.VarChar(255)
+  destination      String?           @map("destino")
+  comment          String?           @map("comentario")
+  importBatchId    BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber  Int?              @map("source_row_number")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch      ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([date])
+  @@index([guideNumber])
+  @@index([sku])
+  @@index([operation])
+  @@map("base_egresos_santander")
+}
+
+model EgressImportProfile {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  client     String   @map("cliente") @db.VarChar(255)
+  version    Int      @default(1)
+  active     Boolean  @default(true) @map("activo")
+  sheetName  String?  @map("nombre_hoja") @db.VarChar(255)
+  headerRow  Int      @default(1) @map("fila_encabezado")
+  columns    Json     @map("columnas")
+  mapping    Json     @map("mapeo")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([client, version])
+  @@index([client, active])
+  @@map("egresos_perfiles_importacion")
+}
+
+model EgressImportBatch {
+  id           BigInt         @id @default(autoincrement()) @db.BigInt
+  client       String         @map("cliente") @db.VarChar(255)
+  sourceType   String         @map("tipo_origen") @db.VarChar(30)
+  fileName     String?        @map("nombre_archivo") @db.VarChar(255)
+  fileHash     String?        @map("hash_archivo") @db.VarChar(64)
+  sheetName    String?        @map("nombre_hoja") @db.VarChar(255)
+  headers      Json?          @map("encabezados")
+  status       String         @db.VarChar(30)
+  totalRows    Int            @default(0) @map("filas_totales")
+  importedRows Int            @default(0) @map("filas_importadas")
+  errorDetail  String?        @map("detalle_error")
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt   DateTime?      @map("finished_at") @db.Timestamptz(6)
+  rawRows      EgressRawRow[]
+
+  @@unique([client, fileHash])
+  @@index([client, createdAt])
+  @@index([status])
+  @@map("egresos_lotes_importacion")
+}
+
+model EgressRawRow {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  batchId         BigInt            @map("lote_id") @db.BigInt
+  client          String            @map("cliente") @db.VarChar(255)
+  sourceRowNumber Int?              @map("numero_fila_origen")
+  headers         Json?             @map("encabezados")
+  values          Json?             @map("valores")
+  payload         Json              @map("datos_originales")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  batch           EgressImportBatch @relation(fields: [batchId], references: [id])
+  egress          Egress?
+
+  @@index([batchId])
+  @@index([client])
+  @@map("egresos_raw_backup")
+}
+
+model Egress {
+  id          BigInt       @id @default(autoincrement()) @db.BigInt
+  client      String       @map("cliente") @db.VarChar(255)
+  operation   String       @map("operacion") @db.VarChar(50)
+  date        DateTime?    @map("fecha") @db.Date
+  clientCode  String?      @map("codigo_cliente") @db.VarChar(255)
+  uniqueCode  String?      @map("codigo_unico") @db.VarChar(255)
+  product     String?      @map("producto")
+  quantity    Decimal?     @map("cantidad") @db.Decimal(18, 4)
+  destination String?      @map("destino")
+  comments    String?      @map("comentarios")
+  rawRowId    BigInt?      @unique @map("raw_row_id") @db.BigInt
+  sourceHash  String?      @map("source_hash") @db.VarChar(64)
+  createdBy   String?      @map("created_by") @db.VarChar(255)
+  modifiedBy  String?      @map("modified_by") @db.VarChar(255)
+  deletedBy   String?      @map("deleted_by") @db.VarChar(255)
+  deletedAt   DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  rawRow      EgressRawRow? @relation(fields: [rawRowId], references: [id])
+
+  @@index([client, date])
+  @@index([clientCode])
+  @@index([uniqueCode])
+  @@index([operation])
+  @@index([deletedAt])
+  @@index([client, sourceHash])
+  @@map("egresos")
+}
+
+model ExcelSantanderCost {
+  id               BigInt            @id @default(autoincrement()) @db.BigInt
+  client           String?           @map("cliente") @db.VarChar(255)
+  period           String?           @map("periodo") @db.VarChar(50)
+  month            Int?              @map("mes") @db.SmallInt
+  year             Int?              @map("anio") @db.SmallInt
+  date             DateTime?         @map("fecha") @db.Date
+  clientCode       String?           @map("codigo_cliente") @db.VarChar(255)
+  uniqueCode       String?           @map("codigo_unico") @db.VarChar(255)
+  updatedCost      String?           @map("costo_actualizado") @db.VarChar(50)
+  product          String?           @map("producto")
+  supplier         String?           @map("proveedor") @db.VarChar(255)
+  category         String?           @map("categoria") @db.VarChar(255)
+  publicPrice      Decimal?          @map("precio_publico") @db.Decimal(18, 4)
+  vat              Decimal?          @map("iva") @db.Decimal(18, 6)
+  markup           Decimal?          @map("mark_up") @db.Decimal(18, 6)
+  publicPriceNoVat Decimal?          @map("pp_sin_iva") @db.Decimal(18, 4)
+  dgCostNoVat      Decimal?          @map("costo_dg_sin_iva") @db.Decimal(18, 4)
+  insurance        Decimal?          @map("seguro") @db.Decimal(18, 4)
+  grossIncomeTax   Decimal?          @map("ingresos_brutos") @db.Decimal(18, 4)
+  debitTax         Decimal?          @map("impuesto_debito") @db.Decimal(18, 4)
+  creditTax        Decimal?          @map("impuesto_credito") @db.Decimal(18, 4)
+  freightNoVat     Decimal?          @map("flete_sin_iva") @db.Decimal(18, 4)
+  totalCost        Decimal?          @map("costo_total") @db.Decimal(18, 4)
+  salePriceNoVat   Decimal?          @map("pvc_sin_iva") @db.Decimal(18, 4)
+  salePriceWithVat Decimal?          @map("pvc_con_iva") @db.Decimal(18, 4)
+  profit           Decimal?          @map("utilidad") @db.Decimal(18, 4)
+  percentage       Decimal?          @map("porcentaje") @db.Decimal(18, 6)
+  missionsTax      Decimal?          @map("impuesto_misiones") @db.Decimal(18, 4)
+  volumetricWeight Decimal?          @map("peso_volumetrico") @db.Decimal(18, 4)
+  packages         Decimal?          @map("bultos") @db.Decimal(18, 4)
+  origin           String?           @map("origen") @db.VarChar(255)
+  importBatchId    BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber  Int?              @map("source_row_number")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch      ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([uniqueCode])
+  @@index([clientCode])
+  @@index([year, month])
+  @@map("base_estructura_costos_santander")
+}
+
+model ExcelFreightCriterion {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  uniqueCode      String?           @map("codigo_unico") @db.VarChar(255)
+  mode            String?           @map("modo") @db.VarChar(20)
+  value           Decimal?          @map("valor") @db.Decimal(18, 6)
+  validFrom       String?           @map("vigente_desde") @db.VarChar(7)
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([uniqueCode, validFrom])
+  @@map("criterios_flete")
+}
+
+model ExcelSantanderStock {
+  id                     BigInt            @id @default(autoincrement()) @db.BigInt
+  client                 String?           @map("cliente") @db.VarChar(255)
+  group                  String?           @map("grupo") @db.VarChar(255)
+  comments               String?           @map("comentarios")
+  clientCode             String?           @map("codigo_cliente") @db.VarChar(255)
+  product                String?           @map("producto")
+  supplier               String?           @map("proveedor") @db.VarChar(255)
+  uniqueCode             String?           @map("codigo_unico") @db.VarChar(255)
+  category               String?           @map("categoria") @db.VarChar(255)
+  totalOrdered           Decimal?          @map("pedido_total") @db.Decimal(18, 4)
+  physicalIncome         Decimal?          @map("ingreso_fisico") @db.Decimal(18, 4)
+  egress                 Decimal?          @map("egreso") @db.Decimal(18, 4)
+  theoreticalStock       Decimal?          @map("stock_teorico") @db.Decimal(18, 4)
+  realStock              Decimal?          @map("stock_real") @db.Decimal(18, 4)
+  pendingDeliveries      Decimal?          @map("entregas_pendientes") @db.Decimal(18, 4)
+  totalTransactions      Decimal?          @map("transacciones_totales") @db.Decimal(18, 4)
+  firstIncomeDate        DateTime?         @map("fecha_primer_ingreso") @db.Date
+  informedStock          Decimal?          @map("stock_informado") @db.Decimal(18, 4)
+  availableOnWeb         Decimal?          @map("dispone_web") @db.Decimal(18, 4)
+  adjustment             Decimal?          @map("ajuste") @db.Decimal(18, 4)
+  validity               Decimal?          @map("vigencia") @db.Decimal(18, 4)
+  transactionsPerDay     Decimal?          @map("transacciones_por_dia") @db.Decimal(18, 6)
+  stockDays              Decimal?          @map("dias_de_stock") @db.Decimal(18, 4)
+  requiredStock          Decimal?          @map("stock_necesario") @db.Decimal(18, 4)
+  surplusShortage        Decimal?          @map("sobra_falta") @db.Decimal(18, 4)
+  packageSurplusShortage Decimal?          @map("sobra_falta_segun_bulto") @db.Decimal(18, 4)
+  percentage             Decimal?          @map("porcentaje") @db.Decimal(18, 6)
+  quantity               Decimal?          @map("cantidad") @db.Decimal(18, 4)
+  packageSize            Decimal?          @map("bulto") @db.Decimal(18, 4)
+  finalPurchase          Decimal?          @map("compra_final") @db.Decimal(18, 4)
+  dgCostNoVat            Decimal?          @map("costo_dg_sin_iva") @db.Decimal(18, 4)
+  totalCost              Decimal?          @map("total_costo") @db.Decimal(18, 4)
+  valuedStock            Decimal?          @map("stock_valorizado") @db.Decimal(18, 4)
+  unitProfit             Decimal?          @map("utilidad_unitaria") @db.Decimal(18, 4)
+  totalProfit            Decimal?          @map("utilidad_total") @db.Decimal(18, 4)
+  salePrice              Decimal?          @map("pv") @db.Decimal(18, 4)
+  remaining              Decimal?          @map("restantes") @db.Decimal(18, 4)
+  importBatchId          BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber        Int?              @map("source_row_number")
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch            ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([uniqueCode])
+  @@index([clientCode])
+  @@index([client])
+  @@map("base_stock_santander")
+}
+
+model TangoClient {
+  id              BigInt            @id @default(autoincrement()) @db.BigInt
+  client          String?           @map("cliente") @db.VarChar(255)
+  clientCode      String?           @map("codigo_cliente") @db.VarChar(255)
+  importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber Int?              @map("source_row_number")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch     ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([client])
+  @@index([clientCode])
+  @@map("tango_clientes")
+}
+
+model TangoIncome {
+  id                BigInt            @id @default(autoincrement()) @db.BigInt
+  externalKey       String?           @unique @map("external_key") @db.VarChar(255)
+  sourceHeaderId    String?           @map("source_header_id") @db.VarChar(64)
+  client            String?           @map("cliente") @db.VarChar(255)
+  operation         String?           @map("operacion") @db.VarChar(255)
+  orderDate         DateTime?         @map("fecha_pedido") @db.Date
+  purchaseOrder     String?           @map("orden_de_compra") @db.VarChar(255)
+  clientCode        String?           @map("codigo_cliente") @db.VarChar(255)
+  quantity          Decimal?          @map("cantidad") @db.Decimal(18, 4)
+  transferOrigin    String?           @map("origen_del_pasaje") @db.VarChar(255)
+  deliveryDate      DateTime?         @map("fecha_entrega") @db.Date
+  deliveredQuantity Decimal?          @map("entregado") @db.Decimal(18, 4)
+  comments          String?           @map("comentarios")
+  importBatchId     BigInt?           @map("import_batch_id") @db.BigInt
+  sourceRowNumber   Int?              @map("source_row_number")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  importBatch       ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([orderDate])
+  @@index([client])
+  @@index([operation])
+  @@index([clientCode])
+  @@index([purchaseOrder])
+  @@map("tango_ingresos")
+}
+
+model TangoSyncJob {
+  id          String    @id @default(uuid()) @db.Uuid
+  dateFrom    DateTime  @map("date_from") @db.Date
+  dateTo      DateTime  @map("date_to") @db.Date
+  status      String    @default("pending") @db.VarChar(20)
+  requestedBy String    @map("requested_by") @db.VarChar(255)
+  attempts    Int       @default(0)
+  claimToken  String?   @map("claim_token") @db.Uuid
+  leaseUntil  DateTime? @map("lease_until") @db.Timestamptz(6)
+  rowCount    Int       @default(0) @map("row_count")
+  message     String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+  batches     TangoSyncBatch[]
+
+  @@index([status, createdAt])
+  @@map("tango_sync_jobs")
+}
+
+model TangoSyncBatch {
+  jobId   String       @map("job_id") @db.Uuid
+  index   Int
+  rows    Json         @db.JsonB
+  job     TangoSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, index])
+  @@map("tango_sync_batches")
+}
+
+model TangoConnectorState {
+  id         String   @id @db.VarChar(64)
+  lastSeenAt DateTime @map("last_seen_at") @db.Timestamptz(6)
+
+  @@map("tango_connector_state")
+}

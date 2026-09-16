@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ClipboardPaste, Trash2 } from "lucide-react";
+import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 
@@ -60,6 +60,10 @@ type PendingState = {
   changes: PendingChange[];
   unchangedCount: number;
   finalMappings: Mapping[];
+  client: string;
+  assignedMonth: number;
+  assignedYear: number;
+  source: "assignment" | "history";
 };
 
 const baseClients = [
@@ -131,10 +135,6 @@ function canonicalClient(value: string) {
     .replace(/\b\p{L}/gu, (l) => l.toUpperCase());
 }
 
-function relationKey(uniqueCode: string, clientCode: string) {
-  return `${uniqueCode.trim().toUpperCase()}::${clientCode.trim().toUpperCase()}`;
-}
-
 function codeKey(value: string) {
   return value.trim().toUpperCase();
 }
@@ -193,18 +193,10 @@ export function ClientCodeWorkspace() {
   const [client, setClient] = useState("");
   const [month, setMonth] = useState(String(currentMonth));
   const [year, setYear] = useState(String(currentYear));
-  const [assignmentMode, setAssignmentMode] = useState<"active" | "inactive">(
-    "active",
-  );
-  const [draftFilter, setDraftFilter] = useState("");
   const [draftRows, setDraftRows] = useState<DraftRow[]>(() => blankRows());
   const [selectedNewRows, setSelectedNewRows] = useState<Set<number>>(
     new Set(),
   );
-  const [toDeactivate, setToDeactivate] = useState<Set<string>>(new Set());
-  const [selectedToReactivate, setSelectedToReactivate] = useState<
-    Set<string>
-  >(new Set());
   const dragMode = useRef<"select" | "deselect" | null>(null);
   const [message, setMessage] = useState("");
   const [draftError, setDraftError] = useState("");
@@ -212,24 +204,24 @@ export function ClientCodeWorkspace() {
     uniqueCodes: Set<string>;
     clientCodes: Set<string>;
   }>(() => ({ uniqueCodes: new Set(), clientCodes: new Set() }));
-  const [dbStatus, setDbStatus] = useState("Leyendo Excel local...");
+  const [dbStatus, setDbStatus] = useState("Leyendo base de datos...");
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [historyClient, setHistoryClient] = useState("");
   const [historyMonth, setHistoryMonth] = useState("");
   const [historyYear, setHistoryYear] = useState("");
-  const [activeFilterMonth, setActiveFilterMonth] = useState("");
-  const [activeFilterYear, setActiveFilterYear] = useState("");
   const [historyUniqueCode, setHistoryUniqueCode] = useState("");
   const [historyClientCode, setHistoryClientCode] = useState("");
   const [historyPage, setHistoryPage] = useState(0);
   const [historyActiveOnly, setHistoryActiveOnly] = useState(true);
+  const [historyActionMessage, setHistoryActionMessage] = useState("");
+  const [historyActionError, setHistoryActionError] = useState("");
   const [draftSort, setDraftSort] = useState<DraftSort | null>(null);
   const [historySort, setHistorySort] = useState<HistorySort>({
     key: "assignedYear",
     direction: "desc",
   });
   const [pending, setPending] = useState<PendingState | null>(null);
-  const activeTableScrollRef = useRef<HTMLDivElement | null>(null);
+  const draftTableScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const stopDragging = () => {
@@ -332,119 +324,20 @@ export function ClientCodeWorkspace() {
       .filter((option) => option.value <= maxMonth);
   }, [year]);
 
-  const availableActiveFilterMonths = useMemo(() => {
-    const selected = Number(activeFilterYear);
-    const maxMonth = selected === currentYear ? currentMonth : 12;
-    return months
-      .map((name, index) => ({ name, value: index + 1 }))
-      .filter((option) => option.value <= maxMonth);
-  }, [activeFilterYear]);
-
   const activeAssignmentByCode = useMemo(() => {
     const index = new Map<string, Mapping>();
     if (!client) return index;
     const canonicalized = canonicalClient(client);
     for (const m of mappings) {
       if (!m.active || m.voidedAt || canonicalClient(m.client) !== canonicalized) continue;
-      index.set(m.uniqueCode.trim(), m);
-    }
-    return index;
-  }, [client, mappings]);
-
-  const activeAssignmentByRelation = useMemo(() => {
-    const index = new Map<string, Mapping>();
-    if (!client) return index;
-    const canonicalized = canonicalClient(client);
-    for (const mapping of mappings) {
-      if (
-        !mapping.active ||
-        mapping.voidedAt ||
-        canonicalClient(mapping.client) !== canonicalized
-      ) {
-        continue;
-      }
-      index.set(relationKey(mapping.uniqueCode, mapping.clientCode), mapping);
+      index.set(codeKey(m.uniqueCode), m);
     }
     return index;
   }, [client, mappings]);
 
   const filteredDraftEntries = useMemo(() => {
-    const query = draftFilter.trim().toLowerCase();
-    return draftRows
-      .map((row, originalIndex) => ({ row, originalIndex }))
-      .filter(({ row }) => {
-        const isEmpty = !row.uniqueCode.trim() && !row.clientCode.trim();
-        if (isEmpty) return true;
-        if (!row.isNew) {
-          if (activeFilterYear && row.assignedYear !== Number(activeFilterYear)) {
-            return false;
-          }
-          if (activeFilterMonth && row.assignedMonth !== Number(activeFilterMonth)) {
-            return false;
-          }
-        }
-        if (!query) return true;
-        return (
-          row.uniqueCode.toLowerCase().includes(query) ||
-          row.clientCode.toLowerCase().includes(query)
-        );
-      });
-  }, [draftRows, draftFilter, activeFilterMonth, activeFilterYear]);
-
-  const filteredInactiveAssignments = useMemo(() => {
-    if (!client) return [];
-    const canonicalized = canonicalClient(client);
-    const query = draftFilter.trim().toLowerCase();
-    const activePairs = new Set(
-      mappings
-        .filter(
-          (m) => m.active && !m.voidedAt && canonicalClient(m.client) === canonicalized,
-        )
-        .map(
-          (m) =>
-            `${m.uniqueCode.trim().toUpperCase()}::${m.clientCode.trim().toUpperCase()}`,
-        ),
-    );
-    const inactiveRows = mappings
-      .filter(
-        (m) =>
-          !m.active &&
-          !m.voidedAt &&
-          !m.reactivatedAt &&
-          canonicalClient(m.client) === canonicalized &&
-          !activePairs.has(
-            `${m.uniqueCode.trim().toUpperCase()}::${m.clientCode.trim().toUpperCase()}`,
-          ),
-      )
-      .filter(
-        (m) =>
-          !query ||
-          m.uniqueCode.toLowerCase().includes(query) ||
-          m.clientCode.toLowerCase().includes(query),
-      );
-    const latestByPair = new Map<string, Mapping>();
-    for (const mapping of inactiveRows) {
-      const key = `${mapping.uniqueCode.trim().toUpperCase()}::${mapping.clientCode.trim().toUpperCase()}`;
-      const current = latestByPair.get(key);
-      if (!current || periodIndex(mapping) > periodIndex(current)) {
-        latestByPair.set(key, mapping);
-      }
-    }
-    return Array.from(latestByPair.values()).sort(
-      (a, b) =>
-        periodIndex(b) - periodIndex(a) ||
-        a.uniqueCode.localeCompare(b.uniqueCode, "es", { numeric: true }) ||
-        a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }),
-    );
-  }, [client, mappings, draftFilter]);
-
-  const activeAssignmentsCount = useMemo(() => {
-    if (!client) return 0;
-    const canonicalized = canonicalClient(client);
-    return mappings.filter(
-      (m) => m.active && !m.voidedAt && canonicalClient(m.client) === canonicalized,
-    ).length;
-  }, [client, mappings]);
+    return draftRows.map((row, originalIndex) => ({ row, originalIndex }));
+  }, [draftRows]);
 
   const preview = useMemo(
     () =>
@@ -452,14 +345,13 @@ export function ClientCodeWorkspace() {
         .filter(
           (r) =>
             r.uniqueCode.trim() &&
-            r.clientCode.trim() &&
-            !toDeactivate.has(relationKey(r.uniqueCode, r.clientCode)),
+            r.clientCode.trim(),
         )
         .map((r) => ({
           uniqueCode: r.uniqueCode.trim(),
           clientCode: r.clientCode.trim(),
         })),
-    [draftRows, toDeactivate],
+    [draftRows],
   );
 
   const invalidPreviewUniqueCodes = useMemo(() => {
@@ -471,14 +363,13 @@ export function ClientCodeWorkspace() {
             (row) =>
               row.isNew &&
               row.uniqueCode.trim() &&
-              row.clientCode.trim() &&
-              !toDeactivate.has(relationKey(row.uniqueCode, row.clientCode)),
+              row.clientCode.trim(),
           )
           .map((row) => row.uniqueCode)
           .filter((uniqueCode) => !productCodes.has(codeKey(uniqueCode))),
       ),
     );
-  }, [draftRows, productCatalogLoaded, productCodes, toDeactivate]);
+  }, [draftRows, productCatalogLoaded, productCodes]);
 
   const hasNewPreviewRows = useMemo(
     () =>
@@ -486,54 +377,44 @@ export function ClientCodeWorkspace() {
         (row) =>
           row.isNew &&
           row.uniqueCode.trim() &&
-          row.clientCode.trim() &&
-          !toDeactivate.has(relationKey(row.uniqueCode, row.clientCode)),
+          row.clientCode.trim(),
       ),
-    [draftRows, toDeactivate],
+    [draftRows],
   );
 
-  const visibleActiveDeactivateKeys = useMemo(
+  const draftUpdates = useMemo(
     () =>
-      filteredDraftEntries
-        .map(({ row }) => row)
-        .filter((row) => !row.isNew && row.uniqueCode.trim() && row.clientCode.trim())
-        .map((row) => relationKey(row.uniqueCode, row.clientCode)),
-    [filteredDraftEntries],
+      draftRows.flatMap((row) => {
+        if (!row.uniqueCode.trim() || !row.clientCode.trim()) return [];
+        const current = activeAssignmentByCode.get(codeKey(row.uniqueCode));
+        if (!current || codeKey(current.clientCode) === codeKey(row.clientCode)) {
+          return [];
+        }
+        return [{ row, current }];
+      }),
+    [activeAssignmentByCode, draftRows],
   );
-
-  const allVisibleActiveMarked =
-    visibleActiveDeactivateKeys.length > 0 &&
-    visibleActiveDeactivateKeys.every((key) => toDeactivate.has(key));
 
   const saveDisabledReason = useMemo(() => {
     if (!client) return "Seleccioná un cliente para poder guardar asignaciones.";
     if (isLoadingDb) return "Esperá a que termine de cargar la base local.";
-    if (assignmentMode === "active") {
-      if (preview.length === 0 && toDeactivate.size === 0) {
-        return "Cargá al menos una asignación nueva, corregí una existente o marcá una activa para desactivar.";
-      }
-      if (hasNewPreviewRows && !productCatalogLoaded) {
-        return "Todavía no se pudo validar contra Productos.";
-      }
-      if (invalidPreviewUniqueCodes.length > 0) {
-        return "Hay códigos únicos que no existen en Productos.";
-      }
-      return "";
+    if (preview.length === 0) {
+      return "Cargá al menos una asignación nueva o una actualización.";
     }
-    if (selectedToReactivate.size === 0) {
-      return "Seleccioná al menos una asignación inactiva para reactivar.";
+    if (hasNewPreviewRows && !productCatalogLoaded) {
+      return "Todavía no se pudo validar contra Productos.";
+    }
+    if (invalidPreviewUniqueCodes.length > 0) {
+      return "Hay códigos únicos que no existen en Productos.";
     }
     return "";
   }, [
-    assignmentMode,
     client,
     hasNewPreviewRows,
     invalidPreviewUniqueCodes.length,
     isLoadingDb,
     preview.length,
     productCatalogLoaded,
-    selectedToReactivate.size,
-    toDeactivate.size,
   ]);
 
   function sortDraftBy(key: DraftSortKey) {
@@ -543,9 +424,7 @@ export function ClientCodeWorkspace() {
         : { key, direction: "asc" };
     setDraftSort(nextSort);
     setDraftRows((rows) => {
-      const prefilled = rows.filter((r) => !r.isNew);
-      const newRows = rows.filter((r) => r.isNew);
-      const sorted = [...prefilled].sort((a, b) => {
+      return [...rows].sort((a, b) => {
         const left = draftSortValue(a, key);
         const right = draftSortValue(b, key);
         const cmp =
@@ -557,7 +436,6 @@ export function ClientCodeWorkspace() {
               });
         return nextSort.direction === "asc" ? cmp : -cmp;
       });
-      return [...sorted, ...newRows];
     });
     setSelectedNewRows(new Set());
   }
@@ -589,12 +467,12 @@ export function ClientCodeWorkspace() {
   }
 
   function activeAssigned(uniqueCode: string) {
-    return activeAssignmentByCode.get(uniqueCode.trim());
+    return activeAssignmentByCode.get(codeKey(uniqueCode));
   }
 
   async function persist(next: Mapping[]) {
     setMappings(next);
-    setDbStatus("Guardando en Excel...");
+    setDbStatus("Guardando en PostgreSQL...");
     try {
       const response = await fetch("/api/local-db/client-codes", {
         method: "PUT",
@@ -602,24 +480,24 @@ export function ClientCodeWorkspace() {
         body: JSON.stringify({ mappings: next }),
       });
       if (!response.ok) throw new Error("write failed");
-      setDbStatus("Excel local sincronizado");
+      setDbStatus("PostgreSQL sincronizado");
     } catch {
-      setDbStatus("No pude guardar en el Excel local");
+      setDbStatus("No pude guardar en PostgreSQL");
     }
   }
 
   async function loadMappingsFromExcel() {
     setIsLoadingDb(true);
-    setDbStatus("Leyendo Excel local...");
+    setDbStatus("Leyendo PostgreSQL...");
     try {
       const response = await fetch("/api/local-db/client-codes");
       if (!response.ok) throw new Error("read failed");
       const data = (await response.json()) as { mappings: Mapping[] };
       setMappings(data.mappings);
-      setDbStatus("Excel local sincronizado");
+      setDbStatus("PostgreSQL sincronizado");
       return data.mappings;
     } catch {
-      setDbStatus("No pude leer el Excel local");
+      setDbStatus("No pude leer PostgreSQL");
       return mappings;
     } finally {
       setIsLoadingDb(false);
@@ -628,7 +506,7 @@ export function ClientCodeWorkspace() {
 
   async function loadProductCodesFromExcel() {
     try {
-      const response = await fetch("/api/local-db/products");
+      const response = await fetch("/api/lookups?kind=products");
       if (!response.ok) throw new Error("read products failed");
       const data = (await response.json()) as { products: ProductReference[] };
       setProductCodes(
@@ -654,9 +532,7 @@ export function ClientCodeWorkspace() {
       rows.map((row, i) => {
         if (i !== rowIndex) return row;
         if (field === "uniqueCode") {
-          if (!row.isNew) return row; // pre-filled uniqueCode is readonly
-          const assigned = activeAssigned(value);
-          return { ...row, uniqueCode: value, clientCode: assigned?.clientCode ?? "" };
+          return { ...row, uniqueCode: value };
         }
         return { ...row, clientCode: value };
       }),
@@ -666,78 +542,18 @@ export function ClientCodeWorkspace() {
     setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
   }
 
-  function populateDraftFromMappings(
-    source: Mapping[],
-    canonicalized: string,
-  ) {
-    const active = source
-      .filter((m) => m.active && !m.voidedAt && canonicalClient(m.client) === canonicalized)
-      .sort((a, b) =>
-        a.uniqueCode.localeCompare(b.uniqueCode, "es", { numeric: true }),
-      );
-    setDraftRows([
-      ...active.map((m) => ({
-        uniqueCode: m.uniqueCode,
-        clientCode: m.clientCode,
-        assignedMonth: m.assignedMonth,
-        assignedYear: m.assignedYear,
-        isNew: false,
-      })),
-      ...blankRows(3),
-    ]);
+  function resetDraft() {
+    setDraftRows(blankRows());
   }
 
   function changeClient(nextClient: string) {
     setClient(nextClient);
     setMessage("");
     setDraftError("");
-    setDraftFilter("");
-    setToDeactivate(new Set());
-    setSelectedToReactivate(new Set());
     setSelectedNewRows(new Set());
     setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
     setDraftSort(null);
-    if (!nextClient) {
-      setDraftRows(blankRows());
-      return;
-    }
-    populateDraftFromMappings(mappings, canonicalClient(nextClient));
-  }
-
-  function changeMode(mode: "active" | "inactive") {
-    setAssignmentMode(mode);
-    setDraftFilter("");
-    setToDeactivate(new Set());
-    setSelectedToReactivate(new Set());
-    setSelectedNewRows(new Set());
-    setMessage("");
-    setDraftError("");
-    setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
-  }
-
-  function toggleDeactivate(uniqueCode: string, clientCode: string) {
-    const key = relationKey(uniqueCode, clientCode);
-    setToDeactivate((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  function toggleVisibleActiveDeactivation() {
-    setToDeactivate((current) => {
-      const next = new Set(current);
-      const allSelected =
-        visibleActiveDeactivateKeys.length > 0 &&
-        visibleActiveDeactivateKeys.every((key) => next.has(key));
-      if (allSelected) {
-        visibleActiveDeactivateKeys.forEach((key) => next.delete(key));
-      } else {
-        visibleActiveDeactivateKeys.forEach((key) => next.add(key));
-      }
-      return next;
-    });
+    resetDraft();
   }
 
   function changeAssignmentYear(nextYear: string) {
@@ -748,46 +564,12 @@ export function ClientCodeWorkspace() {
     }
   }
 
-  function changeActiveFilterYear(nextYear: string) {
-    setActiveFilterYear(nextYear);
-    const maxMonth = Number(nextYear) === currentYear ? currentMonth : 12;
-    if (activeFilterMonth && Number(activeFilterMonth) > maxMonth) {
-      setActiveFilterMonth("");
-    }
-  }
-
   function changeHistoryYear(nextYear: string) {
     setHistoryYear(nextYear);
     const maxMonth = Number(nextYear) === currentYear ? currentMonth : 12;
     if (historyMonth && Number(historyMonth) > maxMonth) {
       setHistoryMonth("");
     }
-  }
-
-  function toggleReactivate(mappingId: string) {
-    setSelectedToReactivate((current) => {
-      const next = new Set(current);
-      if (next.has(mappingId)) next.delete(mappingId);
-      else next.add(mappingId);
-      return next;
-    });
-  }
-
-  function toggleAllInactive() {
-    const allIds = new Set(filteredInactiveAssignments.map((m) => m.id));
-    setSelectedToReactivate((current) => {
-      const allSelected = filteredInactiveAssignments.every((m) =>
-        current.has(m.id),
-      );
-      if (allSelected) {
-        const next = new Set(current);
-        allIds.forEach((id) => next.delete(id));
-        return next;
-      }
-      const next = new Set(current);
-      allIds.forEach((id) => next.add(id));
-      return next;
-    });
   }
 
   useEffect(() => {
@@ -854,10 +636,9 @@ export function ClientCodeWorkspace() {
         const [uniqueCode = "", clientCode = ""] = line
           .split(/\t|;|,/)
           .map((v) => v.trim());
-        const assigned = activeAssigned(uniqueCode);
         return {
           uniqueCode,
-          clientCode: clientCode || assigned?.clientCode || "",
+          clientCode,
         };
       })
       .filter(
@@ -889,13 +670,8 @@ export function ClientCodeWorkspace() {
     setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
   }
 
-  function reviewChanges() {
-    if (assignmentMode === "active") reviewActiveChanges();
-    else reviewInactiveChanges();
-  }
-
   function reviewActiveChanges() {
-    if (!client || (preview.length === 0 && toDeactivate.size === 0)) return;
+    if (!client || preview.length === 0) return;
 
     if (hasNewPreviewRows && !productCatalogLoaded) {
       setDraftError(
@@ -957,25 +733,6 @@ export function ClientCodeWorkspace() {
     const changes: PendingChange[] = [];
     let unchangedCount = 0;
 
-    for (const key of toDeactivate) {
-      const idx = nextMappings.findIndex(
-        (m) =>
-          m.active &&
-          !m.voidedAt &&
-          canonicalClient(m.client) === canonicalized &&
-          relationKey(m.uniqueCode, m.clientCode) === key,
-      );
-      if (idx !== -1) {
-        const existing = nextMappings[idx];
-        nextMappings[idx] = { ...existing, active: false };
-        changes.push({
-          kind: "deactivated",
-          uniqueCode: existing.uniqueCode,
-          clientCode: existing.clientCode,
-        });
-      }
-    }
-
     for (const row of preview) {
       const activeByClientCodeIdx = nextMappings.findIndex(
         (m) =>
@@ -1010,31 +767,13 @@ export function ClientCodeWorkspace() {
           unchangedCount++;
           continue;
         }
-        if (periodIndex(existing) >= selectedYear * 12 + selectedMonth) {
-          nextMappings[idx] = {
-            ...existing,
-            clientCode: row.clientCode,
-            assignedMonth: selectedMonth,
-            assignedYear: selectedYear,
-            correctedAt: new Date().toISOString(),
-            correctionReason: "Corrección manual desde Códigos cliente",
-          };
-          changes.push({
-            kind: "corrected",
-            uniqueCode: row.uniqueCode,
-            clientCode: row.clientCode,
-            previousClientCode: existing.clientCode.trim(),
-          });
-          continue;
-        } else {
-          nextMappings[idx] = { ...existing, active: false };
-          changes.push({
-            kind: "updated",
-            uniqueCode: row.uniqueCode,
-            clientCode: row.clientCode,
-            previousClientCode: existing.clientCode.trim(),
-          });
-        }
+        nextMappings[idx] = { ...existing, active: false };
+        changes.push({
+          kind: "updated",
+          uniqueCode: row.uniqueCode,
+          clientCode: row.clientCode,
+          previousClientCode: existing.clientCode.trim(),
+        });
       } else {
         changes.push({ kind: "new", uniqueCode: row.uniqueCode, clientCode: row.clientCode });
       }
@@ -1053,109 +792,34 @@ export function ClientCodeWorkspace() {
       setMessage("Sin cambios — todas las asignaciones ya estaban vigentes.");
       return;
     }
-    setPending({ changes, unchangedCount, finalMappings: nextMappings });
-  }
-
-  function reviewInactiveChanges(
-    mappingIds: Set<string> = selectedToReactivate,
-  ) {
-    if (!client || mappingIds.size === 0) return;
-    const canonicalized = canonicalClient(client);
-    const nextMappings = [...mappings];
-    const changes: PendingChange[] = [];
-    const now = new Date().toISOString();
-
-    for (const mappingId of mappingIds) {
-      const selectedIndex = nextMappings.findIndex(
-        (m) =>
-          m.id === mappingId &&
-          !m.active &&
-          !m.voidedAt &&
-          !m.reactivatedAt &&
-          canonicalClient(m.client) === canonicalized,
-      );
-      const selectedInactive =
-        selectedIndex >= 0 ? nextMappings[selectedIndex] : undefined;
-      if (!selectedInactive) continue;
-      const clientCode = codeKey(selectedInactive.clientCode);
-      const uniqueCode = codeKey(selectedInactive.uniqueCode);
-      const activeClientCodeConflict = nextMappings.find(
-        (mapping) =>
-          mapping.active &&
-          !mapping.voidedAt &&
-          canonicalClient(mapping.client) === canonicalized &&
-          codeKey(mapping.clientCode) === clientCode &&
-          codeKey(mapping.uniqueCode) !== uniqueCode,
-      );
-      if (activeClientCodeConflict) {
-        setDraftError(
-          `El código cliente ${selectedInactive.clientCode} ya está activo para el código único ${activeClientCodeConflict.uniqueCode}.`,
-        );
-        return;
-      }
-      const activeSameUnique = nextMappings.find(
-        (mapping) =>
-          mapping.active &&
-          !mapping.voidedAt &&
-          canonicalClient(mapping.client) === canonicalized &&
-          codeKey(mapping.uniqueCode) === uniqueCode,
-      );
-      if (
-        activeSameUnique &&
-        periodIndex(activeSameUnique) >= selectedYear * 12 + selectedMonth
-      ) {
-        setDraftError(
-          `Para reactivar ${selectedInactive.uniqueCode}, elegí un período posterior a ${periodLabel(activeSameUnique.assignedMonth, activeSameUnique.assignedYear)}.`,
-        );
-        return;
-      }
-      for (const [index, mapping] of nextMappings.entries()) {
-        if (
-          mapping.active &&
-          !mapping.voidedAt &&
-          canonicalClient(mapping.client) === canonicalized &&
-          codeKey(mapping.uniqueCode) === uniqueCode
-        ) {
-          nextMappings[index] = { ...mapping, active: false };
-        }
-      }
-      nextMappings[selectedIndex] = {
-        ...selectedInactive,
-        active: false,
-        reactivatedAt: now,
-      };
-      nextMappings.push({
-        id: crypto.randomUUID(),
-        client: canonicalized,
-        uniqueCode: selectedInactive.uniqueCode,
-        clientCode: selectedInactive.clientCode,
-        assignedMonth: selectedMonth,
-        assignedYear: selectedYear,
-        active: true,
-      });
-      changes.push({
-        kind: "reactivated",
-        uniqueCode: selectedInactive.uniqueCode,
-        clientCode: selectedInactive.clientCode,
-      });
-    }
-
-    if (changes.length === 0) return;
-    setPending({ changes, unchangedCount: 0, finalMappings: nextMappings });
+    setPending({
+      changes,
+      unchangedCount,
+      finalMappings: nextMappings,
+      client: canonicalized,
+      assignedMonth: selectedMonth,
+      assignedYear: selectedYear,
+      source: "assignment",
+    });
   }
 
   async function commitChanges() {
-    if (!pending || !client) return;
-    const { finalMappings, changes } = pending;
+    if (!pending) return;
+    const {
+      finalMappings,
+      changes,
+      client: pendingClient,
+      assignedMonth: pendingMonth,
+      assignedYear: pendingYear,
+      source,
+    } = pending;
     setPending(null);
     await persist(finalMappings);
 
-    const canonicalized = canonicalClient(client);
-    populateDraftFromMappings(finalMappings, canonicalized);
-    setSelectedNewRows(new Set());
-    setToDeactivate(new Set());
-    setSelectedToReactivate(new Set());
-    if (assignmentMode === "inactive") setAssignmentMode("active");
+    if (source === "assignment") {
+      resetDraft();
+      setSelectedNewRows(new Set());
+    }
 
     const n = (k: PendingChange["kind"]) =>
       changes.filter((c) => c.kind === k).length;
@@ -1172,61 +836,115 @@ export function ClientCodeWorkspace() {
     if (de > 0) parts.push(`${de} desactivada${de !== 1 ? "s" : ""}`);
     if (re > 0) parts.push(`${re} reactivada${re !== 1 ? "s" : ""}`);
     if (vo > 0) parts.push(`${vo} anulada${vo !== 1 ? "s" : ""}`);
-    setMessage(
-      `${parts.join(" · ")} para ${canonicalized} · ${periodLabel(selectedMonth, selectedYear)}`,
+    const resultMessage = `${parts.join(" · ")} para ${pendingClient} · ${periodLabel(pendingMonth, pendingYear)}`;
+    if (source === "history") {
+      setHistoryActionMessage(resultMessage);
+      setHistoryActionError("");
+    } else {
+      setMessage(resultMessage);
+    }
+  }
+
+  function reviewHistoryDeactivation(mapping: Mapping) {
+    if (!mapping.active || mapping.voidedAt) return;
+    setHistoryActionMessage("");
+    setHistoryActionError("");
+    setPending({
+      changes: [
+        {
+          kind: "deactivated",
+          uniqueCode: mapping.uniqueCode,
+          clientCode: mapping.clientCode,
+        },
+      ],
+      unchangedCount: 0,
+      finalMappings: mappings.map((row) =>
+        row.id === mapping.id ? { ...row, active: false } : row,
+      ),
+      client: canonicalClient(mapping.client),
+      assignedMonth: currentMonth,
+      assignedYear: currentYear,
+      source: "history",
+    });
+  }
+
+  function hasActiveEquivalent(mapping: Mapping) {
+    const canonicalized = canonicalClient(mapping.client);
+    return mappings.some(
+      (row) =>
+        row.active &&
+        !row.voidedAt &&
+        canonicalClient(row.client) === canonicalized &&
+        codeKey(row.uniqueCode) === codeKey(mapping.uniqueCode) &&
+        codeKey(row.clientCode) === codeKey(mapping.clientCode),
     );
   }
 
-  async function voidMappings(mappingIds: Set<string>) {
-    const selectedMappings = mappings.filter(
-      (row) => mappingIds.has(row.id) && !row.voidedAt,
+  function reviewHistoryReactivation(mapping: Mapping) {
+    if (mapping.active || mapping.voidedAt) return;
+    const canonicalized = canonicalClient(mapping.client);
+    const clientCodeConflict = mappings.find(
+      (row) =>
+        row.active &&
+        !row.voidedAt &&
+        canonicalClient(row.client) === canonicalized &&
+        codeKey(row.clientCode) === codeKey(mapping.clientCode) &&
+        codeKey(row.uniqueCode) !== codeKey(mapping.uniqueCode),
     );
-    if (selectedMappings.length === 0) return;
-    const first = selectedMappings[0];
-    const reason = window.prompt(
-      selectedMappings.length === 1
-        ? `Motivo de eliminación para ${first.uniqueCode} / ${first.clientCode}`
-        : `Motivo de eliminación para ${selectedMappings.length} asignaciones seleccionadas`,
-      "Error de carga",
-    );
-    if (reason === null) return;
-    const cleanReason = reason.trim();
-    if (!cleanReason) {
-      setDraftError("Para eliminar una asignación necesitás indicar un motivo.");
+    if (clientCodeConflict) {
+      setHistoryActionMessage("");
+      setHistoryActionError(
+        `No se puede reactivar: el código cliente ${mapping.clientCode} está activo para ${clientCodeConflict.uniqueCode}.`,
+      );
       return;
     }
-    const selectedIds = new Set(selectedMappings.map((row) => row.id));
-    const nextMappings = mappings.map((row) =>
-      selectedIds.has(row.id)
-        ? {
-            ...row,
-            active: false,
-            voidedAt: new Date().toISOString(),
-            voidReason: cleanReason,
-          }
-        : row,
-    );
-    await persist(nextMappings);
-    if (client) populateDraftFromMappings(nextMappings, canonicalClient(client));
-    setSelectedToReactivate((current) => {
-      const next = new Set(current);
-      selectedIds.forEach((id) => next.delete(id));
-      return next;
+
+    const now = new Date().toISOString();
+    const finalMappings = mappings.map((row) => {
+      if (row.id === mapping.id) {
+        return { ...row, active: false, reactivatedAt: now };
+      }
+      if (
+        row.active &&
+        !row.voidedAt &&
+        canonicalClient(row.client) === canonicalized &&
+        codeKey(row.uniqueCode) === codeKey(mapping.uniqueCode)
+      ) {
+        return { ...row, active: false };
+      }
+      return row;
     });
-    setMessage(
-      selectedMappings.length === 1
-        ? `Asignación eliminada: ${first.uniqueCode} / ${first.clientCode}. Motivo: ${cleanReason}`
-        : `${selectedMappings.length} asignaciones eliminadas. Motivo: ${cleanReason}`,
-    );
-    setDraftError("");
+    finalMappings.push({
+      id: crypto.randomUUID(),
+      client: canonicalized,
+      uniqueCode: mapping.uniqueCode,
+      clientCode: mapping.clientCode,
+      assignedMonth: currentMonth,
+      assignedYear: currentYear,
+      active: true,
+    });
+
+    setHistoryActionMessage("");
+    setHistoryActionError("");
+    setPending({
+      changes: [
+        {
+          kind: "reactivated",
+          uniqueCode: mapping.uniqueCode,
+          clientCode: mapping.clientCode,
+        },
+      ],
+      unchangedCount: 0,
+      finalMappings,
+      client: canonicalized,
+      assignedMonth: currentMonth,
+      assignedYear: currentYear,
+      source: "history",
+    });
   }
 
-  async function voidMapping(mappingId: string) {
-    await voidMappings(new Set([mappingId]));
-  }
-
-  function scrollActiveTableToEnd() {
-    const container = activeTableScrollRef.current;
+  function scrollDraftTableToEnd() {
+    const container = draftTableScrollRef.current;
     if (!container) return;
     container.scrollTo({
       top: container.scrollHeight,
@@ -1259,7 +977,7 @@ export function ClientCodeWorkspace() {
           </h2>
         </div>
 
-        {/* Client + mode selector */}
+        {/* Client selector */}
         <div className="flex flex-wrap items-end gap-4 border-b border-[#e1e8f1] p-5">
           <label className="flex-1 text-[11px] font-extrabold text-[#334b6b]">
             Cliente
@@ -1274,81 +992,13 @@ export function ClientCodeWorkspace() {
               ))}
             </select>
           </label>
-          <div className="flex flex-col gap-1 pb-0.5">
-            <span className="text-[11px] font-extrabold text-[#334b6b]">
-              Mostrar
-            </span>
-            <div className="flex rounded-xl border border-[#dbe4ef] bg-[#f4f7fb] p-0.5">
-              {(["active", "inactive"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => changeMode(mode)}
-                  className={`rounded-lg px-4 py-1.5 text-[11px] font-bold transition ${
-                    assignmentMode === mode
-                      ? "bg-white text-[#0b5bbb] shadow-sm"
-                      : "text-[#62728a] hover:text-[#10233f]"
-                  }`}
-                >
-                  {mode === "active" ? "Activas" : "Inactivas"}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* Filter */}
-        <div className="flex flex-wrap items-end gap-3 border-b border-[#e1e8f1] bg-[#fafcff] px-5 py-3">
-          <label className="min-w-[260px] flex-1 text-[11px] font-extrabold text-[#334b6b]">
-            Buscar
-            <input
-              value={draftFilter}
-              onChange={(e) => setDraftFilter(e.target.value)}
-              placeholder="Código único o código cliente..."
-              className="mt-1.5 h-9 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
-            />
-          </label>
-          {assignmentMode === "active" && (
-            <>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Filtrar año vigente
-                <select
-                  value={activeFilterYear}
-                  onChange={(e) => changeActiveFilterYear(e.target.value)}
-                  className="mt-1.5 h-9 w-32 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
-                >
-                  <option value="">Todos</option>
-                  {assignmentYears.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Filtrar mes vigente
-                <select
-                  value={activeFilterMonth}
-                  onChange={(e) => setActiveFilterMonth(e.target.value)}
-                  className="mt-1.5 h-9 w-40 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
-                >
-                  <option value="">Todos</option>
-                  {availableActiveFilterMonths.map((option) => (
-                    <option key={option.name} value={option.value}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-        </div>
-
-        {/* ACTIVE MODE TABLE */}
-        {assignmentMode === "active" && (
+        {/* Assignment table */}
+        {
           <div className="p-5">
             <div
-              ref={activeTableScrollRef}
+              ref={draftTableScrollRef}
               className="relative mx-auto max-h-[400px] overflow-auto rounded-xl border border-[#dbe4ef]"
             >
               {isLoadingDb && (
@@ -1363,14 +1013,7 @@ export function ClientCodeWorkspace() {
                 <thead className="sticky top-0 z-[1]">
                   <tr className="bg-[#edf4fc] font-bold text-[#334b6b]">
                     <th className="w-24 border-r border-[#dbe4ef] px-2 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        aria-label="Marcar todas las activas visibles para desactivar"
-                        checked={allVisibleActiveMarked}
-                        disabled={visibleActiveDeactivateKeys.length === 0}
-                        onChange={toggleVisibleActiveDeactivation}
-                        className="h-4 w-4 accent-[#0b5bbb]"
-                      />
+                      Fila
                     </th>
                     <th className="border-r border-[#dbe4ef] px-3 py-2 text-left">
                       <button
@@ -1414,8 +1057,8 @@ export function ClientCodeWorkspace() {
                           : "↕"}
                       </button>
                     </th>
-                    <th className="w-28 px-2 py-2 text-center text-[10px]">
-                      Acción
+                    <th className="w-40 px-2 py-2 text-center text-[10px]">
+                      Estado
                     </th>
                   </tr>
                 </thead>
@@ -1423,16 +1066,17 @@ export function ClientCodeWorkspace() {
                   {filteredDraftEntries.map(({ row, originalIndex }) => {
                     const isBlank =
                       !row.uniqueCode.trim() && !row.clientCode.trim();
-                    const markedDea = toDeactivate.has(
-                      relationKey(row.uniqueCode, row.clientCode),
-                    );
-                    const activeRelation = activeAssignmentByRelation.get(
-                      relationKey(row.uniqueCode, row.clientCode),
-                    );
-                    const assignedMonth =
-                      row.assignedMonth ?? activeRelation?.assignedMonth;
-                    const assignedYear =
-                      row.assignedYear ?? activeRelation?.assignedYear;
+                    const activeAssignment = activeAssigned(row.uniqueCode);
+                    const isUpdate =
+                      Boolean(activeAssignment) &&
+                      Boolean(row.clientCode.trim()) &&
+                      codeKey(activeAssignment?.clientCode ?? "") !==
+                        codeKey(row.clientCode);
+                    const isUnchanged =
+                      Boolean(activeAssignment) &&
+                      Boolean(row.clientCode.trim()) &&
+                      codeKey(activeAssignment?.clientCode ?? "") ===
+                        codeKey(row.clientCode);
                     const unknownUniqueCode =
                       Boolean(row.uniqueCode.trim()) &&
                       productCatalogLoaded &&
@@ -1450,60 +1094,34 @@ export function ClientCodeWorkspace() {
                           row.isNew && continueDraftDrag(originalIndex)
                         }
                         className={`border-t border-[#e7edf4] transition ${
-                          markedDea
-                            ? "bg-[#fdf2f2] opacity-60"
-                            : row.isNew && selectedNewRows.has(originalIndex)
+                          isUpdate
+                            ? "bg-[#fffaf0]"
+                            : selectedNewRows.has(originalIndex)
                               ? "bg-[#dfeafa]"
                               : ""
                         }`}
                       >
                         {/* Selection cell */}
                         <td
-                          onMouseDown={(e) =>
-                            row.isNew && startDraftDrag(e, originalIndex)
-                          }
-                          className={`border-r border-[#e7edf4] px-2 py-1 text-center ${
-                            row.isNew
-                              ? "cursor-ns-resize"
-                              : "cursor-default"
-                          } ${
-                            row.isNew && selectedNewRows.has(originalIndex)
+                          onMouseDown={(e) => startDraftDrag(e, originalIndex)}
+                          className={`cursor-ns-resize border-r border-[#e7edf4] px-2 py-1 text-center ${
+                            selectedNewRows.has(originalIndex)
                               ? "bg-[#d3e3f7]"
                               : "bg-[#f8fafd]"
                           }`}
                         >
-                          {row.isNew ? (
-                            <span className="pointer-events-none inline-flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                aria-label={`Seleccionar fila ${originalIndex + 1}`}
-                                checked={selectedNewRows.has(originalIndex)}
-                                readOnly
-                                className="h-3.5 w-3.5 accent-[#0b5bbb]"
-                              />
-                              <span className="text-[9px] font-bold text-[#8a99ad]">
-                                Nueva
-                              </span>
+                          <span className="pointer-events-none inline-flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              aria-label={`Seleccionar fila ${originalIndex + 1}`}
+                              checked={selectedNewRows.has(originalIndex)}
+                              readOnly
+                              className="h-3.5 w-3.5 accent-[#0b5bbb]"
+                            />
+                            <span className="text-[9px] font-bold text-[#8a99ad]">
+                              #{originalIndex + 1}
                             </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                aria-label={`Marcar ${row.uniqueCode} para desactivar`}
-                                checked={markedDea}
-                                onChange={() =>
-                                  toggleDeactivate(
-                                    row.uniqueCode.trim(),
-                                    row.clientCode.trim(),
-                                  )
-                                }
-                                className="h-3.5 w-3.5 accent-[#b7433f]"
-                              />
-                              <span className="text-[9px] font-bold text-[#b0bbc8]">
-                                #{originalIndex + 1}
-                              </span>
-                            </span>
-                          )}
+                          </span>
                         </td>
 
                         {/* Unique code */}
@@ -1519,8 +1137,7 @@ export function ClientCodeWorkspace() {
                               : undefined
                           }
                         >
-                          {row.isNew ? (
-                            <div className="relative">
+                          <div className="relative">
                               <input
                                 value={row.uniqueCode}
                                 onChange={(e) =>
@@ -1547,30 +1164,15 @@ export function ClientCodeWorkspace() {
                                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
                                   No existe
                                 </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span
-                              className={`flex h-8 items-center px-3 font-mono text-[11px] ${
-                                unknownUniqueCode || duplicateUniqueCode
-                                  ? "font-bold text-[#b42318]"
-                                  : markedDea
-                                  ? "line-through text-[#9aa3ad]"
-                                  : "text-[#10233f]"
-                              }`}
-                            >
-                              {row.uniqueCode}
-                              {duplicateUniqueCode ? (
-                                <span className="ml-2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
-                                  Repetido
-                                </span>
-                              ) : unknownUniqueCode ? (
-                                <span className="ml-2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
-                                  No existe
+                              ) : activeAssignment ? (
+                                <span
+                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fff3cd] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#9a5c00]"
+                                  title="Este producto ya tiene una asignación activa"
+                                >
+                                  Ya asignado
                                 </span>
                               ) : null}
-                            </span>
-                          )}
+                          </div>
                         </td>
 
                         {/* Client code */}
@@ -1591,18 +1193,15 @@ export function ClientCodeWorkspace() {
                                 )
                               }
                               onPaste={(e) => pasteRows(e, originalIndex)}
-                              disabled={markedDea}
                               placeholder={
-                                row.isNew && row.uniqueCode && !row.clientCode
-                                  ? "Sin asignación previa"
+                                row.uniqueCode && !row.clientCode
+                                  ? "Ingresá el código cliente"
                                   : ""
                               }
-                              className={`h-8 w-full select-text border-0 bg-transparent px-3 pr-24 font-mono text-[11px] outline-none focus:bg-[#edf4fc] disabled:text-[#9aa3ad] ${
+                              className={`h-8 w-full select-text border-0 bg-transparent px-3 pr-24 font-mono text-[11px] outline-none focus:bg-[#edf4fc] ${
                                 duplicateClientCode
                                   ? "font-bold text-[#b42318] focus:bg-[#fff1f0]"
-                                  : markedDea
-                                    ? "line-through"
-                                    : ""
+                                  : ""
                               }`}
                             />
                             {duplicateClientCode && (
@@ -1615,33 +1214,31 @@ export function ClientCodeWorkspace() {
 
                         {/* Assigned period */}
                         <td className="border-r border-[#e7edf4] px-3 py-1 font-medium text-[#62728a]">
-                          {row.isNew
-                            ? periodLabel(selectedMonth, selectedYear)
-                            : assignedMonth && assignedYear
-                              ? periodLabel(assignedMonth, assignedYear)
-                              : "Sin dato"}
+                          {periodLabel(selectedMonth, selectedYear)}
                         </td>
 
                         {/* Action */}
                         <td className="px-2 py-1 text-center">
-                          {!row.isNew && !isBlank && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                toggleDeactivate(
-                                  row.uniqueCode.trim(),
-                                  row.clientCode.trim(),
-                                )
-                              }
-                              className={`rounded-lg px-2 py-1 text-[9px] font-extrabold transition ${
-                                markedDea
-                                  ? "bg-[#e9f1fb] text-[#0b5bbb] hover:bg-[#d3e3f7]"
-                                  : "bg-[#fce9e8] text-[#a43d39] hover:bg-[#f5c2c1]"
-                              }`}
+                          {isUpdate ? (
+                            <span
+                              className="rounded-full bg-[#fff3cd] px-2 py-1 text-[9px] font-extrabold text-[#9a5c00]"
+                              title={`Código vigente: ${activeAssignment?.clientCode}`}
                             >
-                              {markedDea ? "Deshacer" : "Desactivar"}
-                            </button>
-                          )}
+                              Actualización
+                            </span>
+                          ) : isUnchanged ? (
+                            <span className="rounded-full bg-[#f3f4f6] px-2 py-1 text-[9px] font-extrabold text-[#62728a]">
+                              Sin cambios
+                            </span>
+                          ) : activeAssignment ? (
+                            <span className="rounded-full bg-[#fff3cd] px-2 py-1 text-[9px] font-extrabold text-[#9a5c00]">
+                              Ya asignado
+                            </span>
+                          ) : row.uniqueCode.trim() ? (
+                            <span className="rounded-full bg-[#e6f4ea] px-2 py-1 text-[9px] font-extrabold text-[#2d7a3a]">
+                              Nueva
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -1650,39 +1247,39 @@ export function ClientCodeWorkspace() {
               </table>
             </div>
 
-            {/* Active mode controls below table */}
+            {draftUpdates.length > 0 && (
+              <div className="mt-3 rounded-xl border border-[#f2d58b] bg-[#fffaf0] px-4 py-3 text-[11px] text-[#7a5200]">
+                <p className="font-black">
+                  {draftUpdates.length === 1
+                    ? "Estás actualizando una asignación existente."
+                    : `Estás actualizando ${draftUpdates.length} asignaciones existentes.`}
+                </p>
+                <ul className="mt-1 space-y-0.5 font-semibold">
+                  {draftUpdates.map(({ row, current }) => (
+                    <li key={codeKey(row.uniqueCode)}>
+                      {row.uniqueCode}: {current.clientCode} → {row.clientCode}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-[10px] font-semibold text-[#8a6a27]">
+                  Al guardar, el código anterior quedará inactivo y la nueva asignación quedará activa.
+                </p>
+              </div>
+            )}
+
+            {/* Assignment controls */}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="text-[10px] font-semibold text-[#62728a]">
-                {activeAssignmentsCount} activas en la base ·{" "}
-                {visibleActiveDeactivateKeys.length} visibles por filtro ·{" "}
-                {toDeactivate.size > 0 && (
-                  <span className="text-[#a43d39]">
-                    {toDeactivate.size} marcada{toDeactivate.size !== 1 ? "s" : ""} para desactivar ·{" "}
-                  </span>
-                )}
-                {selectedNewRows.size} fila{selectedNewRows.size !== 1 ? "s" : ""} nueva{selectedNewRows.size !== 1 ? "s" : ""} seleccionada{selectedNewRows.size !== 1 ? "s" : ""}
+                {selectedNewRows.size} fila{selectedNewRows.size !== 1 ? "s" : ""} seleccionada{selectedNewRows.size !== 1 ? "s" : ""}
                 <span className="ml-2 text-[#8a99ad]">
-                  Para corregir una activa, editá su código cliente y guardá.
+                  Las asignaciones existentes se identifican antes de guardar.
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  variant={toDeactivate.size > 0 ? "danger" : "secondary"}
-                  size="sm"
-                  disabled={toDeactivate.size === 0}
-                  onClick={reviewActiveChanges}
-                  className={
-                    toDeactivate.size === 0
-                      ? "border-[#e1e5ea] bg-[#f1f3f5] text-[#9aa3ad] opacity-100"
-                      : ""
-                  }
-                >
-                  <Trash2 size={14} /> Desactivar asignaciones ({toDeactivate.size})
-                </Button>
-                <Button
                   variant="secondary"
                   size="sm"
-                  onClick={scrollActiveTableToEnd}
+                  onClick={scrollDraftTableToEnd}
                 >
                   Ir al final
                 </Button>
@@ -1698,120 +1295,7 @@ export function ClientCodeWorkspace() {
               </div>
             </div>
           </div>
-        )}
-
-        {/* INACTIVE MODE TABLE */}
-        {assignmentMode === "inactive" && (
-          <div className="p-5">
-            <div className="relative mx-auto max-h-[400px] overflow-auto rounded-xl border border-[#dbe4ef]">
-              {isLoadingDb && (
-                <div className="absolute inset-0 z-10 grid place-items-center bg-white/75 backdrop-blur-[1px]">
-                  <div className="flex items-center gap-3 rounded-2xl border border-[#dbe4ef] bg-white px-4 py-3 text-xs font-black text-[#0b5bbb] shadow-sm">
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#b7c9df] border-t-[#0b5bbb]" />
-                    Cargando datos...
-                  </div>
-                </div>
-              )}
-              <table className="w-full table-fixed select-none text-[11px]">
-                <thead className="sticky top-0 z-[1]">
-                  <tr className="bg-[#edf4fc] font-bold text-[#334b6b]">
-                    <th className="w-12 border-r border-[#dbe4ef] px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        aria-label="Seleccionar todas"
-                        checked={
-                          filteredInactiveAssignments.length > 0 &&
-                          filteredInactiveAssignments.every((m) =>
-                            selectedToReactivate.has(m.id),
-                          )
-                        }
-                        onChange={toggleAllInactive}
-                        className="h-4 w-4 accent-[#0b5bbb]"
-                      />
-                    </th>
-                    <th className="border-r border-[#dbe4ef] px-3 py-2 text-left">
-                      Código único
-                    </th>
-                    <th className="border-r border-[#dbe4ef] px-3 py-2 text-left">
-                      Código cliente
-                    </th>
-                    <th className="border-r border-[#dbe4ef] px-3 py-2 text-left">
-                      Asignado en
-                    </th>
-                    <th className="w-40 px-3 py-2 text-center">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#e7edf4]">
-                  {filteredInactiveAssignments.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-5 py-8 text-center text-xs font-bold text-[#8a99ad]"
-                      >
-                        {!client
-                          ? "Seleccioná un cliente para ver sus asignaciones inactivas."
-                          : "No hay asignaciones inactivas para este cliente."}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredInactiveAssignments.map((m) => (
-                      <tr
-                        key={m.id}
-                        className={`transition ${
-                          selectedToReactivate.has(m.id)
-                            ? "bg-[#e9f1fb]"
-                            : ""
-                        }`}
-                      >
-                        <td className="border-r border-[#e7edf4] px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedToReactivate.has(m.id)}
-                            onChange={() => toggleReactivate(m.id)}
-                            className="h-4 w-4 accent-[#0b5bbb]"
-                          />
-                        </td>
-                        <td className="border-r border-[#e7edf4] px-3 py-2 font-mono text-[#10233f]">
-                          {m.uniqueCode}
-                        </td>
-                        <td className="border-r border-[#e7edf4] px-3 py-2 font-mono text-[#425979]">
-                          {m.clientCode}
-                        </td>
-                        <td className="px-3 py-2 text-[#62728a]">
-                          {months[m.assignedMonth - 1]} {m.assignedYear}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <div className="flex justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => reviewInactiveChanges(new Set([m.id]))}
-                              className="rounded-lg bg-[#e9f1fb] px-2 py-1 text-[9px] font-extrabold text-[#0b5bbb] transition hover:bg-[#d3e3f7]"
-                              title="Reactivar esta asignación"
-                            >
-                              Reactivar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void voidMapping(m.id)}
-                              className="rounded-lg bg-[#fce9e8] px-2 py-1 text-[9px] font-extrabold text-[#a43d39] transition hover:bg-[#f5c2c1]"
-                              title="Eliminar por error de carga. En la base queda anulado para auditoría."
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-3 text-[10px] font-semibold text-[#62728a]">
-              {filteredInactiveAssignments.length} inactivas ·{" "}
-              {selectedToReactivate.size} seleccionadas
-            </div>
-          </div>
-        )}
+        }
 
         {/* Error / message */}
         {draftError && (
@@ -1858,39 +1342,15 @@ export function ClientCodeWorkspace() {
             </label>
           </div>
           <div className="flex flex-col items-end gap-2">
-            {assignmentMode === "active" ? (
-              <Button
-                size="sm"
-                disabled={Boolean(saveDisabledReason)}
-                title={saveDisabledReason || undefined}
-                onClick={reviewChanges}
-              >
-                <ClipboardPaste size={14} />
-                Guardar asignaciones
-              </Button>
-            ) : (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  size="sm"
-                  disabled={Boolean(saveDisabledReason)}
-                  title={saveDisabledReason || undefined}
-                  onClick={() => reviewInactiveChanges()}
-                >
-                  <ClipboardPaste size={14} />
-                  Reactivar seleccionadas
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  disabled={Boolean(saveDisabledReason)}
-                  title={saveDisabledReason || undefined}
-                  onClick={() => void voidMappings(selectedToReactivate)}
-                >
-                  <Trash2 size={14} />
-                  Eliminar seleccionadas
-                </Button>
-              </div>
-            )}
+            <Button
+              size="sm"
+              disabled={Boolean(saveDisabledReason)}
+              title={saveDisabledReason || undefined}
+              onClick={reviewActiveChanges}
+            >
+              <ClipboardPaste size={14} />
+              Guardar asignaciones
+            </Button>
             {saveDisabledReason && (
               <p className="max-w-sm text-right text-[10px] font-bold text-[#62728a]">
                 {saveDisabledReason}
@@ -1981,6 +1441,16 @@ export function ClientCodeWorkspace() {
             Solo activas
           </label>
         </div>
+        {historyActionError && (
+          <div className="border-b border-[#f2c9c7] bg-[#fce9e8] px-5 py-3 text-xs font-bold text-[#a43d39]">
+            {historyActionError}
+          </div>
+        )}
+        {historyActionMessage && (
+          <div className="border-b border-[#cbdcf0] bg-[#e9f1fb] px-5 py-3 text-xs font-bold text-[#0b5bbb]">
+            {historyActionMessage}
+          </div>
+        )}
         <div className="relative max-h-[420px] overflow-auto">
           {isLoadingDb && (
             <div className="absolute inset-0 z-10 grid min-h-[180px] place-items-center bg-white/80 backdrop-blur-[1px]">
@@ -1990,7 +1460,7 @@ export function ClientCodeWorkspace() {
               </div>
             </div>
           )}
-          <table className="w-full min-w-[800px] text-left text-[10.5px]">
+          <table className="w-full min-w-[920px] text-left text-[10.5px]">
             <thead className="sticky top-0 z-[1]">
               <tr className="bg-[#edf4fc] font-bold text-[#334b6b]">
                 <th className="px-5 py-2">
@@ -2011,6 +1481,7 @@ export function ClientCodeWorkspace() {
                 <th className="px-4 py-2">
                   {historyHeader("active", "Estado")}
                 </th>
+                <th className="w-32 px-4 py-2 text-center">Acción</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e7edf4]">
@@ -2045,12 +1516,36 @@ export function ClientCodeWorkspace() {
                       {m.voidedAt ? "Anulada" : m.active ? "Activa" : "Inactiva"}
                     </span>
                   </td>
+                  <td className="px-4 py-2 text-center">
+                    {m.voidedAt ? (
+                      <span className="text-[9px] font-bold text-[#9aa3ad]">Sin acciones</span>
+                    ) : m.active ? (
+                      <button
+                        type="button"
+                        onClick={() => reviewHistoryDeactivation(m)}
+                        className="rounded-lg bg-[#fce9e8] px-2.5 py-1 text-[9px] font-extrabold text-[#a43d39] transition hover:bg-[#f5c2c1]"
+                      >
+                        Desactivar
+                      </button>
+                    ) : hasActiveEquivalent(m) ? (
+                      <span className="text-[9px] font-bold text-[#9aa3ad]">Ya reactivada</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => reviewHistoryReactivation(m)}
+                        className="rounded-lg bg-[#e9f1fb] px-2.5 py-1 text-[9px] font-extrabold text-[#0b5bbb] transition hover:bg-[#d3e3f7]"
+                        title={`Se reactivará para ${periodLabel(currentMonth, currentYear)}`}
+                      >
+                        Reactivar
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {!isLoadingDb && filteredHistory.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-8 text-center text-xs font-bold text-[#8a99ad]"
                   >
                     {mappings.length === 0
@@ -2113,8 +1608,8 @@ export function ClientCodeWorkspace() {
                 Confirmar cambios
               </p>
               <h3 className="mt-0.5 text-base font-black text-[#10233f]">
-                {canonicalClient(client)} ·{" "}
-                {periodLabel(selectedMonth, selectedYear)}
+                {pending.client} ·{" "}
+                {periodLabel(pending.assignedMonth, pending.assignedYear)}
               </h3>
               <div className="mt-2 flex flex-wrap gap-3 text-[11px] font-bold">
                 {(() => {

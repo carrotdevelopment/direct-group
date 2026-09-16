@@ -1,3 +1,4 @@
+import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import {
   getTangoIncomeOptions,
@@ -5,10 +6,14 @@ import {
   incomeSchema,
   readTangoIncomeRows,
 } from "@/lib/operation-excel-db";
+import { usesPostgres } from "@/lib/data-source";
+import { readTangoIncomeViewFromPostgres } from "@/lib/postgres-operation-db";
 
 export const runtime = "nodejs";
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
+  const denied = await checkApiAccess(["compras"], false);
+  if (denied) return denied;
   const url = new URL(request.url);
   const clients = url.searchParams.getAll("client").filter(Boolean);
   const operation = url.searchParams.get("operation") || undefined;
@@ -24,7 +29,7 @@ export function GET(request: Request) {
     .filter((year) => Number.isInteger(year) && year > 2000);
   const limit = Number(url.searchParams.get("limit") || "750") || 750;
   const metaOnly = url.searchParams.get("metaOnly") === "1";
-  const result = readTangoIncomeRows({
+  const filters = {
     clients,
     operation,
     status,
@@ -32,7 +37,20 @@ export function GET(request: Request) {
     years,
     search,
     limit,
-  });
+  };
+  if (usesPostgres()) {
+    const result = await readTangoIncomeViewFromPostgres(filters);
+    return NextResponse.json({
+      schema: incomeSchema,
+      summary: result.summary,
+      options: result.options,
+      rows: metaOnly ? [] : result.rows,
+      totalFiltered: result.totalFiltered,
+      viewSummary: result.viewSummary,
+      source: "postgresql",
+    });
+  }
+  const result = readTangoIncomeRows(filters);
   return NextResponse.json({
     schema: incomeSchema,
     summary: getTangoIncomeSummary(),
@@ -40,6 +58,7 @@ export function GET(request: Request) {
     rows: metaOnly ? [] : result.rows,
     totalFiltered: result.totalFiltered,
     viewSummary: result.viewSummary,
+    source: "excel",
   });
 }
 

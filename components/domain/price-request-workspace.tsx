@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { PriceManualWorkspace } from "@/components/domain/price-manual-workspace";
 
 type SupplierMailConfig = {
   id: string;
@@ -66,16 +67,6 @@ const supplierSeed: SupplierMailConfig[] = [
 ];
 
 const emptySupplierForm = { supplier: "", contactName: "", email: "" };
-const emptyPriceForm: Omit<PriceRecord, "id"> = {
-  supplier: "",
-  uniqueCode: "",
-  informedAt: new Date().toISOString().slice(0, 10),
-  costDg: 0,
-  vatRate: 21,
-  publicPrice: 0,
-  markup: 0,
-};
-
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -133,8 +124,6 @@ export function PriceRequestWorkspace() {
   );
   const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
   const [supplierError, setSupplierError] = useState("");
-  const [priceModalOpen, setPriceModalOpen] = useState(false);
-  const [newPrice, setNewPrice] = useState(emptyPriceForm);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceDraft, setPriceDraft] = useState<PriceRecord | null>(null);
   const [query, setQuery] = useState("");
@@ -197,7 +186,7 @@ export function PriceRequestWorkspace() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/local-db/products")
+    fetch("/api/lookups?kind=products")
       .then((response) => response.json())
       .then((data: { products?: ProductRecord[] }) => {
         if (!active) return;
@@ -575,18 +564,6 @@ export function PriceRequestWorkspace() {
     setEditingPriceId(null);
     setSavedId(nextDraft.id);
     setPriceDraft(null);
-  }
-
-  function addPrice(event: FormEvent) {
-    event.preventDefault();
-    if (!newPrice.supplier || !newPrice.uniqueCode || !newPrice.informedAt)
-      return;
-    persistPrices([
-      ...prices,
-      withCalculatedMarkup({ id: crypto.randomUUID(), ...newPrice }),
-    ]);
-    setNewPrice(emptyPriceForm);
-    setPriceModalOpen(false);
   }
 
   return (
@@ -993,6 +970,12 @@ export function PriceRequestWorkspace() {
         )}
       </section>
 
+      <PriceManualWorkspace
+        onPricesChanged={() => {
+          if (pricesLoaded) void loadPrices();
+        }}
+      />
+
       <section className="card overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[#dbe4ef] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1004,13 +987,6 @@ export function PriceRequestWorkspace() {
               Información recibida, estructurada y editable.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setPriceModalOpen(true)}
-          >
-            <Plus size={15} /> Agregar precio manual
-          </Button>
         </div>
 
         <div className="border-b border-[#e7edf4] p-4">
@@ -1406,7 +1382,7 @@ export function PriceRequestWorkspace() {
               </label>
               <div className="rounded-xl bg-[#edf4fc] px-2 py-2 text-[11px] text-[#425979]">
                 Programación fija: día 1 de cada mes. Para probar ahora, usá
-                "Enviar prueba" en la tabla.
+                &quot;Enviar prueba&quot; en la tabla.
               </div>
             </div>
             {supplierError && (
@@ -1428,140 +1404,6 @@ export function PriceRequestWorkspace() {
         </div>
       )}
 
-      {priceModalOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
-          <button
-            className="absolute inset-0"
-            aria-label="Cerrar"
-            onClick={() => setPriceModalOpen(false)}
-          />
-          <form
-            onSubmit={addPrice}
-            className="relative w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <button
-              type="button"
-              onClick={() => setPriceModalOpen(false)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
-            >
-              <X size={18} />
-            </button>
-            <div className="eyebrow">Base de precios</div>
-            <h2 className="mt-2 text-xl font-black text-[#10233f]">
-              Agregar precio manual
-            </h2>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Proveedor *
-                <select
-                  value={newPrice.supplier}
-                  onChange={(event) =>
-                    setNewPrice({ ...newPrice, supplier: event.target.value })
-                  }
-                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
-                >
-                  <option value="">Seleccionar</option>
-                  {allSupplierOptions.map((supplier) => (
-                    <option key={supplier}>{supplier}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Código único *
-                <input
-                  value={newPrice.uniqueCode}
-                  onChange={(event) =>
-                    setNewPrice({
-                      ...newPrice,
-                      uniqueCode: event.target.value,
-                    })
-                  }
-                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 font-mono text-xs"
-                />
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Fecha informada *
-                <input
-                  type="date"
-                  value={newPrice.informedAt}
-                  onChange={(event) =>
-                    setNewPrice({
-                      ...newPrice,
-                      informedAt: event.target.value,
-                    })
-                  }
-                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs"
-                />
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Costo DG
-                <input
-                  type="number"
-                  value={newPrice.costDg}
-                  onChange={(event) =>
-                    setNewPrice({
-                      ...newPrice,
-                      costDg: Number(event.target.value),
-                    })
-                  }
-                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs"
-                />
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                IVA %
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newPrice.vatRate}
-                  onChange={(event) =>
-                    setNewPrice({
-                      ...newPrice,
-                      vatRate: Number(event.target.value),
-                    })
-                  }
-                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs"
-                />
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Precio público
-                <input
-                  type="number"
-                  value={newPrice.publicPrice}
-                  onChange={(event) =>
-                    setNewPrice({
-                      ...newPrice,
-                      publicPrice: Number(event.target.value),
-                    })
-                  }
-                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs"
-                />
-              </label>
-              <label className="text-[11px] font-extrabold text-[#334b6b]">
-                Markup %
-                <div className="mt-2 flex h-11 w-full items-center justify-end rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-3 text-xs font-bold text-[#425979]">
-                  {formatNumber(
-                    calculateMarkup(
-                      newPrice.costDg,
-                      newPrice.vatRate,
-                      newPrice.publicPrice,
-                    ),
-                  )}
-                </div>
-              </label>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setPriceModalOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit">Guardar precio</Button>
-            </div>
-          </form>
-        </div>
-      )}
     </>
   );
 }
