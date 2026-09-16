@@ -1,0 +1,14 @@
+{
+  "name": "tango-sync-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Conector autónomo: lee ingresos de Tango (SQL Server) y se los manda a la Plataforma DG.",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mssql": "^12.7.2"
+  }
+}

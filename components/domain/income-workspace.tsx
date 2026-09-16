@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
   CheckCircle2,
   Clock3,
   Database,
+  Download,
   PackageCheck,
   RefreshCw,
   Search,
   Users,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
@@ -71,6 +73,20 @@ type TangoIncomeViewSummary = {
   unmatchedRows: number;
 };
 
+type TangoSyncJob = {
+  id: string;
+  from: string;
+  to: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  rowCount: number;
+  message: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  attempts: number;
+};
+
+const activeSyncStatuses = new Set(["pending", "running"]);
+
 const defaultViewSummary: TangoIncomeViewSummary = {
   totalRows: 0,
   totalQuantity: 0,
@@ -129,6 +145,21 @@ function formatLastUpdated(value: string | null) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function toISODate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function syncJobLabel(job: TangoSyncJob | null) {
+  if (!job) return "";
+  if (job.status === "pending") return "En cola...";
+  if (job.status === "running") {
+    return `Importando... ${formatNumber(job.rowCount)} filas recibidas`;
+  }
+  if (job.status === "completed") return job.message || "Importación completada.";
+  if (job.status === "failed") return job.message || "La importación falló.";
+  return job.message || "Importación cancelada.";
 }
 
 function statusLabel(status: TangoIncomeRow["status"]) {
@@ -334,6 +365,15 @@ export function IncomeWorkspace() {
   const [message, setMessage] = useState(
     "Vista de solo lectura desde la consulta Tango. Las correcciones se hacen en Tango Gestión.",
   );
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFrom, setImportFrom] = useState(() =>
+    toISODate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+  );
+  const [importTo, setImportTo] = useState(() => toISODate(new Date()));
+  const [importError, setImportError] = useState("");
+  const [importSubmitting, setImportSubmitting] = useState(false);
+  const [syncJob, setSyncJob] = useState<TangoSyncJob | null>(null);
+  const lastCompletedJobId = useRef<string | null>(null);
 
   const loadRows = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -393,6 +433,75 @@ export function IncomeWorkspace() {
       controller.abort();
     };
   }, [loadRows]);
+
+  const checkSyncStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/api/tango-sync");
+      if (!response.ok) return;
+      const data = (await response.json()) as { job: TangoSyncJob | null };
+      setSyncJob(data.job);
+      if (
+        data.job?.status === "completed" &&
+        data.job.id !== lastCompletedJobId.current
+      ) {
+        lastCompletedJobId.current = data.job.id;
+        void loadRows();
+      }
+    } catch {
+      // Silencioso: es solo un chequeo periódico de estado.
+    }
+  }, [loadRows]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => void checkSyncStatus(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [checkSyncStatus]);
+
+  useEffect(() => {
+    if (!syncJob || !activeSyncStatuses.has(syncJob.status)) return;
+    const timeout = window.setTimeout(() => void checkSyncStatus(), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [syncJob, checkSyncStatus]);
+
+  async function submitImport(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setImportError("");
+    if (!importFrom || !importTo) {
+      setImportError("Elegí las dos fechas.");
+      return;
+    }
+    if (importFrom > importTo) {
+      setImportError("La fecha Desde no puede ser posterior a Hasta.");
+      return;
+    }
+    setImportSubmitting(true);
+    try {
+      const response = await fetch("/api/tango-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: importFrom, to: importTo }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "No se pudo pedir la importación.");
+      setSyncJob(data.job);
+      setImportModalOpen(false);
+    } catch (error) {
+      setImportError(
+        error instanceof Error ? error.message : "No se pudo pedir la importación.",
+      );
+    } finally {
+      setImportSubmitting(false);
+    }
+  }
+
+  async function cancelImport() {
+    if (!syncJob) return;
+    try {
+      await fetch(`/api/tango-sync?id=${syncJob.id}`, { method: "DELETE" });
+    } finally {
+      void checkSyncStatus();
+    }
+  }
 
   const limitedNotice = useMemo(() => {
     if (selectedClients.length === 0) {
@@ -493,18 +602,31 @@ export function IncomeWorkspace() {
               </span>
             </div>
           </div>
-          <Button
-            variant="secondary"
-            onClick={() => void loadRows()}
-            disabled={loading}
-            className="h-10"
-          >
-            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            {loading ? "Actualizando..." : "Actualizar vista"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => void loadRows()}
+              disabled={loading}
+              className="h-10"
+            >
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+              {loading ? "Actualizando..." : "Actualizar vista"}
+            </Button>
+            {syncJob && activeSyncStatuses.has(syncJob.status) ? (
+              <Button variant="secondary" onClick={() => void cancelImport()} className="h-10">
+                <X size={15} />
+                Cancelar importación
+              </Button>
+            ) : (
+              <Button onClick={() => setImportModalOpen(true)} className="h-10">
+                <Download size={15} />
+                Importar ingresos
+              </Button>
+            )}
+          </div>
         </div>
         <div className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#62728a]">
-          {message}
+          {syncJob ? syncJobLabel(syncJob) : message}
         </div>
         <div className="grid gap-4 px-5 py-4 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_.9fr_.9fr_.9fr]">
           <MultiSelectDropdown
@@ -694,6 +816,73 @@ export function IncomeWorkspace() {
           en Tango y luego se actualiza esta consulta.
         </div>
       </section>
+
+      {importModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
+          <button
+            className="absolute inset-0"
+            aria-label="Cerrar"
+            onClick={() => setImportModalOpen(false)}
+          />
+          <form
+            onSubmit={submitImport}
+            className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
+          >
+            <button
+              type="button"
+              onClick={() => setImportModalOpen(false)}
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
+            >
+              <X size={18} />
+            </button>
+            <div className="eyebrow">Ingresos Tango</div>
+            <h2 className="mt-2 text-xl font-black text-[#10233f]">
+              Importar ingresos
+            </h2>
+            <p className="mt-2 text-xs font-bold text-[#62728a]">
+              Elegí el período a traer desde Tango. La importación corre en
+              segundo plano y esta pantalla se actualiza sola cuando termina.
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-4">
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Desde
+                <input
+                  type="date"
+                  value={importFrom}
+                  onChange={(event) => setImportFrom(event.target.value)}
+                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                />
+              </label>
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Hasta
+                <input
+                  type="date"
+                  value={importTo}
+                  onChange={(event) => setImportTo(event.target.value)}
+                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                />
+              </label>
+            </div>
+            {importError && (
+              <div className="mt-4 rounded-xl bg-[#fce9e8] px-2 py-2 text-xs font-bold text-[#a43d39]">
+                {importError}
+              </div>
+            )}
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setImportModalOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={importSubmitting}>
+                {importSubmitting ? "Pidiendo..." : "Importar"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 }
