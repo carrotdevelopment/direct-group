@@ -9,6 +9,7 @@ import {
   Database,
   Download,
   PackageCheck,
+  PlusCircle,
   RefreshCw,
   Search,
   Users,
@@ -35,7 +36,10 @@ type TangoIncomeRow = {
   pending: number;
   comments: string;
   status: "complete" | "pending" | "without-order-date";
+  pendingTangoEntry: boolean;
 };
+
+const manualOperations = ["DEVOLUCION", "PASAJE", "AJUSTE NO VALORIZADO", "AJUSTE VALORIZADO"] as const;
 
 type TangoIncomeSummary = {
   exists: boolean;
@@ -374,6 +378,18 @@ export function IncomeWorkspace() {
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [syncJob, setSyncJob] = useState<TangoSyncJob | null>(null);
   const lastCompletedJobId = useRef<string | null>(null);
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    operation: "DEVOLUCION" as (typeof manualOperations)[number],
+    client: "",
+    clientCode: "",
+    quantity: "",
+    deliveryDate: toISODate(new Date()),
+    transferOrigin: "",
+    comments: "",
+  });
+  const [manualError, setManualError] = useState("");
+  const [manualSubmitting, setManualSubmitting] = useState(false);
 
   const loadRows = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -503,6 +519,52 @@ export function IncomeWorkspace() {
     }
   }
 
+  async function submitManual(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setManualError("");
+    const quantity = Number(manualForm.quantity);
+    if (!manualForm.client.trim() || !manualForm.clientCode.trim()) {
+      setManualError("Completá cliente y código cliente.");
+      return;
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setManualError("La cantidad tiene que ser un número mayor a cero.");
+      return;
+    }
+    if (!manualForm.deliveryDate) {
+      setManualError("Elegí una fecha.");
+      return;
+    }
+    setManualSubmitting(true);
+    try {
+      const response = await fetch("/api/local-db/ingresos/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operation: manualForm.operation,
+          client: manualForm.client.trim(),
+          clientCode: manualForm.clientCode.trim(),
+          quantity,
+          deliveryDate: manualForm.deliveryDate,
+          transferOrigin: manualForm.transferOrigin.trim() || undefined,
+          comments: manualForm.comments.trim() || undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "No se pudo registrar el movimiento.");
+      setManualModalOpen(false);
+      setManualForm({
+        operation: "DEVOLUCION", client: "", clientCode: "", quantity: "",
+        deliveryDate: toISODate(new Date()), transferOrigin: "", comments: "",
+      });
+      void loadRows();
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : "No se pudo registrar el movimiento.");
+    } finally {
+      setManualSubmitting(false);
+    }
+  }
+
   const limitedNotice = useMemo(() => {
     if (selectedClients.length === 0) {
       return "Seleccioná al menos un cliente para cargar la consulta.";
@@ -623,6 +685,10 @@ export function IncomeWorkspace() {
                 Importar ingresos
               </Button>
             )}
+            <Button variant="secondary" onClick={() => setManualModalOpen(true)} className="h-10">
+              <PlusCircle size={15} />
+              Registrar movimiento
+            </Button>
           </div>
         </div>
         <div className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#62728a]">
@@ -751,6 +817,14 @@ export function IncomeWorkspace() {
                     >
                       {statusLabel(row.status)}
                     </span>
+                    {row.pendingTangoEntry ? (
+                      <span
+                        title="Cargado desde la web, todavía falta cargarlo en Tango"
+                        className="ml-1 inline-flex rounded-full bg-[#eef3fb] px-2 py-1 text-[9px] font-black uppercase text-[#52647d] ring-1 ring-[#d8e3f0]"
+                      >
+                        Pendiente Tango
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 font-black uppercase text-[#10233f]">
                     {row.client || "-"}
@@ -878,6 +952,135 @@ export function IncomeWorkspace() {
               </Button>
               <Button type="submit" disabled={importSubmitting}>
                 {importSubmitting ? "Pidiendo..." : "Importar"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {manualModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
+          <button
+            className="absolute inset-0"
+            aria-label="Cerrar"
+            onClick={() => setManualModalOpen(false)}
+          />
+          <form
+            onSubmit={submitManual}
+            className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+          >
+            <button
+              type="button"
+              onClick={() => setManualModalOpen(false)}
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
+            >
+              <X size={18} />
+            </button>
+            <div className="eyebrow">Ingresos Tango</div>
+            <h2 className="mt-2 text-xl font-black text-[#10233f]">
+              Registrar movimiento
+            </h2>
+            <p className="mt-2 text-xs font-bold text-[#62728a]">
+              Devoluciones, ajustes y pasajes que todavía no están cargados en
+              Tango. Quedan marcados como &quot;Pendiente Tango&quot; hasta que
+              alguien los carga también ahí.
+            </p>
+            <div className="mt-6 grid gap-4">
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Operación
+                <select
+                  value={manualForm.operation}
+                  onChange={(event) =>
+                    setManualForm({
+                      ...manualForm,
+                      operation: event.target.value as (typeof manualOperations)[number],
+                    })
+                  }
+                  className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case outline-none focus:border-[#7da4d3]"
+                >
+                  {manualOperations.map((operation) => (
+                    <option key={operation} value={operation}>
+                      {operation}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                <label className="text-[11px] font-extrabold text-[#334b6b]">
+                  Cliente
+                  <input
+                    value={manualForm.client}
+                    onChange={(event) => setManualForm({ ...manualForm, client: event.target.value })}
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                  />
+                </label>
+                <label className="text-[11px] font-extrabold text-[#334b6b]">
+                  Código cliente
+                  <input
+                    value={manualForm.clientCode}
+                    onChange={(event) => setManualForm({ ...manualForm, clientCode: event.target.value })}
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <label className="text-[11px] font-extrabold text-[#334b6b]">
+                  Cantidad
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={manualForm.quantity}
+                    onChange={(event) => setManualForm({ ...manualForm, quantity: event.target.value })}
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                  />
+                </label>
+                <label className="text-[11px] font-extrabold text-[#334b6b]">
+                  Fecha
+                  <input
+                    type="date"
+                    value={manualForm.deliveryDate}
+                    onChange={(event) => setManualForm({ ...manualForm, deliveryDate: event.target.value })}
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                  />
+                </label>
+              </div>
+              {manualForm.operation === "PASAJE" && (
+                <label className="text-[11px] font-extrabold text-[#334b6b]">
+                  Origen del pasaje
+                  <input
+                    value={manualForm.transferOrigin}
+                    onChange={(event) => setManualForm({ ...manualForm, transferOrigin: event.target.value })}
+                    placeholder="Cliente que pasa el producto"
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
+                  />
+                </label>
+              )}
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Comentarios
+                <textarea
+                  value={manualForm.comments}
+                  onChange={(event) => setManualForm({ ...manualForm, comments: event.target.value })}
+                  rows={3}
+                  className="mt-2 w-full rounded-xl border border-[#dbe4ef] px-3 py-2 text-xs normal-case outline-none focus:border-[#7da4d3]"
+                />
+              </label>
+            </div>
+            {manualError && (
+              <div className="mt-4 rounded-xl bg-[#fce9e8] px-2 py-2 text-xs font-bold text-[#a43d39]">
+                {manualError}
+              </div>
+            )}
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setManualModalOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={manualSubmitting}>
+                {manualSubmitting ? "Guardando..." : "Registrar"}
               </Button>
             </div>
           </form>

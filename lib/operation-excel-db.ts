@@ -319,6 +319,7 @@ export type TangoIncomeRow = {
   pending: number;
   comments: string;
   status: "complete" | "pending" | "without-order-date";
+  pendingTangoEntry: boolean;
 };
 
 export type TangoIncomeSummary = {
@@ -698,6 +699,7 @@ export function readTangoIncomeQueryRows() {
       pending,
       comments: asText(row["Comentarios"]),
       status,
+      pendingTangoEntry: false,
     };
   });
 }

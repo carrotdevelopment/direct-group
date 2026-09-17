@@ -512,6 +512,8 @@ model TangoIncome {
   comments          String?           @map("comentarios")
   importBatchId     BigInt?           @map("import_batch_id") @db.BigInt
   sourceRowNumber   Int?              @map("source_row_number")
+  pendingTangoEntry Boolean           @default(false) @map("pending_tango_entry")
+  createdBy         String?           @map("created_by") @db.VarChar(255)
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   importBatch       ExcelImportBatch? @relation(fields: [importBatchId], references: [id])

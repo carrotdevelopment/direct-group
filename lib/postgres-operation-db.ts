@@ -86,6 +86,7 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
       pending,
       comments: text(row.comments),
       status,
+      pendingTangoEntry: row.pendingTangoEntry,
     };
   });
 }

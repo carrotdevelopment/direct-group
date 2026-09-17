@@ -95,14 +95,15 @@ async function publish(tx: Tx, job: TangoSyncJob) {
       SELECT *, row_number() OVER (PARTITION BY signature ORDER BY external_key) AS ordinal FROM incoming_keys
     ), legacy_keys AS (
       SELECT id, ${signature} AS signature FROM tango_ingresos
-      WHERE external_key IS NULL AND fecha_entrega BETWEEN ${job.dateFrom}::date AND ${job.dateTo}::date
+      WHERE external_key IS NULL AND pending_tango_entry = false
+        AND fecha_entrega BETWEEN ${job.dateFrom}::date AND ${job.dateTo}::date
     ), legacy AS (
       SELECT *, row_number() OVER (PARTITION BY signature ORDER BY id) AS ordinal FROM legacy_keys
     ) UPDATE tango_ingresos t SET external_key = i.external_key, source_header_id = i.source_header_id
       FROM incoming i JOIN legacy l ON l.signature = i.signature AND l.ordinal = i.ordinal
       WHERE t.id = l.id`;
   const remaining = await tx.tangoIncome.count({ where: {
-    externalKey: null, deliveryDate: { gte: job.dateFrom, lte: job.dateTo },
+    externalKey: null, pendingTangoEntry: false, deliveryDate: { gte: job.dateFrom, lte: job.dateTo },
   } });
   if (remaining) throw new TangoSyncError(`Hay ${remaining} ingresos anteriores sin ID de Tango que no coinciden con la consulta. Hay que conciliarlos antes de importar este período para evitar duplicados.`);
 
