@@ -279,10 +279,23 @@ export async function appendGenericEgressRecords(
         if (hashes.has(item.sourceHash)) throw new DuplicateEgressImportError(`Fila ${item.sourceRowNumber}: registro repetido dentro de la carga. No se importó ninguna fila.`);
         hashes.add(item.sourceHash);
       }
-      const previous = await transaction.egress.findMany({
-        where: { client, OR: [{ sourceHash: { in: [...hashes] } }, { sourceHash: null }] },
-        select: { id: true, sourceHash: true, rawRow: { select: { payload: true } } },
-      });
+      // Postgres caps prepared statements at ~32k bind parameters: chunk large
+      // imports (e.g. Credicoop's ~129k rows) instead of sending one giant IN(...).
+      const hashList = [...hashes];
+      const hashChunkSize = 20000;
+      const previousSelect = { id: true, sourceHash: true, rawRow: { select: { payload: true } } } as const;
+      const previousChunks = await Promise.all(
+        Array.from({ length: Math.ceil(hashList.length / hashChunkSize) }, (_, index) =>
+          transaction.egress.findMany({
+            where: { client, sourceHash: { in: hashList.slice(index * hashChunkSize, (index + 1) * hashChunkSize) } },
+            select: previousSelect,
+          }),
+        ),
+      );
+      const previous = [
+        ...previousChunks.flat(),
+        ...(await transaction.egress.findMany({ where: { client, sourceHash: null }, select: previousSelect })),
+      ];
       for (const row of previous) {
         const hash = row.sourceHash ?? (row.rawRow?.payload && typeof row.rawRow.payload === "object" && !Array.isArray(row.rawRow.payload)
           ? egressSourceHash(row.rawRow.payload as Record<string, unknown>) : null);
