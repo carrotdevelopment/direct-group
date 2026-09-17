@@ -96,14 +96,8 @@ async function callAgent(body) {
   return payload;
 }
 
-async function main() {
-  console.log("Consultando si hay una importación pendiente...");
-  const claimed = await callAgent({ action: "claim" });
-  if (!claimed.job) {
-    console.log("No hay ninguna importación pendiente. Nada para hacer.");
-    return;
-  }
-  const { id: jobId, claimToken, from, to } = claimed.job;
+async function processJob(pool, job) {
+  const { id: jobId, claimToken, from, to } = job;
   console.log(`Importación tomada: ${jobId} (${from} a ${to}).`);
 
   async function fail(code) {
@@ -114,64 +108,77 @@ async function main() {
     }
   }
 
-  let pool;
-  try {
-    pool = await connectSqlServer();
-  } catch (error) {
-    await fail("SQL_CONNECTION");
-    throw error;
+  const result = await pool
+    .request()
+    .input("dateFrom", from)
+    .input("dateTo", to)
+    .query(INGRESOS_QUERY)
+    .catch(async (error) => {
+      await fail("SQL_QUERY");
+      throw error;
+    });
+
+  if (result.recordset.length > TANGO_MAX_ROWS) {
+    await fail("TOO_MANY_ROWS");
+    throw new Error(`La consulta devolvió ${result.recordset.length} filas, más de las ${TANGO_MAX_ROWS} permitidas.`);
   }
 
+  const rows = result.recordset.map((row) => ({
+    sourceId: String(row.SourceId),
+    headerId: String(row.HeaderId),
+    client: String(row.Cliente ?? "").trim(),
+    operation: String(row.Operacion),
+    orderDate: toDateString(row.FechaPedido),
+    purchaseOrder: String(row.OrdenDeCompra ?? "").trim().slice(0, 255),
+    clientCode: String(row.CodigoCliente ?? "").trim().slice(0, 255),
+    quantity: formatQuantity(row.Cantidad),
+    deliveryDate: toDateString(row.FechaEntrega),
+    deliveredQuantity: formatQuantity(row.Entregado),
+    comments: String(row.Comentarios ?? "").trim().slice(0, 16000),
+  }));
+
+  if (rows.some((row) => !row.deliveryDate)) {
+    await fail("INVALID_RESULT");
+    throw new Error("Alguna fila no tiene fecha de entrega, y es un campo obligatorio.");
+  }
+
+  console.log(`Enviando ${rows.length} filas en lotes de ${TANGO_BATCH_SIZE}...`);
+  const totalBatches = rows.length === 0 ? 0 : Math.ceil(rows.length / TANGO_BATCH_SIZE);
+  for (let index = 0; index < totalBatches; index++) {
+    const batch = rows.slice(index * TANGO_BATCH_SIZE, (index + 1) * TANGO_BATCH_SIZE);
+    await callAgent({ action: "batch", jobId, claimToken, index, rows: batch }).catch(async (error) => {
+      await fail("TRANSFER_FAILED");
+      throw error;
+    });
+    console.log(`  Lote ${index + 1}/${totalBatches} enviado (${batch.length} filas).`);
+  }
+
+  await callAgent({ action: "finish", jobId, claimToken, totalRows: rows.length, totalBatches });
+  console.log("Importación completada.");
+}
+
+async function main() {
+  let pool;
   try {
-    const result = await pool
-      .request()
-      .input("dateFrom", from)
-      .input("dateTo", to)
-      .query(INGRESOS_QUERY)
-      .catch(async (error) => {
-        await fail("SQL_QUERY");
-        throw error;
-      });
-
-    if (result.recordset.length > TANGO_MAX_ROWS) {
-      await fail("TOO_MANY_ROWS");
-      throw new Error(`La consulta devolvió ${result.recordset.length} filas, más de las ${TANGO_MAX_ROWS} permitidas.`);
+    for (;;) {
+      console.log("Consultando si hay una importación pendiente...");
+      const claimed = await callAgent({ action: "claim" });
+      if (!claimed.job) {
+        console.log("No hay ninguna importación pendiente. Nada más para hacer.");
+        break;
+      }
+      if (!pool) {
+        try {
+          pool = await connectSqlServer();
+        } catch (error) {
+          await callAgent({ action: "fail", jobId: claimed.job.id, claimToken: claimed.job.claimToken, code: "SQL_CONNECTION" }).catch(() => {});
+          throw error;
+        }
+      }
+      await processJob(pool, claimed.job);
     }
-
-    const rows = result.recordset.map((row) => ({
-      sourceId: String(row.SourceId),
-      headerId: String(row.HeaderId),
-      client: String(row.Cliente ?? "").trim(),
-      operation: String(row.Operacion),
-      orderDate: toDateString(row.FechaPedido),
-      purchaseOrder: String(row.OrdenDeCompra ?? "").trim().slice(0, 255),
-      clientCode: String(row.CodigoCliente ?? "").trim().slice(0, 255),
-      quantity: formatQuantity(row.Cantidad),
-      deliveryDate: toDateString(row.FechaEntrega),
-      deliveredQuantity: formatQuantity(row.Entregado),
-      comments: String(row.Comentarios ?? "").trim().slice(0, 16000),
-    }));
-
-    if (rows.some((row) => !row.deliveryDate)) {
-      await fail("INVALID_RESULT");
-      throw new Error("Alguna fila no tiene fecha de entrega, y es un campo obligatorio.");
-    }
-
-    console.log(`Enviando ${rows.length} filas en lotes de ${TANGO_BATCH_SIZE}...`);
-    const totalBatches = rows.length === 0 ? 0 : Math.ceil(rows.length / TANGO_BATCH_SIZE);
-    for (let index = 0; index < totalBatches; index++) {
-      const batch = rows.slice(index * TANGO_BATCH_SIZE, (index + 1) * TANGO_BATCH_SIZE);
-      await callAgent({ action: "batch", jobId, claimToken, index, rows: batch }).catch(async (error) => {
-        await fail("TRANSFER_FAILED");
-        throw error;
-      });
-      console.log(`  Lote ${index + 1}/${totalBatches} enviado (${batch.length} filas).`);
-    }
-
-    await callAgent({ action: "finish", jobId, claimToken, totalRows: rows.length, totalBatches });
-    console.log("Importación completada.");
   } finally {
-    await pool.close();
+    if (pool) await pool.close();
   }
 }
 
