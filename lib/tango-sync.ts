@@ -35,6 +35,15 @@ async function locked<T>(fn: (tx: Tx) => Promise<T>) {
     return fn(tx);
   }, { maxWait: 5000, timeout: 25000 });
 }
+export async function lastCompletedSync() {
+  const job = await excelPostgres.tangoSyncJob.findFirst({
+    where: { status: "completed" },
+    orderBy: { finishedAt: "desc" },
+  });
+  if (!job) return null;
+  return { finishedAt: job.finishedAt, rowCount: job.rowCount, from: job.dateFrom.toISOString().slice(0, 10), to: job.dateTo.toISOString().slice(0, 10) };
+}
+
 export async function syncStatus() {
   const [job, connector] = await Promise.all([
     excelPostgres.tangoSyncJob.findFirst({ orderBy: { createdAt: "desc" } }),
