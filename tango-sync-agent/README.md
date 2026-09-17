@@ -46,7 +46,7 @@ Si todo está bien, va a mostrar las últimas 20 filas de la consulta de ingreso
 npm start
 ```
 
-Si no hay ninguna importación pedida todavía desde la web, va a decir "No hay ninguna importación pendiente." — eso es correcto y significa que la conexión con la plataforma funciona.
+Si no hay ninguna importación pedida todavía desde la web, el conector arma una automáticamente para el rango "ayer hasta hoy" y la procesa. Volver a ejecutarlo el mismo día no hace nada nuevo (ya generó la del día).
 
 ## 7. Programar la ejecución automática (para que quede corriendo solo)
 
@@ -56,11 +56,11 @@ Opción rápida — importar la tarea ya armada:
 2. Panel derecho → **Importar tarea...**
 3. Elegí el archivo `tarea-programada.xml` que está en esta misma carpeta.
 4. Si la carpeta no es exactamente `C:\tango-sync-agent`, abrí la tarea importada, pestaña **Acciones**, editá la acción y corregí "Iniciar en" con la ruta real donde copiaste esta carpeta.
-5. Guardar. Ya queda repitiendo cada 10 minutos, arranca también al prender la PC, y corre aunque nadie haya iniciado sesión.
+5. Guardar. Queda corriendo una vez por día (6 AM) y corre aunque nadie haya iniciado sesión. Si no hay una importación pedida manualmente desde la web ese día, trae sola los ingresos desde ayer hasta hoy.
 
-Para probarla ya, sin esperar los 10 minutos: click derecho sobre la tarea → **Ejecutar**.
+Para probarla ya, sin esperar a las 6 AM: click derecho sobre la tarea → **Ejecutar**.
 
-Opción manual (si preferís armarla vos): Desencadenador → repetir cada 10 minutos, indefinidamente; Acción → iniciar `node.exe` con el argumento `agent.js`, "Iniciar en" apuntando a esta carpeta; en Configuración general marcar **"Ejecutar tanto si el usuario inició sesión como si no"**.
+Opción manual (si preferís armarla vos): Desencadenador → diario, una vez por día; Acción → iniciar `node.exe` con el argumento `agent.js`, "Iniciar en" apuntando a esta carpeta; en Configuración general marcar **"Ejecutar tanto si el usuario inició sesión como si no"**.
 
 ## Nota de mantenimiento
 

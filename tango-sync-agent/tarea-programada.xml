@@ -1,20 +1,16 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Conector Tango -> DG Plataforma. Consulta cada 10 minutos si hay una importacion de Ingresos pendiente desde la web y, si la hay, la trae de Tango.</Description>
+    <Description>Conector Tango -> DG Plataforma. Corre una vez por dia: si no hay una importacion pedida manualmente desde la web, trae automaticamente los ingresos desde ayer hasta hoy.</Description>
   </RegistrationInfo>
   <Triggers>
-    <TimeTrigger>
-      <Repetition>
-        <Interval>PT10M</Interval>
-        <StopAtDurationEnd>false</StopAtDurationEnd>
-      </Repetition>
-      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T06:00:00</StartBoundary>
       <Enabled>true</Enabled>
-    </TimeTrigger>
-    <BootTrigger>
-      <Enabled>true</Enabled>
-    </BootTrigger>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">

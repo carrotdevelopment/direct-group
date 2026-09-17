@@ -121,13 +121,32 @@ async function publish(tx: Tx, job: TangoSyncJob) {
       entregado = EXCLUDED.entregado, comentarios = EXCLUDED.comentarios, updated_at = now()`;
 }
 
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// El conector corre una vez por día vía tarea programada, sin que nadie pida
+// la importación manualmente. Si no hay ningún trabajo pendiente y todavía no
+// se generó uno automático hoy, se arma uno para "ayer hasta hoy": el publish()
+// de arriba es idempotente por external_key, así que repetir el rango no duplica nada.
+async function autoRequestDailySync(tx: Tx, now: Date) {
+  const today = isoDate(now);
+  const lastJob = await tx.tangoSyncJob.findFirst({ orderBy: { createdAt: "desc" } });
+  if (lastJob && isoDate(lastJob.createdAt) === today) return null;
+  const yesterday = isoDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+  return tx.tangoSyncJob.create({ data: {
+    dateFrom: new Date(yesterday), dateTo: new Date(today), requestedBy: "tango-connector-auto",
+  } });
+}
+
 export async function handleAgent(input: TangoAgentRequest) {
   return locked(async (tx) => {
     const now = new Date();
     await tx.tangoConnectorState.upsert({ where: { id: "default" },
       create: { id: "default", lastSeenAt: now }, update: { lastSeenAt: now } });
     if (input.action === "claim") {
-      const job = await tx.tangoSyncJob.findFirst({ where: { status: { in: active } }, orderBy: { createdAt: "asc" } });
+      let job = await tx.tangoSyncJob.findFirst({ where: { status: { in: active } }, orderBy: { createdAt: "asc" } });
+      if (!job) job = await autoRequestDailySync(tx, now);
       if (!job || (job.status === "running" && job.leaseUntil && job.leaseUntil > now)) return { job: null };
       if (job.attempts >= 3) {
         await tx.tangoSyncJob.update({ where: { id: job.id }, data: {
