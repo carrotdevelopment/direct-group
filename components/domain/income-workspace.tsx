@@ -390,6 +390,38 @@ export function IncomeWorkspace() {
   });
   const [manualError, setManualError] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [clientCodeMappings, setClientCodeMappings] = useState<
+    { client: string; clientCode: string; active: boolean }[]
+  >([]);
+
+  useEffect(() => {
+    fetch("/api/lookups?kind=client-codes")
+      .then((response) => response.json() as Promise<{ mappings?: typeof clientCodeMappings }>)
+      .then((data) => setClientCodeMappings(data.mappings ?? []))
+      .catch(() => setClientCodeMappings([]));
+  }, []);
+
+  const manualClientOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          clientCodeMappings.filter((m) => m.active).map((m) => m.client),
+        ),
+      ).sort((a, b) => a.localeCompare(b, "es")),
+    [clientCodeMappings],
+  );
+
+  const manualCodeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          clientCodeMappings
+            .filter((m) => m.active && m.client === manualForm.client)
+            .map((m) => m.clientCode),
+        ),
+      ).sort((a, b) => a.localeCompare(b, "es")),
+    [clientCodeMappings, manualForm.client],
+  );
 
   const loadRows = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -525,6 +557,14 @@ export function IncomeWorkspace() {
     const quantity = Number(manualForm.quantity);
     if (!manualForm.client.trim() || !manualForm.clientCode.trim()) {
       setManualError("Completá cliente y código cliente.");
+      return;
+    }
+    if (!manualClientOptions.includes(manualForm.client)) {
+      setManualError("Elegí un cliente válido de la lista.");
+      return;
+    }
+    if (!manualCodeOptions.includes(manualForm.clientCode)) {
+      setManualError("Elegí un código cliente válido y activo para ese cliente.");
       return;
     }
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -1012,19 +1052,34 @@ export function IncomeWorkspace() {
               <div className="grid grid-cols-2 gap-4">
                 <label className="text-[11px] font-extrabold text-[#334b6b]">
                   Cliente
-                  <input
+                  <select
                     value={manualForm.client}
-                    onChange={(event) => setManualForm({ ...manualForm, client: event.target.value })}
-                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
-                  />
+                    onChange={(event) =>
+                      setManualForm({ ...manualForm, client: event.target.value, clientCode: "" })
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case outline-none focus:border-[#7da4d3]"
+                  >
+                    <option value="">Seleccionar cliente</option>
+                    {manualClientOptions.map((client) => (
+                      <option key={client} value={client}>{client}</option>
+                    ))}
+                  </select>
                 </label>
                 <label className="text-[11px] font-extrabold text-[#334b6b]">
                   Código cliente
-                  <input
+                  <select
                     value={manualForm.clientCode}
                     onChange={(event) => setManualForm({ ...manualForm, clientCode: event.target.value })}
-                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
-                  />
+                    disabled={!manualForm.client}
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case outline-none focus:border-[#7da4d3] disabled:bg-[#f8fafd] disabled:text-[#9aa3ad]"
+                  >
+                    <option value="">
+                      {manualForm.client ? "Seleccionar código" : "Elegí un cliente primero"}
+                    </option>
+                    {manualCodeOptions.map((code) => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
+                  </select>
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-4">

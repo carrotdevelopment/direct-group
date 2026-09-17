@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requirePageModule } from "@/server/lib/access";
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Boxes, CircleAlert, FileClock, HandCoins, PackageCheck, ShoppingCart, Sparkles, Warehouse } from "lucide-react";
 import { OperationsChart } from "@/components/charts/operations-chart";
@@ -28,6 +29,8 @@ const alerts = [
 
 export default async function DashboardPage() {
   await requirePageModule("admin");
+  // Temporalmente oculto: todavía muestra datos de ejemplo, no reales.
+  redirect("/productos");
   return (
     <div>
       <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between animate-enter">

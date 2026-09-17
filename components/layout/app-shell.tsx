@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import {
   ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator, ChartNoAxesCombined,
-  CircleDollarSign, ClipboardList, FileKey2, FileUp, LayoutDashboard,
+  CircleDollarSign, ClipboardList, FileKey2, FileUp,
   Menu, PackageSearch, Search, Settings, ShieldCheck, Truck, Users, Warehouse, X,
 } from "lucide-react";
 import { hasModule, pageModule } from "@/lib/module-access";
@@ -18,9 +18,6 @@ type NavItem = { label: string; href: string; icon: React.ElementType };
 type NavGroup = { label: string; items: NavItem[] };
 
 const navigation: NavGroup[] = [
-  { label: "Principal", items: [
-    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  ]},
   { label: "Información Productos", items: [
     { label: "Productos", href: "/productos", icon: Boxes },
     { label: "Códigos cliente", href: "/codigos-clientes", icon: FileKey2 },

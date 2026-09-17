@@ -94,6 +94,9 @@ const ALL_TIPOS = ["CANJE","PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as TipoEgr
 const TIPOS_STD  = ["PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as const;
 const TODAY      = new Date().toISOString().slice(0, 10);
 const THIS_MONTH_START = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; })();
+// Egresos suele traer cargas históricas (migraciones), no solo operación del
+// mes en curso: arrancar en "este mes" dejaba la grilla vacía por defecto.
+const HISTORY_DEFAULT_START = "2000-01-01";
 
 // ── Real Santander data ───────────────────────────────────────────────────────
 
@@ -906,7 +909,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   onUpdateRow: (loteId: string, rowIdx: number, fila: Fila) => void;
   onRangeChange: (from: string, to: string) => void;
 }) {
-  const [desde,        setDesde]        = useState(THIS_MONTH_START);
+  const [desde,        setDesde]        = useState(HISTORY_DEFAULT_START);
   const [hasta,        setHasta]        = useState(TODAY);
   useEffect(() => { onRangeChange(desde, hasta); }, [desde, hasta, onRangeChange]);
   const [tipoFilter,   setTipoFilter]   = useState<Set<TipoEgreso>>(new Set());
@@ -1306,7 +1309,7 @@ function EditForm({ fila, tipo, configs, cliente, onSave, onCancel }: {
 export function EgressWorkspace() {
   const latestLoad = useRef(0);
   const [batches, setBatches] = useState<EgressBatchOption[]>([]);
-  const [historyRange, setHistoryRange] = useState({ from: THIS_MONTH_START, to: TODAY });
+  const [historyRange, setHistoryRange] = useState({ from: HISTORY_DEFAULT_START, to: TODAY });
   const onRangeChange = useCallback((from: string, to: string) => {
     setHistoryRange(current => current.from === from && current.to === to ? current : { from, to });
   }, []);

@@ -93,7 +93,6 @@ function AdminList({
 
   async function persist(next: AdminItem[]): Promise<string | null> {
     const uniqueNext = uniqueAdminItems(next);
-    setItems(uniqueNext);
     setStatus("Guardando en PostgreSQL...");
     try {
       const response = await fetch(endpoint, {
@@ -107,6 +106,12 @@ function AdminList({
         setStatus(message);
         return message;
       }
+      // Use the server's response (real numeric ids) instead of uniqueNext:
+      // items created in this call only get a database id once saved, and
+      // reusing the client-side placeholder id on the next save would create
+      // a duplicate row.
+      const data = (await response.json()) as Record<ApiKey, AdminItem[]>;
+      setItems(uniqueAdminItems(data[apiKey] ?? uniqueNext));
       setStatus("PostgreSQL sincronizado");
       return null;
     } catch {
@@ -131,6 +136,7 @@ function AdminList({
       setInputError(error);
     } else {
       setDraft("");
+      setQuery("");
     }
   }
 
@@ -187,22 +193,52 @@ function AdminList({
           className="h-9 w-full max-w-xs rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
         />
       </div>
-      <div className="flex max-h-[260px] flex-wrap items-start gap-2 overflow-y-auto p-4">
-        {visible.map((item) => (
-          <button
-            key={`${apiKey}-${canonicalAdminKey(item.name)}-${item.id}`}
-            type="button"
-            onClick={() => void toggleItem(item.id)}
-            title={item.active ? "Desactivar" : "Activar"}
-            className={`rounded-full border px-3 py-1 text-[10px] font-extrabold transition ${
-              item.active
-                ? "border-[#dbe4ef] bg-[#edf4fc] text-[#0b5bbb] hover:border-[#0b5bbb]"
-                : "border-[#e5e7eb] bg-[#f3f4f6] text-[#9aa3ad]"
-            }`}
-          >
-            {item.name}
-          </button>
-        ))}
+      <div className="max-h-[320px] overflow-y-auto">
+        {visible.length === 0 ? (
+          <p className="p-4 text-[11px] font-semibold text-[#9aa3ad]">
+            Sin resultados para esta búsqueda.
+          </p>
+        ) : (
+          <ul className="divide-y divide-[#eef2f7]">
+            {visible.map((item) => (
+              <li
+                key={`${apiKey}-${canonicalAdminKey(item.name)}-${item.id}`}
+                className="flex items-center justify-between gap-3 px-4 py-2"
+              >
+                <span
+                  className={`truncate text-[11.5px] font-bold ${
+                    item.active ? "text-[#10233f]" : "text-[#9aa3ad] line-through"
+                  }`}
+                  title={item.name}
+                >
+                  {item.name}
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`rounded-full px-2 py-1 text-[9px] font-black ${
+                      item.active
+                        ? "bg-[#e8f6ed] text-[#277345]"
+                        : "bg-[#eceff3] text-[#687789]"
+                    }`}
+                  >
+                    {item.active ? "Activo" : "Inactivo"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void toggleItem(item.id)}
+                    className={`rounded-lg border px-2.5 py-1 text-[9px] font-extrabold transition ${
+                      item.active
+                        ? "border-[#f0d3d2] bg-[#fce9e8] text-[#a43d39] hover:border-[#a43d39]"
+                        : "border-[#cfe3d6] bg-[#e8f6ed] text-[#277345] hover:border-[#277345]"
+                    }`}
+                  >
+                    {item.active ? "Desactivar" : "Activar"}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e9ece9] bg-[#fafbfa] px-5 py-3 text-[10px] font-semibold text-[#7e8780]">
         <span>

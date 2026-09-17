@@ -70,6 +70,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
   const [productCodesLoaded, setProductCodesLoaded] = useState(false);
   const [touchedCodes, setTouchedCodes] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState({ uniqueCode: "", informedAt: "" });
+  const [searchResults, setSearchResults] = useState<PriceRecord[]>([]);
   const [searchResult, setSearchResult] = useState<PriceRecord | null>(null);
   const [editDraft, setEditDraft] = useState<PriceRecord | null>(null);
   const [searchStatus, setSearchStatus] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -210,35 +211,52 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
   }
 
   async function findPrice() {
-    if (!search.uniqueCode.trim() || !validDate(search.informedAt)) {
-      setSearchStatus({ tone: "error", text: "Completá el código único y una fecha válida." });
+    if (!search.uniqueCode.trim() && !search.informedAt.trim()) {
+      setSearchStatus({ tone: "error", text: "Completá el código único, la fecha, o ambos." });
+      return;
+    }
+    if (search.informedAt.trim() && !validDate(search.informedAt)) {
+      setSearchStatus({ tone: "error", text: "La fecha ingresada no es válida." });
       return;
     }
     setSearching(true);
+    setSearchResults([]);
     setSearchResult(null);
     setEditDraft(null);
     try {
-      const [year, month, day] = search.informedAt.split("-");
-      const params = new URLSearchParams({
-        uniqueCode: search.uniqueCode.trim(),
-        day,
-        month,
-        year,
-      });
+      const params = new URLSearchParams();
+      if (search.uniqueCode.trim()) params.set("uniqueCode", search.uniqueCode.trim());
+      if (search.informedAt.trim()) {
+        const [year, month, day] = search.informedAt.split("-");
+        params.set("day", day);
+        params.set("month", month);
+        params.set("year", year);
+      }
       const response = await fetch(`/api/local-db/prices?${params}`);
       const data = (await response.json()) as { prices?: PriceRecord[] };
-      const found = data.prices?.[0];
-      if (!found) {
-        setSearchStatus({ tone: "error", text: "No existe un precio para ese código y fecha." });
+      const found = data.prices ?? [];
+      if (!found.length) {
+        setSearchStatus({ tone: "error", text: "No existen precios para esa búsqueda." });
         return;
       }
-      setSearchResult(found);
-      setSearchStatus({ tone: "success", text: "Precio encontrado. Podés editarlo o eliminarlo." });
+      if (found.length === 1) {
+        setSearchResult(found[0]);
+        setSearchStatus({ tone: "success", text: "Precio encontrado. Podés editarlo o eliminarlo." });
+      } else {
+        setSearchResults(found);
+        setSearchStatus({ tone: "success", text: `${found.length} precios encontrados. Elegí uno para editarlo o eliminarlo.` });
+      }
     } catch {
       setSearchStatus({ tone: "error", text: "No se pudo consultar la base de precios." });
     } finally {
       setSearching(false);
     }
+  }
+
+  function selectResult(record: PriceRecord) {
+    setSearchResults([]);
+    setSearchResult(record);
+    setEditDraft(null);
   }
 
   function updateEdit(field: "costDg" | "vatRate" | "publicPrice" | "markup", value: string) {
@@ -370,10 +388,10 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           <div className="border-b border-[#dbe4ef] bg-[#edf4fc] px-5 py-4">
             <div className="eyebrow">Corrección de carga</div>
             <h2 className="mt-1 text-base font-black text-[#10233f]">Editar o eliminar precios</h2>
-            <p className="mt-1 text-[10px] font-semibold text-[#62728a]">Buscá por código único y fecha exacta.</p>
+            <p className="mt-1 text-[10px] font-semibold text-[#62728a]">Buscá por código único, por fecha, o por ambos.</p>
           </div>
           <div className="grid items-center gap-2 border-b border-[#e7edf4] p-4 sm:grid-cols-[minmax(150px,1fr)_230px_auto]">
-            <input value={search.uniqueCode} onChange={(event) => setSearch({ ...search, uniqueCode: event.target.value })} placeholder="Código único" className="h-9 rounded-xl border border-[#dbe4ef] px-3 font-mono text-xs outline-none focus:border-[#7da4d3]" />
+            <input value={search.uniqueCode} onChange={(event) => setSearch({ ...search, uniqueCode: event.target.value })} onKeyDown={(event) => event.key === "Enter" && findPrice()} placeholder="Código único (opcional si hay fecha)" className="h-9 rounded-xl border border-[#dbe4ef] px-3 font-mono text-xs outline-none focus:border-[#7da4d3]" />
             <input
               type="date"
               lang="es-AR"
@@ -387,7 +405,23 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           </div>
           {searchStatus && <div className={`border-b px-4 py-3 text-xs font-bold ${searchStatus.tone === "success" ? "bg-[#e9f1fb] text-[#0b5bbb]" : "bg-[#fce9e8] text-[#a43d39]"}`}>{searchStatus.text}</div>}
           <div className="min-h-48 overflow-auto p-4">
-            {shown ? (
+            {searchResults.length > 0 ? (
+              <table className="w-full min-w-[560px] text-[10px]">
+                <thead><tr className="bg-[#123f78] text-white"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
+                <tbody>
+                  {searchResults.map((record) => {
+                    const [year, month, day] = record.informedAt.split("-");
+                    return (
+                      <tr key={record.id} onClick={() => selectResult(record)} className="cursor-pointer border border-[#dbe4ef] hover:bg-[#edf4fc]">
+                        <td className="px-2 py-2 font-mono font-bold">{record.uniqueCode}</td>
+                        <td className="text-center">{day}/{month}/{year}</td>
+                        {(["costDg", "vatRate", "publicPrice", "markup"] as const).map((field) => <td key={field} className="border-l border-[#e7edf4] px-2 py-2 text-right">{formatDecimal(record[field], field === "vatRate" ? 3 : 2)}</td>)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : shown ? (
               <table className="w-full min-w-[560px] text-[10px]">
                 <thead><tr className="bg-[#123f78] text-white"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
                 <tbody><tr className="border border-[#dbe4ef]">
@@ -396,7 +430,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
                   {(["costDg", "vatRate", "publicPrice", "markup"] as const).map((field) => <td key={field} className="border-l border-[#e7edf4] p-0">{editDraft ? <input defaultValue={formatDecimal(editDraft[field], field === "vatRate" ? 3 : 2)} onChange={(event) => updateEdit(field, event.target.value)} className={inputClass} /> : <div className="px-2 py-2 text-right">{formatDecimal(shown[field], field === "vatRate" ? 3 : 2)}</div>}</td>)}
                 </tr></tbody>
               </table>
-            ) : <div className="grid min-h-40 place-items-center text-xs font-semibold text-[#8a99ad]">Ingresá un código y una fecha para buscar.</div>}
+            ) : <div className="grid min-h-40 place-items-center text-xs font-semibold text-[#8a99ad]">Ingresá un código, una fecha, o ambos para buscar.</div>}
           </div>
           {searchResult && <div className="flex justify-end gap-2 border-t border-[#e7edf4] bg-[#fafcff] px-4 py-3">{editDraft ? <><Button type="button" variant="secondary" size="sm" onClick={() => setEditDraft(null)}><X size={13} /> Cancelar</Button><Button type="button" size="sm" onClick={saveEdit}><Save size={13} /> Guardar cambios</Button></> : <><Button type="button" variant="secondary" size="sm" onClick={() => setEditDraft({ ...searchResult })}><Pencil size={13} /> Editar</Button><Button type="button" variant="danger" size="sm" onClick={deletePrice} disabled={deleting}><Trash2 size={13} /> Borrar</Button></>}</div>}
         </div>

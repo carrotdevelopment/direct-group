@@ -112,7 +112,13 @@ export function ClientAdminWorkspace() {
       });
       const data = (await res.json()) as { ok: boolean; message?: string };
       if (!res.ok || !data.ok) throw new Error(data.message ?? "Error al guardar.");
-      setClients(next);
+      // Re-fetch instead of trusting `next`: newly created clients only get a
+      // real numeric id from the database, and reusing the client-side
+      // placeholder id on the following save would create a duplicate row.
+      const refreshed = await fetch("/api/local-db/clients").then(
+        (r) => r.json() as Promise<ApiResponse>,
+      );
+      setClients(refreshed.clients ?? next);
       setStatus("Guardado correctamente.");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Error al guardar.");

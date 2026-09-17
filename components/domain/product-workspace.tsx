@@ -1089,6 +1089,11 @@ export function ProductWorkspace() {
                           type={col === "unitsPerPackage" ? "number" : "text"}
                           min="1"
                           value={row[col]}
+                          list={
+                            col === "supplier" ? "bulk-supplier-options" :
+                            col === "category" ? "bulk-category-options" :
+                            undefined
+                          }
                           placeholder={
                             col === "name" ? "Nombre del producto" :
                             col === "brand" ? "Marca" :
@@ -1126,6 +1131,16 @@ export function ProductWorkspace() {
             </tbody>
           </table>
         </div>
+        <datalist id="bulk-supplier-options">
+          {activeSuppliers.map((supplier) => (
+            <option key={supplier.id} value={supplier.name} />
+          ))}
+        </datalist>
+        <datalist id="bulk-category-options">
+          {activeCategories.map((category) => (
+            <option key={category.id} value={category.name} />
+          ))}
+        </datalist>
         {bulkError && (
           <div className="mx-4 mt-3 rounded-xl bg-[#fce9e8] px-4 py-2.5 text-[11px] font-bold text-[#a43d39]">
             {bulkError}
