@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
+import { useOutsideClick } from "@/lib/use-outside-click";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -919,6 +920,8 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   const [selected,     setSelected]     = useState<Set<string>>(new Set());
   const [visibleCols,  setVisibleCols]  = useState<string[]>([]);
   const [colPickerOpen, setColPickerOpen] = useState(false);
+  const closeColPicker = useCallback(() => setColPickerOpen(false), []);
+  const colPickerRef = useOutsideClick<HTMLDivElement>(closeColPicker, colPickerOpen);
   const [deleteTarget,  setDeleteTarget]  = useState<FlatRow[] | null>(null);
   const [editTarget,    setEditTarget]    = useState<FlatRow | null>(null);
 
@@ -1134,7 +1137,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
             <Trash2 size={11} /> Inactivar {selectedRows.length} {selectedRows.length === 1 ? "fila" : "filas"}
           </button>
         )}
-        <div className="relative ml-auto">
+        <div className="relative ml-auto" ref={colPickerRef}>
           <button type="button" onClick={() => setColPickerOpen((o) => !o)}
             className="flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#62728a] hover:border-[#0b5bbb] hover:text-[#0b5bbb]">
             <Columns3 size={12} />

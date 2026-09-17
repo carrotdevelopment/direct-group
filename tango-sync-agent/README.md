@@ -28,11 +28,11 @@ Copiá `.env.example` a un archivo nuevo llamado `.env`, en la misma carpeta, y 
 
 - `TANGO_SQL_PASSWORD`: la contraseña del usuario `dg_platform_reader`.
 - `TANGO_CONNECTOR_TOKEN`: tiene que ser **exactamente** el mismo valor que `TANGO_CONNECTOR_TOKEN` en el `.env` del proyecto `dg_platform`.
-- `TANGO_AGENT_API_URL`: la dirección donde esté corriendo la Plataforma DG, accesible desde esta máquina (por ejemplo `http://192.168.x.x:3000` si corre en otra PC de la misma red, o la URL pública si ya está desplegada). **Importante:** hoy la plataforma solo corre en `localhost` en la compu de desarrollo, así que esta pieza no va a poder mandar datos hasta que la app esté accesible desde esta máquina.
+- `TANGO_AGENT_API_URL`: ya está en producción → usar `https://directgroupgestion.com.ar` (con `https`, sin barra al final).
 
 ## 5. Probar la conexión a Tango primero
 
-Antes de probar `agent.js` completo (que necesita que la Plataforma DG esté accesible, algo todavía pendiente), probá solo la parte de SQL Server:
+Antes de probar `agent.js` completo, probá solo la parte de SQL Server:
 
 ```bash
 node test-sql.js
@@ -48,17 +48,19 @@ npm start
 
 Si no hay ninguna importación pedida todavía desde la web, va a decir "No hay ninguna importación pendiente." — eso es correcto y significa que la conexión con la plataforma funciona.
 
-## 7. Programar la ejecución automática
+## 7. Programar la ejecución automática (para que quede corriendo solo)
 
-En el "Programador de tareas" de Windows (Task Scheduler):
+Opción rápida — importar la tarea ya armada:
 
-1. Crear una tarea nueva.
-2. Desencadenador: repetir cada 5 a 15 minutos, indefinidamente.
-3. Acción: iniciar un programa.
-   - Programa: la ruta a `node.exe` (normalmente `C:\Program Files\nodejs\node.exe`).
-   - Argumentos: `agent.js`
-   - Iniciar en: la carpeta donde está esta copia (ej. `C:\tango-sync-agent`).
-4. En "Configuración general", marcar **"Ejecutar tanto si el usuario inició sesión como si no"**, para que funcione aunque nadie esté conectado por Escritorio Remoto en ese momento.
+1. Abrí el "Programador de tareas" de Windows (buscá "Task Scheduler" en el menú Inicio).
+2. Panel derecho → **Importar tarea...**
+3. Elegí el archivo `tarea-programada.xml` que está en esta misma carpeta.
+4. Si la carpeta no es exactamente `C:\tango-sync-agent`, abrí la tarea importada, pestaña **Acciones**, editá la acción y corregí "Iniciar en" con la ruta real donde copiaste esta carpeta.
+5. Guardar. Ya queda repitiendo cada 10 minutos, arranca también al prender la PC, y corre aunque nadie haya iniciado sesión.
+
+Para probarla ya, sin esperar los 10 minutos: click derecho sobre la tarea → **Ejecutar**.
+
+Opción manual (si preferís armarla vos): Desencadenador → repetir cada 10 minutos, indefinidamente; Acción → iniciar `node.exe` con el argumento `agent.js`, "Iniciar en" apuntando a esta carpeta; en Configuración general marcar **"Ejecutar tanto si el usuario inició sesión como si no"**.
 
 ## Nota de mantenimiento
 

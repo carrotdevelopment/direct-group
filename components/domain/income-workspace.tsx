@@ -58,6 +58,7 @@ type TangoIncomeOptions = {
   clients: string[];
   operations: string[];
   years: number[];
+  origins?: string[];
 };
 
 type TangoIncomeResponse = {
@@ -277,8 +278,18 @@ function MultiSelectDropdown<T extends string | number>({
   onSelectAll?: () => void;
   emptyLabel?: string;
 }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    function handle(event: MouseEvent) {
+      const el = detailsRef.current;
+      if (el?.open && !el.contains(event.target as Node)) el.open = false;
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
   return (
-    <details className="group relative">
+    <details ref={detailsRef} className="group relative">
       <summary className="list-none text-[10px] font-black uppercase text-[#62728a]">
         {label}
         <div className="mt-1 flex h-10 cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case text-[#10233f] outline-none transition group-open:border-[#0b5bbb] group-open:ring-3 group-open:ring-[#e5eef9]">
@@ -421,6 +432,14 @@ export function IncomeWorkspace() {
         ),
       ).sort((a, b) => a.localeCompare(b, "es")),
     [clientCodeMappings, manualForm.client],
+  );
+
+  // Unión de los clientes que ya trajeron filas de Tango con los clientes
+  // reales de Códigos cliente: sin esto, mientras tango_ingresos esté vacío
+  // (nada sincronizado todavía) el selector queda sin opciones para elegir.
+  const queryableClients = useMemo(
+    () => Array.from(new Set([...options.clients, ...manualClientOptions])).sort((a, b) => a.localeCompare(b, "es")),
+    [options.clients, manualClientOptions],
   );
 
   const loadRows = useCallback(async (signal?: AbortSignal) => {
@@ -628,7 +647,7 @@ export function IncomeWorkspace() {
   }
 
   function selectAllClients() {
-    setSelectedClients(options.clients);
+    setSelectedClients(queryableClients);
   }
 
   function clearClients() {
@@ -664,7 +683,7 @@ export function IncomeWorkspace() {
           icon={<Users size={20} />}
           label="Clientes elegidos"
           value={formatNumber(selectedClients.length)}
-          meta={`${formatNumber(options.clients.length)} disponibles en Tango`}
+          meta={`${formatNumber(queryableClients.length)} disponibles en Tango`}
         />
         <KpiCard
           icon={<Database size={20} />}
@@ -742,7 +761,7 @@ export function IncomeWorkspace() {
           <MultiSelectDropdown
             label="Clientes a consultar"
             helper="Elegí uno o varios. Sin cliente no se carga la tabla."
-            options={options.clients.map((client) => ({
+            options={queryableClients.map((client) => ({
               label: client,
               value: client,
             }))}
@@ -1110,9 +1129,18 @@ export function IncomeWorkspace() {
                   <input
                     value={manualForm.transferOrigin}
                     onChange={(event) => setManualForm({ ...manualForm, transferOrigin: event.target.value })}
+                    list="manual-transfer-origin-options"
                     placeholder="Cliente que pasa el producto"
                     className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
                   />
+                  <datalist id="manual-transfer-origin-options">
+                    {(options.origins ?? []).map((origin) => (
+                      <option key={origin} value={origin} />
+                    ))}
+                    {manualClientOptions.map((client) => (
+                      <option key={client} value={client} />
+                    ))}
+                  </datalist>
                 </label>
               )}
               <label className="text-[11px] font-extrabold text-[#334b6b]">

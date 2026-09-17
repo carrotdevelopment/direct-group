@@ -147,6 +147,7 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
       operations: Array.from(new Set(allRows.map((row) => row.operation))).sort((a, b) => a.localeCompare(b)),
       years: Array.from(new Set(allRows.map((row) => row.orderYear).filter((year): year is number => year !== null)))
         .sort((a, b) => b - a),
+      origins: Array.from(new Set(allRows.map((row) => row.source).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es")),
     },
   };
 }

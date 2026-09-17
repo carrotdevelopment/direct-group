@@ -54,7 +54,16 @@ function AdminList({
   const [inputError, setInputError] = useState("");
   const [status, setStatus] = useState("Leyendo base de datos...");
   const [query, setQuery] = useState("");
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
+  const highlightedRowRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (!highlightKey) return;
+    highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timeout = window.setTimeout(() => setHighlightKey(null), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [highlightKey]);
 
   useEffect(() => {
     fetch(endpoint)
@@ -137,6 +146,7 @@ function AdminList({
     } else {
       setDraft("");
       setQuery("");
+      setHighlightKey(canonicalAdminKey(name));
     }
   }
 
@@ -200,10 +210,15 @@ function AdminList({
           </p>
         ) : (
           <ul className="divide-y divide-[#eef2f7]">
-            {visible.map((item) => (
+            {visible.map((item) => {
+              const isHighlighted = highlightKey === canonicalAdminKey(item.name);
+              return (
               <li
                 key={`${apiKey}-${canonicalAdminKey(item.name)}-${item.id}`}
-                className="flex items-center justify-between gap-3 px-4 py-2"
+                ref={isHighlighted ? highlightedRowRef : undefined}
+                className={`flex items-center justify-between gap-3 px-4 py-2 transition-colors duration-500 ${
+                  isHighlighted ? "bg-[#fff6d9]" : ""
+                }`}
               >
                 <span
                   className={`truncate text-[11.5px] font-bold ${
@@ -236,7 +251,8 @@ function AdminList({
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
