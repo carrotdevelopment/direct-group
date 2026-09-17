@@ -535,6 +535,10 @@ export function IncomeWorkspace() {
       setManualError("Elegí una fecha.");
       return;
     }
+    if (manualForm.operation === "PASAJE" && !manualForm.transferOrigin.trim()) {
+      setManualError("Completá el origen del pasaje.");
+      return;
+    }
     setManualSubmitting(true);
     try {
       const response = await fetch("/api/local-db/ingresos/manual", {
@@ -1047,7 +1051,7 @@ export function IncomeWorkspace() {
               </div>
               {manualForm.operation === "PASAJE" && (
                 <label className="text-[11px] font-extrabold text-[#334b6b]">
-                  Origen del pasaje
+                  Origen del pasaje *
                   <input
                     value={manualForm.transferOrigin}
                     onChange={(event) => setManualForm({ ...manualForm, transferOrigin: event.target.value })}

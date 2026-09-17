@@ -13,15 +13,20 @@ export const manualTangoOperations = [
   "AJUSTE VALORIZADO",
 ] as const;
 
-export const manualTangoIncomeSchema = z.object({
-  operation: z.enum(manualTangoOperations),
-  client: z.string().trim().min(1).max(255),
-  clientCode: z.string().trim().min(1).max(255),
-  quantity: z.number().positive().max(999999999),
-  deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  transferOrigin: z.string().trim().max(255).optional(),
-  comments: z.string().trim().max(4000).optional(),
-});
+export const manualTangoIncomeSchema = z
+  .object({
+    operation: z.enum(manualTangoOperations),
+    client: z.string().trim().min(1, "Completá el cliente.").max(255, "El cliente es demasiado largo."),
+    clientCode: z.string().trim().min(1, "Completá el código cliente.").max(255, "El código cliente es demasiado largo."),
+    quantity: z.number().positive("La cantidad tiene que ser mayor a cero.").max(999999999, "La cantidad es demasiado grande."),
+    deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elegí una fecha válida."),
+    transferOrigin: z.string().trim().max(255, "El origen del pasaje es demasiado largo.").optional(),
+    comments: z.string().trim().max(4000, "Los comentarios no pueden superar los 4000 caracteres.").optional(),
+  })
+  .refine((data) => data.operation !== "PASAJE" || !!data.transferOrigin?.trim(), {
+    error: "Completá el origen del pasaje.",
+    path: ["transferOrigin"],
+  });
 
 export type ManualTangoIncomeInput = z.infer<typeof manualTangoIncomeSchema>;
 
