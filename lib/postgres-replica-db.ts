@@ -73,6 +73,7 @@ export async function readProductsFromPostgres(): Promise<ExcelProduct[]> {
     supplierCode: text(row.supplierUniqueCode),
     category: text(row.category?.category ?? row.categoryOriginal),
     unitsPerPackage: nullableNumber(row.packageSize),
+    imageUrl: text(row.imageUrl) || undefined,
     createdAt: date(row.sourceCreatedAt),
     updatedAt: date(row.sourceUpdatedAt),
   }));
@@ -108,6 +109,7 @@ export async function writeProductsToPostgres(products: ExcelProduct[]) {
           brandId: brandByName.get(normalize(product.brand)) ?? null,
           supplierId: supplierByName.get(normalize(product.supplier)) ?? null,
           categoryId: categoryByName.get(normalize(product.category)) ?? null,
+          imageUrl: product.imageUrl?.trim() || null,
           packageSize: product.unitsPerPackage,
           sourceCreatedAt: product.createdAt ? new Date(product.createdAt) : null,
           sourceUpdatedAt: product.updatedAt ? new Date(product.updatedAt) : new Date(),

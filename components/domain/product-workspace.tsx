@@ -14,6 +14,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Image as ImageIcon,
   Layers3,
   PackageCheck,
   Power,
@@ -38,6 +39,7 @@ type Product = {
   supplierCode: string;
   category: string;
   unitsPerPackage: number | null;
+  imageUrl?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -157,6 +159,7 @@ const emptyForm = {
   supplierCode: "",
   category: "",
   unitsPerPackage: "",
+  imageUrl: "",
 };
 
 const visibleBatchSize = 300;
@@ -390,6 +393,8 @@ export function ProductWorkspace() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageError, setImageError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortState>({
     key: "updatedAt",
@@ -577,6 +582,7 @@ export function ProductWorkspace() {
       unitsPerPackage: form.unitsPerPackage
         ? Number(form.unitsPerPackage)
         : null,
+      imageUrl: form.imageUrl.trim() || undefined,
     };
     const now = new Date().toISOString();
     const nextProducts = editingId
@@ -612,7 +618,31 @@ export function ProductWorkspace() {
     setEditingId(null);
     setForm(emptyForm);
     setError("");
+    setImageError("");
     setOpen(true);
+  }
+
+  async function handleImageUpload(file: File) {
+    setImageError("");
+    setImageUploading(true);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetch("/api/local-db/products/image", {
+        method: "POST",
+        body,
+      });
+      const data = (await response.json()) as { ok: boolean; url?: string; message?: string };
+      if (!response.ok || !data.ok || !data.url) {
+        setImageError(data.message || "No pude subir la imagen.");
+        return;
+      }
+      setForm((current) => ({ ...current, imageUrl: data.url! }));
+    } catch {
+      setImageError("No pude subir la imagen.");
+    } finally {
+      setImageUploading(false);
+    }
   }
 
   function openEdit(product: Product) {
@@ -627,8 +657,10 @@ export function ProductWorkspace() {
       unitsPerPackage: product.unitsPerPackage
         ? String(product.unitsPerPackage)
         : "",
+      imageUrl: product.imageUrl ?? "",
     });
     setError("");
+    setImageError("");
     setOpen(true);
   }
 
@@ -903,6 +935,7 @@ export function ProductWorkspace() {
                 <th className="w-20 px-2 py-2 text-center">
                   {sortHeader("active", "Estado")}
                 </th>
+                <th className="w-14 px-2 py-2 text-center">Imagen</th>
                 <th className="w-[27%] px-3 py-2 text-center">
                   {sortHeader("name", "Producto")}
                 </th>
@@ -967,6 +1000,19 @@ export function ProductWorkspace() {
                     >
                       {product.active ? "Activo" : "Inactivo"}
                     </span>
+                  </td>
+                  <td className="px-2 py-1.5 text-center">
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="mx-auto h-9 w-9 rounded-lg border border-[#dbe4ef] object-cover"
+                      />
+                    ) : (
+                      <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg border border-dashed border-[#dbe4ef] text-[#b7c2d0]">
+                        <ImageIcon size={15} />
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-1.5">
                     <div
@@ -1341,6 +1387,52 @@ export function ProductWorkspace() {
                   </label>
                 );
               })}
+            </div>
+            <div className="mt-4">
+              <label className="text-[11px] font-extrabold text-[#334b6b]">
+                Imagen del producto
+              </label>
+              <div className="mt-2 flex items-center gap-3">
+                {form.imageUrl ? (
+                  <img
+                    src={form.imageUrl}
+                    alt="Vista previa"
+                    className="h-16 w-16 rounded-xl border border-[#dbe4ef] object-cover"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-[#dbe4ef] text-[#b7c2d0]">
+                    <ImageIcon size={20} />
+                  </div>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    disabled={imageUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void handleImageUpload(file);
+                      event.target.value = "";
+                    }}
+                    className="text-[11px] font-semibold text-[#425979] file:mr-3 file:rounded-lg file:border-0 file:bg-[#edf4fc] file:px-3 file:py-1.5 file:text-[11px] file:font-bold file:text-[#0b5bbb] hover:file:bg-[#dfeafb]"
+                  />
+                  {imageUploading && (
+                    <span className="text-[10px] font-bold text-[#7690ae]">Subiendo...</span>
+                  )}
+                  {imageError && (
+                    <span className="text-[10px] font-bold text-[#a43d39]">{imageError}</span>
+                  )}
+                  {form.imageUrl && !imageUploading && (
+                    <button
+                      type="button"
+                      onClick={() => setForm((current) => ({ ...current, imageUrl: "" }))}
+                      className="w-fit text-[10px] font-bold text-[#a43d39] hover:underline"
+                    >
+                      Quitar imagen
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             {error && (
               <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">

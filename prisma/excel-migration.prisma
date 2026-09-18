@@ -132,6 +132,7 @@ model ExcelProduct {
   supplierOriginal   String?           @map("proveedor_original") @db.VarChar(255)
   categoryId         BigInt?           @map("categoria_id") @db.BigInt
   categoryOriginal   String?           @map("categoria_original") @db.VarChar(255)
+  imageUrl           String?           @map("imagen_url") @db.VarChar(500)
   packageSize        Decimal?          @map("bulto") @db.Decimal(18, 4)
   sourceCreatedAt    DateTime?         @map("creado") @db.Timestamptz(6)
   sourceUpdatedAt    DateTime?         @map("actualizado") @db.Timestamptz(6)

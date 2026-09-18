@@ -13,6 +13,7 @@ export type ExcelProduct = {
   supplierCode: string;
   category: string;
   unitsPerPackage: number | null;
+  imageUrl?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -625,6 +626,7 @@ export function readProductsFromExcel() {
         unitsPerPackage: asNullableNumber(
           row["Bulto"] || row["unitsPerPackage"],
         ),
+        imageUrl: asString(row["Imagen"] || row["imageUrl"]) || undefined,
         createdAt: asIsoDateTime(row["Creado"] || row["createdAt"]),
         updatedAt: asIsoDateTime(row["Actualizado"] || row["updatedAt"]),
       };
@@ -647,6 +649,7 @@ export function writeProductsToExcel(products: ExcelProduct[]) {
       Proveedor: product.supplier,
       Categoria: product.category,
       Bulto: product.unitsPerPackage ?? "",
+      Imagen: product.imageUrl ?? "",
       Creado: product.createdAt ?? "",
       Actualizado: product.updatedAt ?? "",
     })),
