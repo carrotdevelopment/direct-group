@@ -276,6 +276,7 @@ function MultiSelectDropdown<T extends string | number>({
   emptyLabel?: string;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [query, setQuery] = useState("");
   useEffect(() => {
     function handle(event: MouseEvent) {
       const el = detailsRef.current;
@@ -284,6 +285,11 @@ function MultiSelectDropdown<T extends string | number>({
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleOptions = normalizedQuery
+    ? options.filter((option) => option.label.toLowerCase().includes(normalizedQuery))
+    : options;
 
   return (
     <details ref={detailsRef} className="group relative">
@@ -325,8 +331,22 @@ function MultiSelectDropdown<T extends string | number>({
             Limpiar
           </button>
         </div>
+        {options.length > 8 && (
+          <div className="border-b border-[#dbe4ef] bg-white p-2">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              placeholder="Buscar..."
+              className="h-8 w-full rounded-lg border border-[#dbe4ef] px-2.5 text-xs normal-case outline-none focus:border-[#7da4d3]"
+            />
+          </div>
+        )}
         <div className="max-h-64 overflow-auto p-2">
-          {options.map((option) => {
+          {visibleOptions.length === 0 && (
+            <p className="px-3 py-2 text-xs font-semibold text-[#9aa3ad]">Sin resultados.</p>
+          )}
+          {visibleOptions.map((option) => {
             const isSelected = selected.includes(option.value);
             return (
               <button
