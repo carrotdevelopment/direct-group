@@ -136,9 +136,6 @@ const months = [
 ];
 
 const numberFormatter = new Intl.NumberFormat("es-AR");
-const now = new Date();
-const currentYear = now.getFullYear();
-const currentMonth = now.getMonth() + 1;
 
 function formatNumber(value: number) {
   return numberFormatter.format(value);
@@ -370,10 +367,11 @@ export function IncomeWorkspace() {
   const [viewSummary, setViewSummary] =
     useState<TangoIncomeViewSummary>(defaultViewSummary);
   const [operationFilter, setOperationFilter] = useState("");
-  const [selectedYears, setSelectedYears] = useState<number[]>([currentYear]);
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([
-    currentMonth,
-  ]);
+  // Sin año/mes preseleccionado: Ingresos trae historial real de Tango
+  // (2012 en adelante), no solo el período en curso, así que arrancar
+  // filtrado al año/mes actual dejaba la grilla vacía por defecto.
+  const [selectedYears, setSelectedYears] = useState<number[]>([]);
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -785,7 +783,7 @@ export function IncomeWorkspace() {
           </SelectField>
           <MultiSelectDropdown
             label="Año pedido"
-            helper="Arranca en el año actual."
+            helper="Sin elegir, muestra todos los años."
             options={options.years.map((year) => ({
               label: String(year),
               value: year,
@@ -796,7 +794,7 @@ export function IncomeWorkspace() {
           />
           <MultiSelectDropdown
             label="Mes pedido"
-            helper="Arranca en el mes actual."
+            helper="Sin elegir, muestra todos los meses."
             options={months}
             selected={selectedMonths}
             onToggle={toggleMonth}
