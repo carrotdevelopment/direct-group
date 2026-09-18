@@ -432,14 +432,6 @@ export function IncomeWorkspace() {
     [clientCodeMappings, manualForm.client],
   );
 
-  // Unión de los clientes que ya trajeron filas de Tango con los clientes
-  // reales de Códigos cliente: sin esto, mientras tango_ingresos esté vacío
-  // (nada sincronizado todavía) el selector queda sin opciones para elegir.
-  const queryableClients = useMemo(
-    () => Array.from(new Set([...options.clients, ...manualClientOptions])).sort((a, b) => a.localeCompare(b, "es")),
-    [options.clients, manualClientOptions],
-  );
-
   const loadRows = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
@@ -645,7 +637,7 @@ export function IncomeWorkspace() {
   }
 
   function selectAllClients() {
-    setSelectedClients(queryableClients);
+    setSelectedClients(options.clients);
   }
 
   function clearClients() {
@@ -681,7 +673,7 @@ export function IncomeWorkspace() {
           icon={<Users size={20} />}
           label="Clientes elegidos"
           value={formatNumber(selectedClients.length)}
-          meta={`${formatNumber(queryableClients.length)} disponibles en Tango`}
+          meta={`${formatNumber(options.clients.length)} disponibles en Tango`}
         />
         <KpiCard
           icon={<Database size={20} />}
@@ -759,7 +751,7 @@ export function IncomeWorkspace() {
           <MultiSelectDropdown
             label="Clientes a consultar"
             helper="Elegí uno o varios. Sin cliente no se carga la tabla."
-            options={queryableClients.map((client) => ({
+            options={options.clients.map((client) => ({
               label: client,
               value: client,
             }))}
