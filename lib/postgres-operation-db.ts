@@ -71,7 +71,12 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
     return {
       id: row.id.toString(),
       rowIndex: Number(row.id),
-      client: text(row.client) || mapping?.client || "Sin cliente",
+      // El "Cliente" de Tango (STA22.NOMBRE_SUC) es en realidad el depósito/
+      // campaña, no el cliente real de DG (confirmado con la base: un mismo
+      // depósito como "Urbano Express" mezcla códigos de decenas de clientes
+      // distintos). El mapeo por código cliente contra Códigos Cliente es la
+      // fuente confiable; el texto de Tango queda solo como último recurso.
+      client: mapping?.client || text(row.client) || "Sin cliente",
       operation: text(row.operation),
       orderDate,
       orderYear: row.orderDate?.getUTCFullYear() ?? null,
