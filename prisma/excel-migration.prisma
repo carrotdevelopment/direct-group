@@ -526,6 +526,20 @@ model TangoIncome {
   @@map("tango_ingresos")
 }
 
+// Referencia historica Codigo Cliente -> Cliente relevada de la planilla que
+// se usaba antes de esta plataforma (Base Ingresos DG.xlsx, 2012-2026).
+// Tango no tiene en ningun lado un vinculo articulo/codigo -> cliente real
+// (investigado exhaustivamente); esta tabla es la fuente confiable para
+// resolver el "Cliente" real de un ingreso a partir de su codigo_cliente.
+model TangoClientCodeMap {
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  clientCode String   @unique @map("client_code") @db.VarChar(255)
+  client     String   @map("client") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("tango_client_code_map")
+}
+
 model TangoSyncJob {
   id          String    @id @default(uuid()) @db.Uuid
   dateFrom    DateTime  @map("date_from") @db.Date

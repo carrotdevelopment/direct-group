@@ -43,12 +43,13 @@ function isoDateFromParts(day: number | null, month: number | null, year: number
 }
 
 async function tangoRows(): Promise<TangoIncomeRow[]> {
-  const [rows, mappings] = await Promise.all([
+  const [rows, mappings, clientCodeMap] = await Promise.all([
     excelPostgres.tangoIncome.findMany({ orderBy: { id: "asc" } }),
     excelPostgres.excelClientCode.findMany({
       where: { active: true },
       orderBy: [{ assignmentYear: "desc" }, { assignmentMonth: "desc" }, { id: "desc" }],
     }),
+    excelPostgres.tangoClientCodeMap.findMany(),
   ]);
   const byClientCode = new Map<string, { client: string; uniqueCode: string }>();
   for (const mapping of mappings) {
@@ -60,9 +61,17 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
       });
     }
   }
+  // Referencia histórica (2012-2026) relevada de la planilla que se usaba
+  // antes de esta plataforma: cubre códigos que ya no están "activos" en
+  // Códigos Cliente pero sí tienen historial real de a qué cliente pertenecen.
+  const historicalClientByCode = new Map<string, string>();
+  for (const entry of clientCodeMap) {
+    historicalClientByCode.set(normalizeSearch(entry.clientCode), text(entry.client));
+  }
   return rows.map((row) => {
     const clientCode = text(row.clientCode);
-    const mapping = byClientCode.get(normalizeSearch(clientCode));
+    const codeKey = normalizeSearch(clientCode);
+    const mapping = byClientCode.get(codeKey);
     const quantity = number(row.quantity);
     const delivered = number(row.deliveredQuantity);
     const pending = Math.max(0, quantity - delivered);
@@ -74,9 +83,11 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
       // El "Cliente" de Tango (STA22.NOMBRE_SUC) es en realidad el depósito/
       // campaña, no el cliente real de DG (confirmado con la base: un mismo
       // depósito como "Urbano Express" mezcla códigos de decenas de clientes
-      // distintos). El mapeo por código cliente contra Códigos Cliente es la
-      // fuente confiable; el texto de Tango queda solo como último recurso.
-      client: mapping?.client || text(row.client) || "Sin cliente",
+      // distintos). Prioridad: 1) referencia histórica por código (más
+      // cobertura, 2012-2026), 2) Códigos Cliente activos, 3) el texto de
+      // Tango como último recurso.
+      client:
+        historicalClientByCode.get(codeKey) || mapping?.client || text(row.client) || "Sin cliente",
       operation: text(row.operation),
       orderDate,
       orderYear: row.orderDate?.getUTCFullYear() ?? null,
