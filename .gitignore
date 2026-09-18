@@ -20,8 +20,9 @@ test-results/
 # Runtime storage
 storage/uploads/*
 !storage/uploads/.gitkeep
-public/uploads/products/*
-!public/uploads/products/.gitkeep
+!storage/uploads/products
+storage/uploads/products/*
+!storage/uploads/products/.gitkeep
 
 # Operational Excel/JSON data (kept outside version control)
 /local-data/

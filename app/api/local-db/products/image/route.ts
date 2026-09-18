@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif"];
 const uploadDir = () =>
-  path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "products");
+  path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "uploads", "products");
 
 export async function POST(request: Request) {
   const denied = await checkApiAccess(["productos"], true);
@@ -36,5 +36,5 @@ export async function POST(request: Request) {
   const buffer = Buffer.from(await file.arrayBuffer());
   await writeFile(path.join(dir, filename), buffer);
 
-  return NextResponse.json({ ok: true, url: `/uploads/products/${filename}` });
+  return NextResponse.json({ ok: true, url: `/api/uploads/products/${filename}` });
 }
