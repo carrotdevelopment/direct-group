@@ -42,9 +42,8 @@ function isoDateFromParts(day: number | null, month: number | null, year: number
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-async function tangoRows(): Promise<TangoIncomeRow[]> {
-  const [rows, mappings, clientCodeMap] = await Promise.all([
-    excelPostgres.tangoIncome.findMany({ orderBy: { id: "asc" } }),
+async function loadTangoClientResolution() {
+  const [mappings, clientCodeMap] = await Promise.all([
     excelPostgres.excelClientCode.findMany({
       where: { active: true },
       orderBy: [{ assignmentYear: "desc" }, { assignmentMonth: "desc" }, { id: "desc" }],
@@ -68,10 +67,36 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
   for (const entry of clientCodeMap) {
     historicalClientByCode.set(normalizeSearch(entry.clientCode), text(entry.client));
   }
+  return { byClientCode, historicalClientByCode };
+}
+
+// El "Cliente" de Tango (STA22.NOMBRE_SUC) es en realidad el depósito/campaña,
+// no el cliente real de DG (confirmado con la base: un mismo depósito como
+// "Urbano Express" mezcla códigos de decenas de clientes distintos). Prioridad:
+// 1) referencia histórica por código (más cobertura, 2012-2026), 2) Códigos
+// Cliente activos, 3) el texto de Tango como último recurso.
+function resolveTangoClient(
+  codeKey: string,
+  rawClient: unknown,
+  resolution: Awaited<ReturnType<typeof loadTangoClientResolution>>,
+) {
+  return (
+    resolution.historicalClientByCode.get(codeKey) ||
+    resolution.byClientCode.get(codeKey)?.client ||
+    text(rawClient) ||
+    "Sin cliente"
+  );
+}
+
+async function tangoRows(): Promise<TangoIncomeRow[]> {
+  const [rows, resolution] = await Promise.all([
+    excelPostgres.tangoIncome.findMany({ orderBy: { id: "asc" } }),
+    loadTangoClientResolution(),
+  ]);
   return rows.map((row) => {
     const clientCode = text(row.clientCode);
     const codeKey = normalizeSearch(clientCode);
-    const mapping = byClientCode.get(codeKey);
+    const mapping = resolution.byClientCode.get(codeKey);
     const quantity = number(row.quantity);
     const delivered = number(row.deliveredQuantity);
     const pending = Math.max(0, quantity - delivered);
@@ -80,14 +105,7 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
     return {
       id: row.id.toString(),
       rowIndex: Number(row.id),
-      // El "Cliente" de Tango (STA22.NOMBRE_SUC) es en realidad el depósito/
-      // campaña, no el cliente real de DG (confirmado con la base: un mismo
-      // depósito como "Urbano Express" mezcla códigos de decenas de clientes
-      // distintos). Prioridad: 1) referencia histórica por código (más
-      // cobertura, 2012-2026), 2) Códigos Cliente activos, 3) el texto de
-      // Tango como último recurso.
-      client:
-        historicalClientByCode.get(codeKey) || mapping?.client || text(row.client) || "Sin cliente",
+      client: resolveTangoClient(codeKey, row.client, resolution),
       operation: text(row.operation),
       orderDate,
       orderYear: row.orderDate?.getUTCFullYear() ?? null,
@@ -203,25 +221,21 @@ export async function readIncomeRowsFromPostgres(options: {
 }
 
 export async function readStockOperationRowsFromPostgres() {
-  const [incomeGroups, incomeDates, egressGroups] = await Promise.all([
-    excelPostgres.excelIncome.groupBy({
-      by: ["clientCode", "operation"],
-      where: { client: { equals: "santander", mode: "insensitive" } },
-      _sum: { quantity: true, deliveredQuantity: true },
-    }),
-    excelPostgres.excelIncome.findMany({
-      where: {
-        client: { equals: "santander", mode: "insensitive" },
-        deliveryDay: { not: null },
-      },
+  // El stock de Santander se calcula contra el Cliente ya resuelto (no el
+  // depósito crudo de Tango), así que hay que traer todos los ingresos y
+  // filtrar en JS con la misma prioridad que usa la página de Ingresos.
+  const [incomeRows, resolution, egressGroups] = await Promise.all([
+    excelPostgres.tangoIncome.findMany({
       select: {
-        clientCode: true,
+        client: true,
         operation: true,
-        deliveryDay: true,
-        deliveryMonth: true,
-        deliveryYear: true,
+        clientCode: true,
+        quantity: true,
+        deliveredQuantity: true,
+        deliveryDate: true,
       },
     }),
+    loadTangoClientResolution(),
     excelPostgres.egress.groupBy({
       by: ["clientCode", "operation"],
       where: {
@@ -232,34 +246,51 @@ export async function readStockOperationRowsFromPostgres() {
     }),
   ]);
 
-  const incomes: Array<Record<string, unknown>> = incomeGroups.map((row) => ({
-    "Código Cliente": text(row.clientCode),
-    Operación: text(row.operation),
-    Cantidad: number(row._sum.quantity),
-    Entregado: number(row._sum.deliveredQuantity),
+  const santanderRows = incomeRows.filter((row) => {
+    const codeKey = normalizeSearch(row.clientCode);
+    return resolveTangoClient(codeKey, row.client, resolution).toLowerCase() === "santander";
+  });
+
+  const groups = new Map<
+    string,
+    { clientCode: string; operation: string; quantity: number; delivered: number }
+  >();
+  for (const row of santanderRows) {
+    const clientCode = text(row.clientCode);
+    const operationValue = text(row.operation);
+    const key = `${normalizeSearch(clientCode)}::${normalizeSearch(operationValue)}`;
+    const current = groups.get(key) ?? { clientCode, operation: operationValue, quantity: 0, delivered: 0 };
+    current.quantity += number(row.quantity);
+    current.delivered += number(row.deliveredQuantity);
+    groups.set(key, current);
+  }
+  const incomes: Array<Record<string, unknown>> = Array.from(groups.values()).map((group) => ({
+    "Código Cliente": group.clientCode,
+    Operación: group.operation,
+    Cantidad: group.quantity,
+    Entregado: group.delivered,
   }));
-  const earliestByCode = new Map<string, (typeof incomeDates)[number]>();
-  for (const row of incomeDates) {
+
+  const earliestByCode = new Map<string, { clientCode: string; deliveryDate: Date }>();
+  for (const row of santanderRows) {
     const normalizedOperation = normalizeSearch(row.operation).toUpperCase();
     if (!['COMPRA', 'PASAJE'].includes(normalizedOperation)) continue;
-    if (!row.deliveryDay || !row.deliveryMonth || !row.deliveryYear) continue;
+    if (!row.deliveryDate) continue;
     const key = normalizeSearch(row.clientCode);
     const current = earliestByCode.get(key);
-    const timestamp = Date.UTC(row.deliveryYear, row.deliveryMonth - 1, row.deliveryDay);
-    const currentTimestamp = current?.deliveryDay && current.deliveryMonth && current.deliveryYear
-      ? Date.UTC(current.deliveryYear, current.deliveryMonth - 1, current.deliveryDay)
-      : Number.POSITIVE_INFINITY;
-    if (timestamp < currentTimestamp) earliestByCode.set(key, row);
+    if (!current || row.deliveryDate < current.deliveryDate) {
+      earliestByCode.set(key, { clientCode: text(row.clientCode), deliveryDate: row.deliveryDate });
+    }
   }
-  for (const row of earliestByCode.values()) {
+  for (const entry of earliestByCode.values()) {
     incomes.push({
-      "Código Cliente": text(row.clientCode),
+      "Código Cliente": entry.clientCode,
       Operación: "COMPRA",
       Cantidad: 0,
       Entregado: 0,
-      "Día entrega": row.deliveryDay,
-      "Mes entrega": row.deliveryMonth,
-      "Año entrega": row.deliveryYear,
+      "Día entrega": entry.deliveryDate.getUTCDate(),
+      "Mes entrega": entry.deliveryDate.getUTCMonth() + 1,
+      "Año entrega": entry.deliveryDate.getUTCFullYear(),
     });
   }
 
