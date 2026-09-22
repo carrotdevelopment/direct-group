@@ -576,3 +576,51 @@ model TangoConnectorState {
 
   @@map("tango_connector_state")
 }
+
+// Pasaje de stock entre dos clientes DG. Lo carga una persona a nombre de la
+// empresa emisora y otra persona lo acepta o rechaza a nombre de la
+// receptora. Si se acepta, impacta stock: resta en origen (egresos) y suma
+// en destino (tango_ingresos, como entrada manual pendiente de Tango).
+model PasajeRequest {
+  id              String    @id @default(uuid()) @db.Uuid
+  fromClient      String    @map("cliente_origen") @db.VarChar(255)
+  fromClientCode  String    @map("codigo_cliente_origen") @db.VarChar(255)
+  toClient        String    @map("cliente_destino") @db.VarChar(255)
+  toClientCode    String    @map("codigo_cliente_destino") @db.VarChar(255)
+  uniqueCode      String    @map("codigo_unico") @db.VarChar(255)
+  product         String?   @map("producto") @db.VarChar(255)
+  quantity        Decimal   @map("cantidad") @db.Decimal(18, 4)
+  status          String    @default("pending") @db.VarChar(20)
+  comments        String?   @map("comentarios")
+  createdBy       String    @map("created_by") @db.VarChar(255)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  respondedBy     String?   @map("responded_by") @db.VarChar(255)
+  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
+  responseComment String?   @map("response_comment")
+
+  @@index([status])
+  @@map("pasaje_requests")
+}
+
+// Ajuste de stock (rotura, faltante, sobrante) de un cliente. Cantidad
+// positiva suma stock (queda como ingreso), negativa resta (queda como
+// egreso). También necesita que un segundo usuario lo apruebe antes de
+// impactar.
+model AjusteRequest {
+  id              String    @id @default(uuid()) @db.Uuid
+  client          String    @map("cliente") @db.VarChar(255)
+  clientCode      String    @map("codigo_cliente") @db.VarChar(255)
+  uniqueCode      String    @map("codigo_unico") @db.VarChar(255)
+  product         String?   @map("producto") @db.VarChar(255)
+  quantity        Decimal   @map("cantidad") @db.Decimal(18, 4)
+  reason          String?   @map("motivo")
+  status          String    @default("pending") @db.VarChar(20)
+  createdBy       String    @map("created_by") @db.VarChar(255)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  respondedBy     String?   @map("responded_by") @db.VarChar(255)
+  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
+  responseComment String?   @map("response_comment")
+
+  @@index([status])
+  @@map("ajuste_requests")
+}

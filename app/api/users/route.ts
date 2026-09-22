@@ -12,7 +12,7 @@ const fields = { id: true, name: true, email: true, role: true, active: true, mo
 const schema = z.object({
   name: z.string().trim().min(1).max(120), email: z.string().trim().email().transform(value => value.toLowerCase()),
   role: z.enum(["ADMIN", "VENDEDOR", "DEPOSITO", "LECTURA"]), active: z.boolean(),
-  moduleAccess: z.array(z.enum(Object.keys(accessModules) as [AccessModule, ...AccessModule[]])).max(8),
+  moduleAccess: z.array(z.enum(Object.keys(accessModules) as [AccessModule, ...AccessModule[]])).max(9),
   password: passwordSchema.optional(),
 });
 

@@ -29,6 +29,7 @@ const navigation: NavGroup[] = [
   { label: "Movimientos", items: [
     { label: "Ingresos", href: "/ingresos", icon: ArrowDownToLine },
     { label: "Egresos", href: "/egresos", icon: ArrowUpFromLine },
+    { label: "Pasajes y Ajustes", href: "/pasajes", icon: ClipboardList },
   ]},
   { label: "Stock", items: [
     { label: "Stock", href: "/stock", icon: Warehouse },

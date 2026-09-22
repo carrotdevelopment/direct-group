@@ -7,6 +7,7 @@ export const accessModules = {
   ventas: "Ventas y egresos",
   stock: "Stock",
   importaciones: "Importaciones",
+  pasajes: "Pasajes y ajustes",
 } as const;
 
 export type AccessModule = keyof typeof accessModules;
@@ -22,6 +23,7 @@ export function pageModule(path: string): string {
     "estructura-costos": "precios", proveedores: "proveedores", clientes: "clientes",
     "codigos-clientes": "clientes", productos: "productos", ventas: "ventas",
     egresos: "ventas", stock: "stock", importaciones: "importaciones",
+    pasajes: "pasajes",
   };
   return map[section] ?? "admin";
 }
