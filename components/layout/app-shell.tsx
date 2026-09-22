@@ -27,7 +27,6 @@ const navigation: NavGroup[] = [
     { label: "Estructura de costos", href: "/estructura-costos", icon: Calculator },
   ]},
   { label: "Movimientos", items: [
-    { label: "Compras", href: "/compras", icon: ClipboardList },
     { label: "Ingresos", href: "/ingresos", icon: ArrowDownToLine },
     { label: "Egresos", href: "/egresos", icon: ArrowUpFromLine },
   ]},
