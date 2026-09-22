@@ -146,16 +146,23 @@ export function canonicalizeEgressRecord(
     fallbackOperation?: string;
     resolveUniqueCode?: (clientCode: string) => string;
     resolveProduct?: (uniqueCode: string) => string;
+    // Usados solo cuando el archivo trae su propio código único/producto y la
+    // fila no matchea contra Códigos Cliente (ver migraciones históricas).
+    rawUniqueCode?: (record: Record<string, unknown>) => string;
+    rawProduct?: (record: Record<string, unknown>) => string;
   } = {},
 ) {
   const clientCode = text(valueFrom(record, mapping.clientCode));
-  const uniqueCode = options.resolveUniqueCode?.(clientCode) ?? "";
+  const uniqueCode = options.resolveUniqueCode?.(clientCode) || options.rawUniqueCode?.(record) || "";
   return {
     operation: operationValue(valueFrom(record, mapping.operation), options.fallbackOperation ?? "CANJE"),
     date: dateFromRow(record, mapping),
     clientCode,
     uniqueCode,
-    product: options.resolveProduct?.(uniqueCode) || text(valueFrom(record, mapping.product)),
+    product:
+      options.resolveProduct?.(uniqueCode) ||
+      options.rawProduct?.(record) ||
+      text(valueFrom(record, mapping.product)),
     quantity: numeric(valueFrom(record, mapping.quantity)),
     destination: text(valueFrom(record, mapping.destination)),
     comments: text(valueFrom(record, mapping.comments)),
@@ -230,6 +237,10 @@ export async function appendGenericEgressRecords(
   records: Record<string, unknown>[],
   source: ImportSource = {},
   actor?: string,
+  rawFallback?: {
+    uniqueCode: (record: Record<string, unknown>) => string;
+    product: (record: Record<string, unknown>) => string;
+  },
 ) {
   if (source.fileHash) {
     const duplicate = await excelPostgres.egressImportBatch.findUnique({
@@ -268,6 +279,8 @@ export async function appendGenericEgressRecords(
       canonical: canonicalizeEgressRecord(record, profile.mapping, {
         resolveUniqueCode: (clientCode) => codeMap.get(normalized(clientCode)) ?? "",
         resolveProduct: (uniqueCode) => productMap.get(normalized(uniqueCode)) ?? "",
+        rawUniqueCode: rawFallback?.uniqueCode,
+        rawProduct: rawFallback?.product,
       }),
       values: jsonValue(source.values?.[index] ?? headers.map((header) => record[header] ?? "")),
     }));
