@@ -234,9 +234,14 @@ function rowToPrice(
   >,
 ): ExcelPrice {
   const date = informedAt(input.year, input.month);
-  const costDg = values.costDg ?? 0;
-  const vatRate = values.vatRate && values.vatRate > 0 ? values.vatRate : 21;
-  const publicPrice = values.publicPrice ?? 0;
+  // Cuando el archivo no matchea ningún patrón de headers conocido, se lee
+  // con sheet_to_json sin "raw:false": los valores llegan con la precisión
+  // completa del float de Excel (ej. 19672.727272727272) en vez del valor
+  // redondeado que se ve en la celda. Se redondea acá, en el único lugar
+  // donde se arma el registro final, sin importar el camino de parseo.
+  const costDg = roundMoney(values.costDg ?? 0);
+  const vatRate = roundMoney(values.vatRate && values.vatRate > 0 ? values.vatRate : 21);
+  const publicPrice = roundMoney(values.publicPrice ?? 0);
   return {
     id: priceId(input.supplier, date, product.code, index),
     supplier: input.supplier,

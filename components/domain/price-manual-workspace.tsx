@@ -60,6 +60,50 @@ function validDate(value: string) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+// Al pegar desde Excel, la fecha suele venir como dd/mm/aaaa (o con guiones)
+// en vez del formato yyyy-mm-dd que espera el input type="date".
+function normalizePastedDate(value: string) {
+  const trimmed = value.trim();
+  if (validDate(trimmed)) return trimmed;
+  const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!match) return trimmed;
+  const [, day, month, yearRaw] = match;
+  const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+  const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  return validDate(iso) ? iso : trimmed;
+}
+
+const columnKeys: (keyof DraftRow)[] = [
+  "uniqueCode",
+  "informedAt",
+  "costDg",
+  "vatRate",
+  "publicPrice",
+  "markup",
+];
+
+function applyBulkPaste(
+  current: DraftRow[],
+  clipboardText: string,
+  startRow: number,
+  startCol: number,
+): DraftRow[] {
+  const lines = clipboardText.split(/\r?\n/).filter((line) => line.trim());
+  const next = [...current];
+  lines.forEach((line, lineOffset) => {
+    const rowIndex = startRow + lineOffset;
+    while (next.length <= rowIndex) next.push(blankRow());
+    line.split("\t").forEach((rawValue, colOffset) => {
+      const colIndex = startCol + colOffset;
+      if (colIndex >= columnKeys.length) return;
+      const key = columnKeys[colIndex];
+      const value = key === "informedAt" ? normalizePastedDate(rawValue) : rawValue.trim();
+      next[rowIndex] = { ...next[rowIndex], [key]: value };
+    });
+  });
+  return next;
+}
+
 export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: () => void }) {
   const [rows, setRows] = useState<DraftRow[]>(() =>
     Array.from({ length: 6 }, blankRow),
@@ -349,7 +393,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
                   );
                   return (
                   <tr key={index} className={unknownCode ? "bg-[#fff1f0]" : "bg-white hover:bg-[#f8fafd]"}>
-                    {columns.map((column) => (
+                    {columns.map((column, colIndex) => (
                       <td key={column.key} className={`border-r border-[#e7edf4] p-0 last:border-r-0 ${unknownCode && column.key === "uniqueCode" ? "bg-[#fff1f0]" : ""}`}>
                         <input
                           type={column.key === "informedAt" ? "date" : "text"}
@@ -358,6 +402,13 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
                           placeholder={placeholders[column.key]}
                           onChange={(event) => updateRow(index, column.key, event.target.value)}
                           onBlur={column.key === "uniqueCode" ? () => setTouchedCodes((current) => new Set(current).add(index)) : undefined}
+                          onPaste={(event) => {
+                            const clipboardText = event.clipboardData.getData("text");
+                            if (!clipboardText.includes("\t") && !clipboardText.includes("\n")) return;
+                            event.preventDefault();
+                            setRows((current) => applyBulkPaste(current, clipboardText, index, colIndex));
+                            setLoadStatus(null);
+                          }}
                           inputMode={column.key === "uniqueCode" ? "text" : column.key === "informedAt" ? undefined : "decimal"}
                           title={column.key === "informedAt" ? "Formato: dd/mm/aaaa" : undefined}
                           className={`${column.key === "informedAt" ? dateInputClass : inputClass} ${column.className ?? ""} ${unknownCode && column.key === "uniqueCode" ? "font-bold text-[#b42318]" : ""}`}
