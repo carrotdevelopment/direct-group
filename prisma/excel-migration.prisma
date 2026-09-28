@@ -145,7 +145,7 @@ model ExcelProduct {
   category           ExcelCategory?    @relation(fields: [categoryId], references: [id])
   importBatch        ExcelImportBatch? @relation(fields: [importBatchId], references: [id])
 
-  @@index([uniqueCode])
+  @@unique([uniqueCode], map: "base_productos_codigo_unico_key")
   @@index([brandId])
   @@index([supplierId])
   @@index([categoryId])

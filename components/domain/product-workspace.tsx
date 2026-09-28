@@ -457,6 +457,7 @@ export function ProductWorkspace() {
   );
 
   async function persist(next: Product[]) {
+    const previous = products;
     setProducts(next);
     setDbStatus("Guardando en PostgreSQL...");
     try {
@@ -465,10 +466,18 @@ export function ProductWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: next }),
       });
-      if (!response.ok) throw new Error("database write failed");
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) {
+        setProducts(previous);
+        setDbStatus("No pude guardar en PostgreSQL");
+        return { ok: false as const, message: data.message || "No pude guardar en PostgreSQL." };
+      }
       setDbStatus("PostgreSQL sincronizado");
+      return { ok: true as const };
     } catch {
+      setProducts(previous);
       setDbStatus("No pude guardar en PostgreSQL");
+      return { ok: false as const, message: "No pude guardar en PostgreSQL." };
     }
   }
 
@@ -607,11 +616,15 @@ export function ProductWorkspace() {
           },
         ];
 
+    const result = await persist(nextProducts);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
     setForm(emptyForm);
     setEditingId(null);
     setError("");
     setOpen(false);
-    await persist(nextProducts);
   }
 
   function openCreate() {

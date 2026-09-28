@@ -1,5 +1,6 @@
 import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
+import { Prisma } from "@/node_modules/.prisma/excel-client";
 import {
   readProductsFromExcel,
   writeProductsToExcel,
@@ -33,8 +34,18 @@ export async function PUT(request: Request) {
   const body = (await request.json()) as { products?: ExcelProduct[] };
   const products = body.products ?? [];
   if (usesPostgres()) {
-    const saved = await writeProductsToPostgres(products);
-    return NextResponse.json({ products: saved, source: "postgresql" });
+    try {
+      const saved = await writeProductsToPostgres(products);
+      return NextResponse.json({ products: saved, source: "postgresql" });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return NextResponse.json(
+          { message: "Ese código único ya existe. Otra persona lo cargó mientras tanto." },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
   }
   writeProductsToExcel(products);
   return NextResponse.json({ products, source: "excel" });
