@@ -11,6 +11,35 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function normalizeCode(value: string) {
+  return value.trim().toLowerCase();
+}
+
+// El código único identifica el producto: un pasaje solo tiene sentido si
+// tanto el código cliente emisor como el receptor tienen ese mismo producto
+// asignado en Códigos Cliente. La UI ya filtra por esto, pero se revalida
+// acá por si alguien pega directo a la API.
+async function assertSharedUniqueCode(
+  fromClientCode: string,
+  toClientCode: string,
+  uniqueCode: string,
+) {
+  const [fromMapping, toMapping] = await Promise.all([
+    excelPostgres.excelClientCode.findFirst({
+      where: { clientCode: { equals: fromClientCode, mode: "insensitive" }, active: true },
+    }),
+    excelPostgres.excelClientCode.findFirst({
+      where: { clientCode: { equals: toClientCode, mode: "insensitive" }, active: true },
+    }),
+  ]);
+  if (!fromMapping || normalizeCode(text(fromMapping.uniqueCode)) !== normalizeCode(uniqueCode)) {
+    throw new PasajeAjusteError("El código cliente emisor no tiene asignado ese código único.");
+  }
+  if (!toMapping || normalizeCode(text(toMapping.uniqueCode)) !== normalizeCode(uniqueCode)) {
+    throw new PasajeAjusteError("El código cliente receptor no tiene asignado ese código único.");
+  }
+}
+
 export type PasajeInput = {
   fromClient: string;
   fromClientCode: string;
@@ -36,6 +65,10 @@ export async function createPasaje(input: PasajeInput, createdBy: string) {
   ) {
     throw new PasajeAjusteError("El origen y el destino no pueden ser el mismo código cliente.");
   }
+  if (!input.uniqueCode.trim()) {
+    throw new PasajeAjusteError("Falta el código único del producto.");
+  }
+  await assertSharedUniqueCode(input.fromClientCode, input.toClientCode, input.uniqueCode);
   return excelPostgres.pasajeRequest.create({
     data: {
       fromClient: text(input.fromClient),

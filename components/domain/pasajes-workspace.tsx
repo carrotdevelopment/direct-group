@@ -63,26 +63,39 @@ function ClientCodeSelect({
   clientValue,
   codeValue,
   onChange,
+  requireUniqueCode,
 }: {
   label: string;
   mappings: Mapping[];
   clientValue: string;
   codeValue: string;
   onChange: (client: string, clientCode: string, uniqueCode: string) => void;
+  // Cuando viene seteado (ej. el SKU ya elegido del lado emisor de un
+  // pasaje), solo se ofrecen clientes/códigos que tengan ese mismo código
+  // único — no tiene sentido mover un producto a un cliente que no lo tiene
+  // asignado.
+  requireUniqueCode?: string;
 }) {
+  const pool = useMemo(
+    () =>
+      mappings.filter(
+        (m) => m.active && (!requireUniqueCode || m.uniqueCode.toLowerCase() === requireUniqueCode.toLowerCase()),
+      ),
+    [mappings, requireUniqueCode],
+  );
   const clients = useMemo(
     () =>
-      Array.from(new Set(mappings.filter((m) => m.active).map((m) => m.client)))
+      Array.from(new Set(pool.map((m) => m.client)))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, "es")),
-    [mappings],
+    [pool],
   );
   const codes = useMemo(
     () =>
-      mappings
-        .filter((m) => m.active && m.client === clientValue)
+      pool
+        .filter((m) => m.client === clientValue)
         .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true })),
-    [mappings, clientValue],
+    [pool, clientValue],
   );
 
   return (
@@ -101,6 +114,11 @@ function ClientCodeSelect({
             </option>
           ))}
         </select>
+        {requireUniqueCode && clients.length === 0 && (
+          <span className="mt-1 block text-[10px] font-bold text-[#a43d39]">
+            Ningún cliente tiene el código único {requireUniqueCode} asignado.
+          </span>
+        )}
       </label>
       <label className="text-[11px] font-extrabold text-[#334b6b]">
         Código cliente
@@ -463,18 +481,31 @@ function PasajeModal({
               setFromClient(client);
               setFromClientCode(code);
               setFromUniqueCode(uniqueCode);
+              // Si cambia el producto de origen, la receptora elegida puede
+              // ya no tener ese código único asignado: se limpia para forzar
+              // a elegir de nuevo entre las que sí lo tienen.
+              setToClient("");
+              setToClientCode("");
             }}
           />
-          <ClientCodeSelect
-            label="Empresa receptora"
-            mappings={mappings}
-            clientValue={toClient}
-            codeValue={toClientCode}
-            onChange={(client, code) => {
-              setToClient(client);
-              setToClientCode(code);
-            }}
-          />
+          <div>
+            <ClientCodeSelect
+              label="Empresa receptora"
+              mappings={mappings}
+              clientValue={toClient}
+              codeValue={toClientCode}
+              requireUniqueCode={fromUniqueCode}
+              onChange={(client, code) => {
+                setToClient(client);
+                setToClientCode(code);
+              }}
+            />
+            {fromUniqueCode && (
+              <p className="mt-1 text-[10px] font-bold text-[#62728a]">
+                Mostrando solo clientes con el código único {fromUniqueCode} asignado.
+              </p>
+            )}
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-[11px] font-extrabold text-[#334b6b]">
               Cantidad
