@@ -121,6 +121,9 @@ async function tangoRows(): Promise<TangoIncomeRow[]> {
       comments: text(row.comments),
       status,
       pendingTangoEntry: row.pendingTangoEntry,
+      // Las filas sincronizadas desde Tango nunca tienen createdBy: solo lo
+      // cargan las entradas manuales (pasaje, ajuste, "Registrar movimiento").
+      manualEntry: Boolean(row.createdBy),
     };
   });
 }

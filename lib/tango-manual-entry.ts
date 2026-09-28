@@ -46,3 +46,14 @@ export async function createManualTangoIncome(input: ManualTangoIncomeInput, cre
     },
   });
 }
+
+// Marca visual/manual de si esa fila ya se cargó a mano en Tango o no.
+// No tiene ningún efecto sobre el cálculo de stock ni sobre Tango en sí:
+// es solo para que quien reconcilia sepa qué le falta cargar todavía.
+export async function setTangoIncomePendingFlag(id: string, pending: boolean) {
+  const numericId = BigInt(id);
+  return excelPostgres.tangoIncome.update({
+    where: { id: numericId },
+    data: { pendingTangoEntry: pending },
+  });
+}

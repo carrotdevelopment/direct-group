@@ -37,6 +37,7 @@ type TangoIncomeRow = {
   comments: string;
   status: "complete" | "pending" | "without-order-date";
   pendingTangoEntry: boolean;
+  manualEntry: boolean;
 };
 
 const manualOperations = ["DEVOLUCION", "PASAJE", "AJUSTE NO VALORIZADO", "AJUSTE VALORIZADO"] as const;
@@ -580,6 +581,27 @@ export function IncomeWorkspace() {
     }
   }
 
+  // Marca puramente visual: no afecta el cálculo ni el stock, solo le sirve
+  // a quien reconcilia para saber qué filas manuales ya cargó en Tango.
+  async function toggleTangoLoaded(row: TangoIncomeRow) {
+    const nextPending = !row.pendingTangoEntry;
+    setRows((current) =>
+      current.map((item) => (item.id === row.id ? { ...item, pendingTangoEntry: nextPending } : item)),
+    );
+    try {
+      const response = await fetch(`/api/local-db/ingresos/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pendingTangoEntry: nextPending }),
+      });
+      if (!response.ok) throw new Error();
+    } catch {
+      setRows((current) =>
+        current.map((item) => (item.id === row.id ? { ...item, pendingTangoEntry: row.pendingTangoEntry } : item)),
+      );
+    }
+  }
+
   async function submitManual(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setManualError("");
@@ -890,13 +912,23 @@ export function IncomeWorkspace() {
                     >
                       {statusLabel(row.status)}
                     </span>
-                    {row.pendingTangoEntry ? (
-                      <span
-                        title="Cargado desde la web, todavía falta cargarlo en Tango"
-                        className="ml-1 inline-flex rounded-full bg-[#eef3fb] px-2 py-1 text-[9px] font-black uppercase text-[#52647d] ring-1 ring-[#d8e3f0]"
+                    {row.manualEntry ? (
+                      <button
+                        type="button"
+                        onClick={() => void toggleTangoLoaded(row)}
+                        title={
+                          row.pendingTangoEntry
+                            ? "Cargado desde la web, todavía falta cargarlo en Tango. Tocá para marcarlo como cargado."
+                            : "Ya se cargó en Tango. Tocá para volver a marcarlo como pendiente."
+                        }
+                        className={`ml-1 inline-flex rounded-full px-2 py-1 text-[9px] font-black uppercase ring-1 transition ${
+                          row.pendingTangoEntry
+                            ? "bg-[#eef3fb] text-[#52647d] ring-[#d8e3f0] hover:bg-[#e0e9f5]"
+                            : "bg-[#e7f7eb] text-[#23783a] ring-[#c9ebd1] hover:bg-[#d9f0e0]"
+                        }`}
                       >
-                        Pendiente Tango
-                      </span>
+                        {row.pendingTangoEntry ? "Pendiente Tango" : "Cargado en Tango"}
+                      </button>
                     ) : null}
                   </td>
                   <td className="px-3 py-2 font-black uppercase text-[#10233f]">
