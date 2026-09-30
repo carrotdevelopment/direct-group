@@ -213,6 +213,7 @@ export function ClientCodeWorkspace() {
   const [historyMonth, setHistoryMonth] = useState("");
   const [historyYear, setHistoryYear] = useState("");
   const [historyUniqueCode, setHistoryUniqueCode] = useState("");
+  const [historyProductName, setHistoryProductName] = useState("");
   const [historyClientCode, setHistoryClientCode] = useState("");
   const [historyPage, setHistoryPage] = useState(0);
   const [historyActiveOnly, setHistoryActiveOnly] = useState(true);
@@ -266,6 +267,7 @@ export function ClientCodeWorkspace() {
   const filteredHistory = useMemo(() => {
     const nUC = historyUniqueCode.trim().toLowerCase();
     const nCC = historyClientCode.trim().toLowerCase();
+    const productQuery = historyProductName.trim().toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const rows = mappings
       .filter((m) => {
         if (historyActiveOnly && (!m.active || m.voidedAt)) return false;
@@ -277,6 +279,8 @@ export function ClientCodeWorkspace() {
         if (nUC && !m.uniqueCode.toLowerCase().includes(nUC) &&
           !(productNames.get(codeKey(m.uniqueCode)) ?? "").toLowerCase().includes(nUC)) return false;
         if (nCC && !m.clientCode.toLowerCase().includes(nCC)) return false;
+        if (productQuery && !(productNames.get(codeKey(m.uniqueCode)) ?? "")
+          .toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(productQuery)) return false;
         return true;
       });
     const latestByPair = new Map<string, Mapping>();
@@ -298,6 +302,7 @@ export function ClientCodeWorkspace() {
   }, [
     mappings,
     productNames,
+    historyProductName,
     historyClient,
     historyMonth,
     historyYear,
@@ -591,6 +596,7 @@ export function ClientCodeWorkspace() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistoryPage(0);
   }, [
+    historyProductName,
     historyClient,
     historyMonth,
     historyYear,
@@ -1376,7 +1382,17 @@ export function ClientCodeWorkspace() {
             Buscar en la base de códigos cliente
           </h2>
         </div>
-        <div className="grid gap-3 border-b border-[#e1e8f1] bg-[#fafcff] p-5 sm:grid-cols-[2fr_120px_160px_1fr_1fr]">
+        <div className="grid gap-3 border-b border-[#e1e8f1] bg-[#fafcff] p-5 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-[11px] font-extrabold text-[#334b6b]">
+            Nombre del producto
+            <input
+              type="search"
+              value={historyProductName}
+              onChange={(e) => setHistoryProductName(e.target.value)}
+              placeholder="Ej.: cafetera, auriculares..."
+              className="mt-2 h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
+            />
+          </label>
           <label className="text-[11px] font-extrabold text-[#334b6b]">
             Cliente
             <select
@@ -1499,6 +1515,9 @@ export function ClientCodeWorkspace() {
                   </td>
                   <td className="px-4 py-2 font-mono text-[#425979]">
                     {m.uniqueCode}
+                    <div className="mt-1 max-w-64 font-sans text-[10px] text-[#62728a]">
+                      {productNames.get(codeKey(m.uniqueCode))}
+                    </div>
                   </td>
                   <td className="px-4 py-2 font-mono text-[#425979]">
                     {m.clientCode}
