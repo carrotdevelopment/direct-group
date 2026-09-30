@@ -28,6 +28,8 @@ type Mapping = {
 };
 
 type ProductReference = {
+  name: string;
+  active: boolean;
   code: string;
 };
 
@@ -189,6 +191,7 @@ export function ClientCodeWorkspace() {
   const [productCodes, setProductCodes] = useState<Set<string>>(
     () => new Set(),
   );
+  const [productNames, setProductNames] = useState<Map<string, string>>(() => new Map());
   const [productCatalogLoaded, setProductCatalogLoaded] = useState(false);
   const [client, setClient] = useState("");
   const [month, setMonth] = useState(String(currentMonth));
@@ -271,7 +274,8 @@ export function ClientCodeWorkspace() {
         if (historyMonth && m.assignedMonth !== Number(historyMonth))
           return false;
         if (historyYear && m.assignedYear !== Number(historyYear)) return false;
-        if (nUC && !m.uniqueCode.toLowerCase().includes(nUC)) return false;
+        if (nUC && !m.uniqueCode.toLowerCase().includes(nUC) &&
+          !(productNames.get(codeKey(m.uniqueCode)) ?? "").toLowerCase().includes(nUC)) return false;
         if (nCC && !m.clientCode.toLowerCase().includes(nCC)) return false;
         return true;
       });
@@ -293,6 +297,7 @@ export function ClientCodeWorkspace() {
     );
   }, [
     mappings,
+    productNames,
     historyClient,
     historyMonth,
     historyYear,
@@ -506,12 +511,14 @@ export function ClientCodeWorkspace() {
 
   async function loadProductCodesFromExcel() {
     try {
-      const response = await fetch("/api/lookups?kind=products");
+      const response = await fetch("/api/lookups?kind=products&includeInactive=true");
       if (!response.ok) throw new Error("read products failed");
       const data = (await response.json()) as { products: ProductReference[] };
+      setProductNames(new Map(data.products.map((product) => [codeKey(product.code), product.name])));
       setProductCodes(
         new Set(
           data.products
+            .filter((product) => product.active)
             .map((product) => codeKey(product.code))
             .filter(Boolean),
         ),
@@ -1412,11 +1419,11 @@ export function ClientCodeWorkspace() {
             </select>
           </label>
           <label className="text-[11px] font-extrabold text-[#334b6b]">
-            Código único
+            Código único o producto
             <input
               value={historyUniqueCode}
               onChange={(e) => setHistoryUniqueCode(e.target.value)}
-              placeholder="Buscar..."
+              placeholder="Buscar por código o nombre..."
               className="mt-2 h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
             />
           </label>

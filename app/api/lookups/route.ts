@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   if (denied) return denied;
   if (kind === "products") {
     const all = usesPostgres() ? await readProductsFromPostgres() : readProductsFromExcel();
-    return NextResponse.json({ products: all.filter(product => product.active) });
+    return NextResponse.json({ products: all.filter(product => product.active || new URL(request.url).searchParams.get("includeInactive") === "true") });
   }
   if (kind === "suppliers") {
     const all = usesPostgres() ? await readSuppliersFromPostgres() : readSuppliersFromExcel();

@@ -456,7 +456,11 @@ export function ProductWorkspace() {
     [categories],
   );
 
+  const savingRef = useRef(false);
+
   async function persist(next: Product[]) {
+    if (savingRef.current) return { ok: false as const, message: "Ya hay un guardado en curso." };
+    savingRef.current = true;
     const previous = products;
     setProducts(next);
     setDbStatus("Guardando en PostgreSQL...");
@@ -466,18 +470,21 @@ export function ProductWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: next }),
       });
-      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      const data = (await response.json().catch(() => ({}))) as { message?: string; products?: Product[] };
       if (!response.ok) {
         setProducts(previous);
         setDbStatus("No pude guardar en PostgreSQL");
         return { ok: false as const, message: data.message || "No pude guardar en PostgreSQL." };
       }
+      if (data.products) setProducts(data.products);
       setDbStatus("PostgreSQL sincronizado");
       return { ok: true as const };
     } catch {
       setProducts(previous);
       setDbStatus("No pude guardar en PostgreSQL");
       return { ok: false as const, message: "No pude guardar en PostgreSQL." };
+    } finally {
+      savingRef.current = false;
     }
   }
 
@@ -841,7 +848,12 @@ export function ProductWorkspace() {
 
   async function commitBulk() {
     if (!bulkPending) return;
-    await persist([...products, ...bulkPending.toImport]);
+    const result = await persist([...products, ...bulkPending.toImport]);
+    if (!result.ok) {
+      setBulkError(result.message);
+      setBulkPending(null);
+      return;
+    }
     setBulkPending(null);
     setBulkRows(blankBulkRows());
     setSelectedBulkCells(new Set());

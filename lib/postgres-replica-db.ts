@@ -1,4 +1,6 @@
 import "server-only";
+import { validateProductCodes } from "@/lib/product-uniqueness";
+import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 import type {
   ExcelCategory,
@@ -80,6 +82,7 @@ export async function readProductsFromPostgres(): Promise<ExcelProduct[]> {
 }
 
 export async function writeProductsToPostgres(products: ExcelProduct[]) {
+  validateProductCodes(products);
   const [brands, suppliers, categories, existing] = await Promise.all([
     excelPostgres.excelBrand.findMany(),
     excelPostgres.excelSupplier.findMany(),
@@ -96,11 +99,15 @@ export async function writeProductsToPostgres(products: ExcelProduct[]) {
   const existingIds = new Set(existing.map((row) => row.id.toString()));
   await excelPostgres.$transaction(
     async (transaction) => {
+      // Serialize catalog writes so concurrent requests validate against committed rows.
+      await transaction.$executeRaw`LOCK TABLE base_productos IN SHARE ROW EXCLUSIVE MODE`;
+      const stored = await transaction.excelProduct.findMany({ select: { id: true, uniqueCode: true } });
+      validateProductCodes(products, stored.map((row) => ({ id: row.id.toString(), code: row.uniqueCode ?? "" })));
       for (const product of products) {
         const id = numericId(product.id);
         const data = {
           product: product.name.trim(),
-          uniqueCode: product.code.trim(),
+          uniqueCode: normalizeForDuplicateCheck(product.code),
           active: product.active,
           supplierUniqueCode: product.supplierCode.trim() || null,
           brandOriginal: product.brand.trim() || null,
