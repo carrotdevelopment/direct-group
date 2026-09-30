@@ -276,8 +276,7 @@ export function ClientCodeWorkspace() {
         if (historyMonth && m.assignedMonth !== Number(historyMonth))
           return false;
         if (historyYear && m.assignedYear !== Number(historyYear)) return false;
-        if (nUC && !m.uniqueCode.toLowerCase().includes(nUC) &&
-          !(productNames.get(codeKey(m.uniqueCode)) ?? "").toLowerCase().includes(nUC)) return false;
+        if (nUC && !m.uniqueCode.toLowerCase().includes(nUC)) return false;
         if (nCC && !m.clientCode.toLowerCase().includes(nCC)) return false;
         if (productQuery && !(productNames.get(codeKey(m.uniqueCode)) ?? "")
           .toLocaleLowerCase("es").normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(productQuery)) return false;
@@ -415,7 +414,7 @@ export function ClientCodeWorkspace() {
       return "Todavía no se pudo validar contra Productos.";
     }
     if (invalidPreviewUniqueCodes.length > 0) {
-      return "Hay códigos únicos que no existen en Productos.";
+      return "Hay códigos de producto que no existen en Productos.";
     }
     return "";
   }, [
@@ -696,7 +695,7 @@ export function ClientCodeWorkspace() {
     if (invalidPreviewUniqueCodes.length > 0) {
       setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
       setDraftError(
-        `Código único inexistente en Productos: ${invalidPreviewUniqueCodes.join(", ")}. Primero cargalo en el maestro de Productos.`,
+        `Código de producto inexistente en Productos: ${invalidPreviewUniqueCodes.join(", ")}. Primero cargalo en el maestro de Productos.`,
       );
       return;
     }
@@ -734,7 +733,7 @@ export function ClientCodeWorkspace() {
         clientCodes: new Set(),
       });
       setDraftError(
-        `Código único repetido: ${dupUnique.join(", ")}. Para un mismo cliente solo puede quedar activa una relación por código único.`,
+        `Código de producto repetido: ${dupUnique.join(", ")}. Para un mismo cliente solo puede quedar activa una relación por código de producto.`,
       );
       return;
     }
@@ -759,7 +758,7 @@ export function ClientCodeWorkspace() {
         codeKey(nextMappings[activeByClientCodeIdx].uniqueCode) !== codeKey(row.uniqueCode)
       ) {
         setDraftError(
-          `El código cliente ${row.clientCode} ya está activo para el código único ${nextMappings[activeByClientCodeIdx].uniqueCode}.`,
+          `El código cliente ${row.clientCode} ya está activo para el código de producto ${nextMappings[activeByClientCodeIdx].uniqueCode}.`,
         );
         return;
       }
@@ -1034,7 +1033,7 @@ export function ClientCodeWorkspace() {
                         onClick={() => sortDraftBy("uniqueCode")}
                         className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition hover:bg-white/80 hover:text-[#0b5bbb]"
                       >
-                        Código único{" "}
+                        Código de producto{" "}
                         {draftSort?.key === "uniqueCode"
                           ? draftSort.direction === "asc"
                             ? "↑"
@@ -1144,9 +1143,9 @@ export function ClientCodeWorkspace() {
                           }`}
                           title={
                             duplicateUniqueCode
-                              ? "Código único repetido"
+                              ? "Código de producto repetido"
                               : unknownUniqueCode
-                              ? "Este código único no existe en Productos"
+                              ? "Este código de producto no existe en Productos"
                               : undefined
                           }
                         >
@@ -1162,7 +1161,7 @@ export function ClientCodeWorkspace() {
                                 }
                                 onPaste={(e) => pasteRows(e, originalIndex)}
                                 autoFocus={originalIndex === 0 && isBlank}
-                                placeholder={isBlank ? "Pegá códigos únicos acá" : ""}
+                                placeholder={isBlank ? "Pegá códigos de producto acá" : ""}
                                 className={`h-8 w-full select-text border-0 bg-transparent px-3 pr-24 font-mono text-[11px] outline-none focus:bg-[#edf4fc] ${
                                   unknownUniqueCode || duplicateUniqueCode
                                     ? "font-bold text-[#b42318] focus:bg-[#fff1f0]"
@@ -1435,11 +1434,11 @@ export function ClientCodeWorkspace() {
             </select>
           </label>
           <label className="text-[11px] font-extrabold text-[#334b6b]">
-            Código único o producto
+            Código de producto
             <input
               value={historyUniqueCode}
               onChange={(e) => setHistoryUniqueCode(e.target.value)}
-              placeholder="Buscar por código o nombre..."
+              placeholder="Buscar por código..."
               className="mt-2 h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
             />
           </label>
@@ -1490,7 +1489,7 @@ export function ClientCodeWorkspace() {
                   {historyHeader("client", "Cliente")}
                 </th>
                 <th className="px-4 py-2">
-                  {historyHeader("uniqueCode", "Código único")}
+                  {historyHeader("uniqueCode", "Código de producto")}
                 </th>
                 <th className="px-4 py-2">
                   {historyHeader("clientCode", "Código cliente")}
@@ -1682,7 +1681,7 @@ export function ClientCodeWorkspace() {
               <table className="w-full text-[11px]">
                 <thead className="sticky top-0 bg-[#f4f7fb]">
                   <tr className="font-bold text-[#334b6b]">
-                    <th className="px-4 py-2 text-left">Código único</th>
+                    <th className="px-4 py-2 text-left">Código de producto</th>
                     <th className="px-4 py-2 text-left">Código cliente</th>
                     <th className="w-28 px-4 py-2 text-left">Tipo</th>
                   </tr>
