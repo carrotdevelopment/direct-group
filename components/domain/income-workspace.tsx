@@ -93,6 +93,23 @@ type TangoSyncJob = {
 
 const activeSyncStatuses = new Set(["pending", "running"]);
 
+// El conector corre una vez por día (6 AM). 30hs de margen cubre un reintento
+// del día siguiente sin disparar la alerta por una demora normal.
+const CONNECTOR_STALE_HOURS = 30;
+
+function hoursSince(value: string | null) {
+  if (!value) return Infinity;
+  return (Date.now() - new Date(value).getTime()) / (1000 * 60 * 60);
+}
+
+function formatRelative(value: string | null) {
+  if (!value) return "nunca";
+  const hours = hoursSince(value);
+  if (hours < 1) return "hace menos de 1 hora";
+  if (hours < 48) return `hace ${Math.floor(hours)} hora${Math.floor(hours) === 1 ? "" : "s"}`;
+  return `hace ${Math.floor(hours / 24)} días`;
+}
+
 const defaultViewSummary: TangoIncomeViewSummary = {
   totalRows: 0,
   totalQuantity: 0,
@@ -407,6 +424,8 @@ export function IncomeWorkspace() {
   const [importError, setImportError] = useState("");
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [syncJob, setSyncJob] = useState<TangoSyncJob | null>(null);
+  const [connectorLastSeenAt, setConnectorLastSeenAt] = useState<string | null>(null);
+  const [connectorConfigured, setConnectorConfigured] = useState(true);
   const lastCompletedJobId = useRef<string | null>(null);
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [manualForm, setManualForm] = useState({
@@ -516,8 +535,14 @@ export function IncomeWorkspace() {
     try {
       const response = await fetch("/api/tango-sync");
       if (!response.ok) return;
-      const data = (await response.json()) as { job: TangoSyncJob | null };
+      const data = (await response.json()) as {
+        job: TangoSyncJob | null;
+        configured: boolean;
+        lastSeenAt: string | null;
+      };
       setSyncJob(data.job);
+      setConnectorConfigured(data.configured);
+      setConnectorLastSeenAt(data.lastSeenAt);
       if (
         data.job?.status === "completed" &&
         data.job.id !== lastCompletedJobId.current
@@ -660,6 +685,8 @@ export function IncomeWorkspace() {
     }
   }
 
+  const connectorStale = connectorConfigured && hoursSince(connectorLastSeenAt) > CONNECTOR_STALE_HOURS;
+
   const limitedNotice = useMemo(() => {
     if (selectedClients.length === 0) {
       return "Seleccioná al menos un cliente para cargar la consulta.";
@@ -710,6 +737,17 @@ export function IncomeWorkspace() {
         description="Vista de control sobre la consulta de Tango Gestión. La web no carga ni modifica ingresos: muestra lo registrado en Tango y lo cruza con nuestros códigos cliente."
       />
 
+      {connectorStale ? (
+        <section className="mb-4 flex items-center gap-3 rounded-xl border border-[#f4c16d] bg-[#fff6e8] px-5 py-3 text-[12px] font-bold text-[#985b00]">
+          <AlertTriangle size={18} className="shrink-0" />
+          <span>
+            El conector automático de Tango no se reporta {formatRelative(connectorLastSeenAt)}
+            {" "}(esperado: una vez por día). Los ingresos pueden no estar actualizados. Avisá a
+            sistemas para revisar la tarea programada en la PC del conector.
+          </span>
+        </section>
+      ) : null}
+
       <section className="mb-4 grid gap-4 xl:grid-cols-4">
         <KpiCard
           icon={<Users size={20} />}
@@ -757,6 +795,14 @@ export function IncomeWorkspace() {
               <span className="truncate">
                 Fuente: {summary.filePath || "Consulta ingresos Tango.xlsx"}
               </span>
+              {connectorConfigured ? (
+                <span
+                  className={`inline-flex items-center gap-1 ${connectorStale ? "text-[#985b00]" : ""}`}
+                >
+                  <RefreshCw size={13} />
+                  Conector automático: {formatRelative(connectorLastSeenAt)}
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
