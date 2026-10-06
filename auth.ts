@@ -30,7 +30,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       const user = token.sub ? await prisma.user.findUnique({ where: { id: token.sub } }) : null;
       if (!user?.active || token.credentialVersion !== sessionVersion(user.passwordHash)) return { ...session, user: undefined } as unknown as typeof session;
-      session.user = { ...session.user, id: user.id, name: user.name, email: user.email, role: user.role, moduleAccess: user.moduleAccess };
+      session.user = { ...session.user, id: user.id, name: user.name, email: user.email, role: user.role, moduleAccess: user.moduleAccess, pasajeClients: user.pasajeClients };
       return session;
     },
   },

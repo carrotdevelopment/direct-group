@@ -19,3 +19,12 @@ export async function checkApiAccess(modules: string[], write = false) {
   }
   return null;
 }
+
+export async function currentPasajeActor() {
+  const user = (await auth())?.user;
+  return {
+    name: user?.name || user?.email || "desconocido",
+    role: user?.role ?? "LECTURA",
+    clients: user?.pasajeClients ?? [],
+  };
+}

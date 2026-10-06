@@ -27,3 +27,11 @@ export function pageModule(path: string): string {
   };
   return map[section] ?? "admin";
 }
+
+export type PasajeActor = { name: string; role: string; clients: string[] };
+
+export function canActForClient(actor: Pick<PasajeActor, "role" | "clients">, client: string) {
+  if (actor.role === "ADMIN") return true;
+  const wanted = client.trim().toLowerCase();
+  return actor.clients.some((assigned) => assigned.trim().toLowerCase() === wanted);
+}

@@ -64,6 +64,7 @@ function ClientCodeSelect({
   codeValue,
   onChange,
   requireUniqueCode,
+  allowedClients,
 }: {
   label: string;
   mappings: Mapping[];
@@ -75,13 +76,18 @@ function ClientCodeSelect({
   // único — no tiene sentido mover un producto a un cliente que no lo tiene
   // asignado.
   requireUniqueCode?: string;
+  // Clientes que el usuario tiene asignados en Permisos (null = sin restricción).
+  allowedClients?: string[] | null;
 }) {
   const pool = useMemo(
     () =>
       mappings.filter(
-        (m) => m.active && (!requireUniqueCode || m.uniqueCode.toLowerCase() === requireUniqueCode.toLowerCase()),
+        (m) =>
+          m.active &&
+          (!requireUniqueCode || m.uniqueCode.toLowerCase() === requireUniqueCode.toLowerCase()) &&
+          (!allowedClients || allowedClients.some((client) => client.toLowerCase() === m.client.toLowerCase())),
       ),
-    [mappings, requireUniqueCode],
+    [mappings, requireUniqueCode, allowedClients],
   );
   const clients = useMemo(
     () =>
@@ -143,7 +149,13 @@ function ClientCodeSelect({
   );
 }
 
-export function PasajesWorkspace() {
+export function PasajesWorkspace({
+  restrictedClients,
+  userName,
+}: {
+  restrictedClients: string[] | null;
+  userName: string;
+}) {
   const [tab, setTab] = useState<"pasajes" | "ajustes">("pasajes");
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [products, setProducts] = useState<ProductLookup[]>([]);
@@ -159,6 +171,12 @@ export function PasajesWorkspace() {
     for (const product of products) map.set(product.code.toLowerCase(), product.name);
     return map;
   }, [products]);
+
+  const canAct = (client: string) =>
+    restrictedClients === null || restrictedClients.some((assigned) => assigned.toLowerCase() === client.toLowerCase());
+  const isOwn = (createdBy: string) =>
+    restrictedClients !== null && createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
+  const cannotCreate = restrictedClients !== null && restrictedClients.length === 0;
 
   async function loadAll() {
     try {
@@ -231,16 +249,24 @@ export function PasajesWorkspace() {
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-bold text-[#8a99ad]">{status}</span>
           {tab === "pasajes" ? (
-            <Button size="sm" onClick={() => setPasajeModalOpen(true)}>
+            <Button size="sm" disabled={cannotCreate} onClick={() => setPasajeModalOpen(true)}>
               <ArrowRightLeft size={15} /> Nuevo pasaje
             </Button>
           ) : (
-            <Button size="sm" onClick={() => setAjusteModalOpen(true)}>
+            <Button size="sm" disabled={cannotCreate} onClick={() => setAjusteModalOpen(true)}>
               <SlidersHorizontal size={15} /> Nuevo ajuste
             </Button>
           )}
         </div>
       </div>
+
+      {restrictedClients !== null && (
+        <div className="mb-4 rounded-xl bg-[#eef3fb] px-4 py-3 text-xs font-bold text-[#52647d]">
+          {restrictedClients.length
+            ? `Tus clientes asignados: ${restrictedClients.join(", ")}. Podés generar movimientos desde ellos y aceptar los que lleguen hacia ellos.`
+            : "Todavía no tenés clientes asignados para operar en esta sección. Pedile a un administrador que te los asigne en Permisos."}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>
@@ -270,14 +296,20 @@ export function PasajesWorkspace() {
                       {p.comments ? ` · ${p.comments}` : ""}
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => respond("pasajes", p.id, "reject")}>
-                      <X size={14} /> Rechazar
-                    </Button>
-                    <Button size="sm" onClick={() => respond("pasajes", p.id, "accept")}>
-                      <Check size={14} /> Aceptar
-                    </Button>
-                  </div>
+                  {canAct(p.toClient) && !isOwn(p.createdBy) ? (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => respond("pasajes", p.id, "reject")}>
+                        <X size={14} /> Rechazar
+                      </Button>
+                      <Button size="sm" onClick={() => respond("pasajes", p.id, "accept")}>
+                        <Check size={14} /> Aceptar
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold text-[#8a99ad]">
+                      Esperando la aceptación de {p.toClient}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -338,14 +370,18 @@ export function PasajesWorkspace() {
                       {a.reason ? ` · ${a.reason}` : ""}
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => respond("ajustes", a.id, "reject")}>
-                      <X size={14} /> Rechazar
-                    </Button>
-                    <Button size="sm" onClick={() => respond("ajustes", a.id, "accept")}>
-                      <Check size={14} /> Aceptar
-                    </Button>
-                  </div>
+                  {canAct(a.client) && !isOwn(a.createdBy) ? (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => respond("ajustes", a.id, "reject")}>
+                        <X size={14} /> Rechazar
+                      </Button>
+                      <Button size="sm" onClick={() => respond("ajustes", a.id, "accept")}>
+                        <Check size={14} /> Aceptar
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold text-[#8a99ad]">Esperando la aprobación de otra persona</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -387,6 +423,7 @@ export function PasajesWorkspace() {
       {pasajeModalOpen && (
         <PasajeModal
           mappings={mappings}
+          allowedClients={restrictedClients}
           onClose={() => setPasajeModalOpen(false)}
           onCreated={() => {
             setPasajeModalOpen(false);
@@ -397,6 +434,7 @@ export function PasajesWorkspace() {
       {ajusteModalOpen && (
         <AjusteModal
           mappings={mappings}
+          allowedClients={restrictedClients}
           onClose={() => setAjusteModalOpen(false)}
           onCreated={() => {
             setAjusteModalOpen(false);
@@ -410,10 +448,12 @@ export function PasajesWorkspace() {
 
 function PasajeModal({
   mappings,
+  allowedClients,
   onClose,
   onCreated,
 }: {
   mappings: Mapping[];
+  allowedClients: string[] | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -475,6 +515,7 @@ function PasajeModal({
           <ClientCodeSelect
             label="Empresa emisora"
             mappings={mappings}
+            allowedClients={allowedClients}
             clientValue={fromClient}
             codeValue={fromClientCode}
             onChange={(client, code, uniqueCode) => {
@@ -545,10 +586,12 @@ function PasajeModal({
 
 function AjusteModal({
   mappings,
+  allowedClients,
   onClose,
   onCreated,
 }: {
   mappings: Mapping[];
+  allowedClients: string[] | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -607,6 +650,7 @@ function AjusteModal({
           <ClientCodeSelect
             label="Cliente"
             mappings={mappings}
+            allowedClients={allowedClients}
             clientValue={client}
             codeValue={clientCode}
             onChange={(nextClient, nextCode, nextUniqueCode) => {

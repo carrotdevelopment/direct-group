@@ -97,6 +97,7 @@ model User {
   role         Role           @default(LECTURA)
   active       Boolean        @default(true)
   moduleAccess String[]       @default([])
+  pasajeClients String[]      @default([])
   lastLoginAt  DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt

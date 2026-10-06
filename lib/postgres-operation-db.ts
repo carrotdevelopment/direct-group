@@ -121,9 +121,9 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`
       coalesce(nullif(hist.client, ''), nullif(act.cliente, ''), nullif(btrim(coalesce(t.cliente, '')), ''), 'Sin cliente') AS cliente_res,
       coalesce(act.codigo_unico, '') AS codigo_unico,
       greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente
-    FROM tango_ingresos t
-    LEFT JOIN hist ON hist.k = ${norm("t.codigo_cliente")}
-    LEFT JOIN act ON act.k = ${norm("t.codigo_cliente")}
+    FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t
+    LEFT JOIN hist ON hist.k = t.k
+    LEFT JOIN act ON act.k = t.k
   )
 `);
 
@@ -187,11 +187,48 @@ function incomeConditions(options: TangoIncomeFilters) {
   return conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}` : Prisma.empty;
 }
 
-const AGGREGATE_COLUMNS = Prisma.raw(`
-  count(*)::int AS total, sum(cantidad)::float8 AS cantidad, sum(entregado)::float8 AS entregado,
-  sum(pendiente)::float8 AS pendiente, (count(*) FILTER (WHERE pendiente > 0))::int AS filas_pendientes,
-  (count(*) FILTER (WHERE codigo_unico = ''))::int AS sin_unico
-`);
+type IncomeWindowTotals = {
+  t_total: number;
+  t_cantidad: number | null;
+  t_entregado: number | null;
+  t_pendiente: number | null;
+  t_filas_pendientes: number;
+  t_sin_unico: number;
+};
+
+type IncomeGroup = IncomeAggregate & {
+  cliente_res: string;
+  operacion: string;
+  anio: number | null;
+  origen: string;
+  ultima: Date | null;
+};
+
+// Totales globales y opciones de filtros: no dependen de los filtros elegidos y
+// recorrer toda la tabla es lo más caro, así que se reutilizan unos segundos.
+const GROUPS_TTL_MS = 30_000;
+let groupsCache: { at: number; data: Promise<IncomeGroup[]> } | null = null;
+
+export function invalidateIncomeGroups() {
+  groupsCache = null;
+}
+
+function readIncomeGroups() {
+  if (groupsCache && Date.now() - groupsCache.at < GROUPS_TTL_MS) return groupsCache.data;
+  const data = excelPostgres.$queryRaw<IncomeGroup[]>(Prisma.sql`
+    WITH ${RESOLVED_INCOME_CTE}
+    SELECT cliente_res, operacion, extract(year FROM fecha_pedido)::int AS anio, origen,
+      max(updated_at) AS ultima, count(*)::int AS total, sum(cantidad)::float8 AS cantidad,
+      sum(entregado)::float8 AS entregado, sum(pendiente)::float8 AS pendiente,
+      (count(*) FILTER (WHERE pendiente > 0))::int AS filas_pendientes,
+      (count(*) FILTER (WHERE codigo_unico = ''))::int AS sin_unico
+    FROM r GROUP BY 1, 2, 3, 4`);
+  groupsCache = { at: Date.now(), data };
+  data.catch(() => {
+    if (groupsCache?.data === data) groupsCache = null;
+  });
+  return data;
+}
 
 // Todo el filtrado, orden y totales se resuelven en PostgreSQL: antes se traían
 // las ~128 mil filas a memoria en cada consulta (cada filtro, cada carga de página).
@@ -199,28 +236,36 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
   const where = incomeConditions(options);
   const limit = Math.max(1, Math.min(Number(options.limit ?? 750), 5000));
 
-  const [rows, filteredAggregate, groups] = await Promise.all([
-    excelPostgres.$queryRaw<IncomeDbRow[]>(Prisma.sql`
+  // Los totales del filtro salen de funciones de ventana sobre el mismo recorrido
+  // que trae las filas: se calculan antes del LIMIT.
+  const [rows, groups] = await Promise.all([
+    excelPostgres.$queryRaw<(IncomeDbRow & IncomeWindowTotals)[]>(Prisma.sql`
       WITH ${RESOLVED_INCOME_CTE}
       SELECT id, cliente_res, operacion, to_char(fecha_pedido, 'DD/MM/YYYY') AS fecha_display,
         extract(year FROM fecha_pedido)::int AS anio, extract(month FROM fecha_pedido)::int AS mes,
         orden_de_compra, codigo_cliente, codigo_unico, cantidad::float8 AS cantidad, origen,
         to_char(fecha_entrega, 'DD/MM/YYYY') AS entrega_display, entregado::float8 AS entregado,
-        pendiente::float8 AS pendiente, comentarios, pending_tango_entry, created_by
+        pendiente::float8 AS pendiente, comentarios, pending_tango_entry, created_by,
+        (count(*) OVER ())::int AS t_total, (sum(cantidad) OVER ())::float8 AS t_cantidad,
+        (sum(entregado) OVER ())::float8 AS t_entregado, (sum(pendiente) OVER ())::float8 AS t_pendiente,
+        (count(*) FILTER (WHERE pendiente > 0) OVER ())::int AS t_filas_pendientes,
+        (count(*) FILTER (WHERE codigo_unico = '') OVER ())::int AS t_sin_unico
       FROM r ${where}
       ORDER BY fecha_pedido DESC NULLS LAST, id DESC
       LIMIT ${limit}`),
-    excelPostgres.$queryRaw<IncomeAggregate[]>(Prisma.sql`
-      WITH ${RESOLVED_INCOME_CTE}
-      SELECT ${AGGREGATE_COLUMNS} FROM r ${where}`),
-    excelPostgres.$queryRaw<
-      (IncomeAggregate & { cliente_res: string; operacion: string; anio: number | null; origen: string; ultima: Date | null })[]
-    >(Prisma.sql`
-      WITH ${RESOLVED_INCOME_CTE}
-      SELECT cliente_res, operacion, extract(year FROM fecha_pedido)::int AS anio, origen,
-        max(updated_at) AS ultima, ${AGGREGATE_COLUMNS}
-      FROM r GROUP BY 1, 2, 3, 4`),
+    readIncomeGroups(),
   ]);
+
+  const filteredAggregate: IncomeAggregate[] = rows.length
+    ? [{
+        total: rows[0].t_total,
+        cantidad: rows[0].t_cantidad,
+        entregado: rows[0].t_entregado,
+        pendiente: rows[0].t_pendiente,
+        filas_pendientes: rows[0].t_filas_pendientes,
+        sin_unico: rows[0].t_sin_unico,
+      }]
+    : [];
 
   const totals = aggregateToSummary({
     total: groups.reduce((sum, g) => sum + Number(g.total), 0),

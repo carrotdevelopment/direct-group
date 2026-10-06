@@ -1,5 +1,7 @@
 import "server-only";
 import { excelPostgres } from "@/lib/excel-postgres-client";
+import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
+import { canActForClient, type PasajeActor } from "@/lib/module-access";
 
 export class PasajeAjusteError extends Error {
   constructor(message: string, public status = 400) {
@@ -40,6 +42,22 @@ async function assertSharedUniqueCode(
   }
 }
 
+function isSelf(actor: PasajeActor, createdBy: string) {
+  return actor.role !== "ADMIN" && actor.name.trim().toLowerCase() === createdBy.trim().toLowerCase();
+}
+
+// Un operador solo puede generar movimientos desde los clientes que se le
+// asignaron en Permisos; el administrador no tiene restricción.
+function assertCanCreateFor(actor: PasajeActor, client: string) {
+  if (!canActForClient(actor, client)) {
+    throw new PasajeAjusteError(`No tenés asignado el cliente ${client} para generar este movimiento.`, 403);
+  }
+}
+
+export function visibleToActor(actor: PasajeActor, clients: string[]) {
+  return actor.role === "ADMIN" || clients.some((client) => canActForClient(actor, client));
+}
+
 export type PasajeInput = {
   fromClient: string;
   fromClientCode: string;
@@ -51,7 +69,8 @@ export type PasajeInput = {
   comments?: string;
 };
 
-export async function createPasaje(input: PasajeInput, createdBy: string) {
+export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
+  const createdBy = actor.name;
   if (input.quantity <= 0) throw new PasajeAjusteError("La cantidad tiene que ser mayor a cero.");
   if (!input.fromClient.trim() || !input.fromClientCode.trim()) {
     throw new PasajeAjusteError("Completá la empresa emisora y su código cliente.");
@@ -68,6 +87,7 @@ export async function createPasaje(input: PasajeInput, createdBy: string) {
   if (!input.uniqueCode.trim()) {
     throw new PasajeAjusteError("Falta el código único del producto.");
   }
+  assertCanCreateFor(actor, input.fromClient);
   await assertSharedUniqueCode(input.fromClientCode, input.toClientCode, input.uniqueCode);
   return excelPostgres.pasajeRequest.create({
     data: {
@@ -84,23 +104,31 @@ export async function createPasaje(input: PasajeInput, createdBy: string) {
   });
 }
 
-export async function listPasajes(status?: string) {
-  return excelPostgres.pasajeRequest.findMany({
+export async function listPasajes(actor: PasajeActor, status?: string) {
+  const rows = await excelPostgres.pasajeRequest.findMany({
     where: status ? { status } : undefined,
     orderBy: { createdAt: "desc" },
   });
+  return rows.filter((row) => visibleToActor(actor, [row.fromClient, row.toClient]));
 }
 
 export async function respondPasaje(
   id: string,
   action: "accept" | "reject",
-  respondedBy: string,
+  actor: PasajeActor,
   comment?: string,
 ) {
-  return excelPostgres.$transaction(async (tx) => {
+  const respondedBy = actor.name;
+  const result = await excelPostgres.$transaction(async (tx) => {
     const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
     if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
     if (pasaje.status !== "pending") throw new PasajeAjusteError("Ese pasaje ya fue resuelto.", 409);
+    if (!canActForClient(actor, pasaje.toClient)) {
+      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${pasaje.toClient} puede aceptar o rechazar este pasaje.`, 403);
+    }
+    if (isSelf(actor, pasaje.createdBy)) {
+      throw new PasajeAjusteError("No podés resolver un pasaje que generaste vos: lo tiene que aceptar la otra parte.", 403);
+    }
 
     const updated = await tx.pasajeRequest.update({
       where: { id },
@@ -147,6 +175,8 @@ export async function respondPasaje(
 
     return updated;
   });
+  if (action === "accept") invalidateIncomeGroups();
+  return result;
 }
 
 export type AjusteInput = {
@@ -158,13 +188,15 @@ export type AjusteInput = {
   reason?: string;
 };
 
-export async function createAjuste(input: AjusteInput, createdBy: string) {
+export async function createAjuste(input: AjusteInput, actor: PasajeActor) {
+  const createdBy = actor.name;
   if (!Number.isFinite(input.quantity) || input.quantity === 0) {
     throw new PasajeAjusteError("La cantidad tiene que ser distinta de cero.");
   }
   if (!input.client.trim() || !input.clientCode.trim()) {
     throw new PasajeAjusteError("Completá el cliente y su código cliente.");
   }
+  assertCanCreateFor(actor, input.client);
   return excelPostgres.ajusteRequest.create({
     data: {
       client: text(input.client),
@@ -178,23 +210,31 @@ export async function createAjuste(input: AjusteInput, createdBy: string) {
   });
 }
 
-export async function listAjustes(status?: string) {
-  return excelPostgres.ajusteRequest.findMany({
+export async function listAjustes(actor: PasajeActor, status?: string) {
+  const rows = await excelPostgres.ajusteRequest.findMany({
     where: status ? { status } : undefined,
     orderBy: { createdAt: "desc" },
   });
+  return rows.filter((row) => visibleToActor(actor, [row.client]));
 }
 
 export async function respondAjuste(
   id: string,
   action: "accept" | "reject",
-  respondedBy: string,
+  actor: PasajeActor,
   comment?: string,
 ) {
-  return excelPostgres.$transaction(async (tx) => {
+  const respondedBy = actor.name;
+  const result = await excelPostgres.$transaction(async (tx) => {
     const ajuste = await tx.ajusteRequest.findUnique({ where: { id } });
     if (!ajuste) throw new PasajeAjusteError("El ajuste no existe.", 404);
     if (ajuste.status !== "pending") throw new PasajeAjusteError("Ese ajuste ya fue resuelto.", 409);
+    if (!canActForClient(actor, ajuste.client)) {
+      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${ajuste.client} puede aceptar o rechazar este ajuste.`, 403);
+    }
+    if (isSelf(actor, ajuste.createdBy)) {
+      throw new PasajeAjusteError("No podés resolver un ajuste que generaste vos: lo tiene que aprobar otra persona.", 403);
+    }
 
     const updated = await tx.ajusteRequest.update({
       where: { id },
@@ -244,4 +284,6 @@ export async function respondAjuste(
 
     return updated;
   });
+  if (action === "accept") invalidateIncomeGroups();
+  return result;
 }

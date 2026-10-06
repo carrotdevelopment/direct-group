@@ -1,6 +1,7 @@
 import { checkApiAccess } from "@/server/lib/access";
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
+import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { createManualTangoIncome, manualTangoIncomeSchema } from "@/lib/tango-manual-entry";
 
 export const runtime = "nodejs";
@@ -22,5 +23,6 @@ export async function POST(request: Request) {
   const session = await auth();
   const actor = session?.user?.email ?? session?.user?.id ?? "desconocido";
   const created = await createManualTangoIncome(parsed.data, actor);
+  invalidateIncomeGroups();
   return NextResponse.json({ ok: true, id: created.id.toString() });
 }

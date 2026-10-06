@@ -5,7 +5,7 @@ import { PasajesWorkspace } from "@/components/domain/pasajes-workspace";
 export const metadata = { title: "Pasajes y Ajustes" };
 
 export default async function PasajesPage() {
-  await requirePageModule("pasajes");
+  const user = await requirePageModule("pasajes");
   return (
     <>
       <PageHeader
@@ -13,7 +13,10 @@ export default async function PasajesPage() {
         title="Pasajes y Ajustes"
         description="Pasajes de stock entre clientes (con aceptación de la contraparte) y ajustes de stock por rotura, faltante o sobrante."
       />
-      <PasajesWorkspace />
+      <PasajesWorkspace
+        restrictedClients={user.role === "ADMIN" ? null : (user.pasajeClients ?? [])}
+        userName={user.name || user.email || ""}
+      />
     </>
   );
 }

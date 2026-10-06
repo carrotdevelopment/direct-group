@@ -1,14 +1,8 @@
-import { checkApiAccess } from "@/server/lib/access";
-import { auth } from "@/auth";
+import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import { PasajeAjusteError, respondPasaje } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
-
-async function actorId() {
-  const session = await auth();
-  return session?.user?.name || session?.user?.email || "desconocido";
-}
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await checkApiAccess(["pasajes"], true);
@@ -19,7 +13,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: "Acción inválida." }, { status: 400 });
   }
   try {
-    const pasaje = await respondPasaje(id, body.action, await actorId(), body.comment);
+    const pasaje = await respondPasaje(id, body.action, await currentPasajeActor(), body.comment);
     return NextResponse.json({ pasaje });
   } catch (error) {
     if (error instanceof PasajeAjusteError) {
