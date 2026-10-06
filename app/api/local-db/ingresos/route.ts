@@ -36,7 +36,8 @@ export async function GET(request: Request) {
     months,
     years,
     search,
-    limit,
+    // Sin clientes elegidos la pantalla no muestra filas: solo necesita totales y opciones.
+    limit: metaOnly ? 1 : limit,
   };
   if (usesPostgres()) {
     const result = await readTangoIncomeViewFromPostgres(filters);
