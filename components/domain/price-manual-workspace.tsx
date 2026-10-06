@@ -374,8 +374,8 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
 
   return (
     <section className="card mb-5 overflow-hidden">
-      <div className="grid xl:grid-cols-2">
-        <div className="border-b border-[#dbe4ef] xl:border-b-0 xl:border-r">
+      <div>
+        <div className="border-b border-[#dbe4ef]">
           <div className="border-b border-[#dbe4ef] bg-[#edf4fc] px-5 py-4">
             <div className="eyebrow">Actualización de precios</div>
             <h2 className="mt-1 text-base font-black text-[#10233f]">Cargar precios nuevos</h2>
