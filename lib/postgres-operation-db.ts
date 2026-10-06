@@ -172,8 +172,8 @@ function incomeConditions(options: TangoIncomeFilters) {
   const clients = (options.clients ?? []).map(normalizeSearch);
   if (clients.length) conditions.push(Prisma.sql`${Prisma.raw(norm("cliente_res"))} = ANY(${clients}::text[])`);
   if (options.operation) conditions.push(Prisma.sql`operacion = ${options.operation}`);
-  if (options.years?.length) conditions.push(Prisma.sql`extract(year FROM fecha_pedido)::int = ANY(${options.years}::int[])`);
-  if (options.months?.length) conditions.push(Prisma.sql`extract(month FROM fecha_pedido)::int = ANY(${options.months}::int[])`);
+  if (options.years?.length) conditions.push(Prisma.sql`extract(year FROM fecha_entrega)::int = ANY(${options.years}::int[])`);
+  if (options.months?.length) conditions.push(Prisma.sql`extract(month FROM fecha_entrega)::int = ANY(${options.months}::int[])`);
   if (options.status === "pending") conditions.push(Prisma.sql`pendiente > 0`);
   if (options.status === "complete") conditions.push(Prisma.sql`pendiente <= 0`);
   if (options.status === "without-order-date") conditions.push(Prisma.sql`(pendiente <= 0 AND fecha_pedido IS NULL)`);
@@ -217,7 +217,7 @@ function readIncomeGroups() {
   if (groupsCache && Date.now() - groupsCache.at < GROUPS_TTL_MS) return groupsCache.data;
   const data = excelPostgres.$queryRaw<IncomeGroup[]>(Prisma.sql`
     WITH ${RESOLVED_INCOME_CTE}
-    SELECT cliente_res, operacion, extract(year FROM fecha_pedido)::int AS anio, origen,
+    SELECT cliente_res, operacion, extract(year FROM fecha_entrega)::int AS anio, origen,
       max(updated_at) AS ultima, count(*)::int AS total, sum(cantidad)::float8 AS cantidad,
       sum(entregado)::float8 AS entregado, sum(pendiente)::float8 AS pendiente,
       (count(*) FILTER (WHERE pendiente > 0))::int AS filas_pendientes,
@@ -251,7 +251,7 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
         (count(*) FILTER (WHERE pendiente > 0) OVER ())::int AS t_filas_pendientes,
         (count(*) FILTER (WHERE codigo_unico = '') OVER ())::int AS t_sin_unico
       FROM r ${where}
-      ORDER BY fecha_pedido DESC NULLS LAST, id DESC
+      ORDER BY fecha_entrega DESC NULLS LAST, fecha_pedido DESC NULLS LAST, id DESC
       LIMIT ${limit}`),
     readIncomeGroups(),
   ]);

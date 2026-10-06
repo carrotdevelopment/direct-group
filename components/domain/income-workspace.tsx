@@ -404,11 +404,11 @@ export function IncomeWorkspace() {
   const [viewSummary, setViewSummary] =
     useState<TangoIncomeViewSummary>(defaultViewSummary);
   const [operationFilter, setOperationFilter] = useState("");
-  // Sin año/mes preseleccionado: Ingresos trae historial real de Tango
-  // (2012 en adelante), no solo el período en curso, así que arrancar
-  // filtrado al año/mes actual dejaba la grilla vacía por defecto.
-  const [selectedYears, setSelectedYears] = useState<number[]>([]);
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+  // Por defecto se muestran los ingresos de todos los clientes del mes y año
+  // actuales (por fecha de entrega); los filtros se pueden ampliar o quitar a mano.
+  const [selectedYears, setSelectedYears] = useState<number[]>(() => [new Date().getFullYear()]);
+  const [selectedMonths, setSelectedMonths] = useState<number[]>(() => [new Date().getMonth() + 1]);
+  const defaultClientsApplied = useRef(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -485,6 +485,12 @@ export function IncomeWorkspace() {
       if (!response.ok) throw new Error("No pude leer la consulta de Tango.");
       setSummary(data.summary);
       setOptions(data.options);
+      if (!defaultClientsApplied.current) {
+        // Primera lectura: trae solo las opciones; con ellas se eligen todos
+        // los clientes y eso dispara la carga real de filas.
+        defaultClientsApplied.current = true;
+        if (data.options.clients.length) setSelectedClients(data.options.clients);
+      }
       setRows(data.rows);
       setTotalFiltered(data.totalFiltered);
       setViewSummary(
@@ -808,7 +814,7 @@ export function IncomeWorkspace() {
             ))}
           </SelectField>
           <MultiSelectDropdown
-            label="Año pedido"
+            label="Año entrega"
             helper="Sin elegir, muestra todos los años."
             options={options.years.map((year) => ({
               label: String(year),
@@ -819,7 +825,7 @@ export function IncomeWorkspace() {
             onClear={() => setSelectedYears([])}
           />
           <MultiSelectDropdown
-            label="Mes pedido"
+            label="Mes entrega"
             helper="Sin elegir, muestra todos los meses."
             options={months}
             selected={selectedMonths}
