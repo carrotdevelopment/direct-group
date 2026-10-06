@@ -3,12 +3,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import {
   ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator, ChartNoAxesCombined,
   CircleDollarSign, ClipboardList, FileKey2, FileUp,
-  Menu, PackageSearch, Search, Settings, ShieldCheck, Truck, Users, Warehouse, X,
+  Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Truck, Users, Warehouse, X,
 } from "lucide-react";
 import { hasModule, pageModule } from "@/lib/module-access";
 import { cn } from "@/lib/utils";
@@ -101,9 +101,27 @@ function SidebarContent({ close }: { close?: () => void }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem("dg-sidebar-collapsed") === "1");
+    } catch {}
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem("dg-sidebar-collapsed", next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }
+
   return (
     <div className="min-h-screen bg-[#f4f7fb]">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[246px] border-r border-[#dce5ef] bg-white lg:block"><SidebarContent /></aside>
+      <aside className={cn("fixed inset-y-0 left-0 z-30 hidden w-[246px] border-r border-[#dce5ef] bg-white", !collapsed && "lg:block")}><SidebarContent /></aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button aria-label="Cerrar menú" className="absolute inset-0 bg-black/45" onClick={() => setMobileOpen(false)} />
@@ -111,10 +129,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <div className="lg:pl-[246px]">
+      <div className={collapsed ? "" : "lg:pl-[246px]"}>
         <header className="sticky top-0 z-20 flex h-[78px] items-center border-b border-[#dfe6ef] bg-white/92 px-5 backdrop-blur-xl lg:px-8">
           <button onClick={() => setMobileOpen(true)} className="mr-3 rounded-xl border border-[#dbe4ef] bg-white p-2.5 text-[#334b6b] lg:hidden"><Menu size={18} /></button>
-          <Image src="/brand/logo-dg-original.png" alt="Direct Group" width={140} height={55} priority unoptimized className="mr-4 h-11 w-auto object-contain lg:hidden" />
+          <button
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Mostrar menú" : "Ocultar menú"}
+            title={collapsed ? "Mostrar menú" : "Ocultar menú"}
+            className="mr-3 hidden rounded-xl border border-[#dbe4ef] bg-white p-2.5 text-[#334b6b] hover:text-[#0b5bbb] lg:block"
+          >
+            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+          <Image src="/brand/logo-dg-original.png" alt="Direct Group" width={140} height={55} priority unoptimized className={cn("mr-4 h-11 w-auto object-contain", collapsed ? "hidden lg:block" : "lg:hidden")} />
           <div className="relative hidden w-full max-w-[260px] md:block xl:max-w-[390px]">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8a938c]" />
             <input aria-label="Buscar" placeholder="Buscar productos, clientes, operaciones..." className="h-11 w-full rounded-xl border border-[#dbe4ef] bg-white pl-10 pr-4 text-xs outline-none transition placeholder:text-[#9aa8ba] focus:border-[#7da4d3] focus:ring-3 focus:ring-[#e5eef9]" />
@@ -130,7 +156,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="mx-auto max-w-[1600px] px-5 py-6 lg:px-8 lg:py-8">{children}</main>
+        <main className={cn("mx-auto px-5 py-6 lg:px-8 lg:py-8", collapsed ? "max-w-none" : "max-w-[1600px]")}>{children}</main>
       </div>
     </div>
   );

@@ -427,6 +427,7 @@ export function IncomeWorkspace() {
   const [connectorLastSeenAt, setConnectorLastSeenAt] = useState<string | null>(null);
   const [connectorConfigured, setConnectorConfigured] = useState(true);
   const lastCompletedJobId = useRef<string | null>(null);
+  const syncChecked = useRef(false);
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [manualForm, setManualForm] = useState({
     operation: "DEVOLUCION" as (typeof manualOperations)[number],
@@ -547,9 +548,13 @@ export function IncomeWorkspace() {
         data.job?.status === "completed" &&
         data.job.id !== lastCompletedJobId.current
       ) {
+        // En la primera lectura la tabla ya se está cargando: solo se recarga
+        // cuando una importación termina mientras la página está abierta.
+        const firstCheck = !syncChecked.current;
         lastCompletedJobId.current = data.job.id;
-        void loadRows();
+        if (!firstCheck) void loadRows();
       }
+      syncChecked.current = true;
     } catch {
       // Silencioso: es solo un chequeo periódico de estado.
     }

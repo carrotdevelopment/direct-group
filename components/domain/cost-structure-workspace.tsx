@@ -764,7 +764,7 @@ export function CostStructureWorkspace() {
           )}
 
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {alertCount > 0 && (
               <button
                 type="button"
@@ -821,9 +821,9 @@ export function CostStructureWorkspace() {
               variant="secondary"
               disabled={!someSelected}
               onClick={applyPvcProposal}
-              className="h-8 text-[10px]"
+              className="h-8 shrink-0 whitespace-nowrap px-3 text-[10px]"
             >
-              <Calculator size={13} /> Proponer PVC · mantener margen
+              <Calculator size={13} className="shrink-0" /> Proponer PVC · mantener margen
             </Button>
             <div className="flex items-center gap-1 rounded-lg border border-[#dbe4ef] bg-[#f4f8fc] px-2 py-1">
               <span className="text-[9px] font-bold text-[#62728a]">Período PVC</span>

@@ -1,6 +1,7 @@
 import "server-only";
 
 import * as XLSX from "xlsx";
+import { Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import {
   egressSchemas,
@@ -88,103 +89,202 @@ function resolveTangoClient(
   );
 }
 
-async function tangoRows(): Promise<TangoIncomeRow[]> {
-  const [rows, resolution] = await Promise.all([
-    excelPostgres.tangoIncome.findMany({ orderBy: { id: "asc" } }),
-    loadTangoClientResolution(),
-  ]);
-  return rows.map((row) => {
-    const clientCode = text(row.clientCode);
-    const codeKey = normalizeSearch(clientCode);
-    const mapping = resolution.byClientCode.get(codeKey);
-    const quantity = number(row.quantity);
-    const delivered = number(row.deliveredQuantity);
-    const pending = Math.max(0, quantity - delivered);
-    const orderDate = displayDate(row.orderDate);
-    const status = pending > 0 ? "pending" : !orderDate ? "without-order-date" : "complete";
-    return {
-      id: row.id.toString(),
-      rowIndex: Number(row.id),
-      client: resolveTangoClient(codeKey, row.client, resolution),
-      operation: text(row.operation),
-      orderDate,
-      orderYear: row.orderDate?.getUTCFullYear() ?? null,
-      orderMonth: row.orderDate ? row.orderDate.getUTCMonth() + 1 : null,
-      orderNumber: text(row.purchaseOrder),
-      clientCode,
-      uniqueCode: mapping?.uniqueCode ?? "",
-      quantity,
-      source: text(row.transferOrigin),
-      deliveryDate: displayDate(row.deliveryDate),
-      delivered,
-      pending,
-      comments: text(row.comments),
-      status,
-      pendingTangoEntry: row.pendingTangoEntry,
-      // Las filas sincronizadas desde Tango nunca tienen createdBy: solo lo
-      // cargan las entradas manuales (pasaje, ajuste, "Registrar movimiento").
-      manualEntry: Boolean(row.createdBy),
-    };
-  });
+const ACCENTS_FROM = "áàäâéèëêíìïîóòöôúùüûñç";
+const ACCENTS_TO = "aaaaeeeeiiiioooouuuunc";
+
+// Equivalente en SQL de normalizeSearch(): minúsculas, sin acentos, sin espacios al borde.
+function norm(expression: string) {
+  return `translate(lower(btrim(coalesce(${expression}, ''))), '${ACCENTS_FROM}', '${ACCENTS_TO}')`;
 }
 
-export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilters = {}) {
-  const allRows = await tangoRows();
-  const query = normalizeSearch(options.search);
-  const clientSet = new Set((options.clients ?? []).map(normalizeSearch));
-  const yearSet = new Set(options.years ?? []);
-  const monthSet = new Set(options.months ?? []);
-  const filteredRows = allRows
-    .filter((row) => {
-      if (clientSet.size && !clientSet.has(normalizeSearch(row.client))) return false;
-      if (options.operation && row.operation !== options.operation) return false;
-      if (yearSet.size && !yearSet.has(row.orderYear ?? 0)) return false;
-      if (monthSet.size && !monthSet.has(row.orderMonth ?? 0)) return false;
-      if (options.status === "pending" && row.pending <= 0) return false;
-      if (options.status === "complete" && row.pending > 0) return false;
-      if (options.status === "without-order-date" && row.status !== "without-order-date") return false;
-      if (!query) return true;
-      return [row.client, row.operation, row.orderNumber, row.clientCode, row.uniqueCode, row.source, row.comments]
-        .some((entry) => normalizeSearch(entry).includes(query));
-    })
-    .sort((left, right) => right.orderDate.localeCompare(left.orderDate) || right.rowIndex - left.rowIndex);
+// Resuelve el cliente real de cada ingreso en la base (misma prioridad que
+// resolveTangoClient: referencia histórica, Códigos Cliente activos, texto de Tango).
+const RESOLVED_INCOME_CTE = Prisma.raw(`
+  act AS (
+    SELECT DISTINCT ON (${norm("codigo_cliente")})
+      ${norm("codigo_cliente")} AS k, btrim(coalesce(cliente, '')) AS cliente, btrim(coalesce(codigo_unico, '')) AS codigo_unico
+    FROM base_codigo_cliente
+    WHERE activo = true
+    ORDER BY ${norm("codigo_cliente")}, anio_asignacion DESC, mes_asignacion DESC, id DESC
+  ),
+  hist AS (
+    SELECT DISTINCT ON (${norm("client_code")})
+      ${norm("client_code")} AS k, btrim(coalesce(client, '')) AS client
+    FROM tango_client_code_map
+    ORDER BY ${norm("client_code")}, id DESC
+  ),
+  r AS (
+    SELECT t.id, btrim(coalesce(t.operacion, '')) AS operacion, t.fecha_pedido, btrim(coalesce(t.orden_de_compra, '')) AS orden_de_compra,
+      btrim(coalesce(t.codigo_cliente, '')) AS codigo_cliente, coalesce(t.cantidad, 0) AS cantidad,
+      btrim(coalesce(t.origen_del_pasaje, '')) AS origen, t.fecha_entrega, coalesce(t.entregado, 0) AS entregado,
+      btrim(coalesce(t.comentarios, '')) AS comentarios, t.pending_tango_entry, t.created_by, t.updated_at,
+      coalesce(nullif(hist.client, ''), nullif(act.cliente, ''), nullif(btrim(coalesce(t.cliente, '')), ''), 'Sin cliente') AS cliente_res,
+      coalesce(act.codigo_unico, '') AS codigo_unico,
+      greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente
+    FROM tango_ingresos t
+    LEFT JOIN hist ON hist.k = ${norm("t.codigo_cliente")}
+    LEFT JOIN act ON act.k = ${norm("t.codigo_cliente")}
+  )
+`);
 
-  const summarize = (source: TangoIncomeRow[]): TangoIncomeViewSummary => ({
-    totalRows: source.length,
-    totalQuantity: source.reduce((total, row) => total + row.quantity, 0),
-    totalDelivered: source.reduce((total, row) => total + row.delivered, 0),
-    pendingQuantity: source.reduce((total, row) => total + row.pending, 0),
-    pendingRows: source.filter((row) => row.pending > 0).length,
-    unmatchedRows: source.filter((row) => !row.uniqueCode).length,
+type IncomeDbRow = {
+  id: bigint;
+  cliente_res: string;
+  operacion: string;
+  fecha_display: string | null;
+  anio: number | null;
+  mes: number | null;
+  orden_de_compra: string;
+  codigo_cliente: string;
+  codigo_unico: string;
+  cantidad: number;
+  origen: string;
+  entrega_display: string | null;
+  entregado: number;
+  pendiente: number;
+  comentarios: string;
+  pending_tango_entry: boolean;
+  created_by: string | null;
+};
+
+type IncomeAggregate = {
+  total: number;
+  cantidad: number | null;
+  entregado: number | null;
+  pendiente: number | null;
+  filas_pendientes: number;
+  sin_unico: number;
+};
+
+function aggregateToSummary(row: IncomeAggregate | undefined): TangoIncomeViewSummary {
+  return {
+    totalRows: Number(row?.total ?? 0),
+    totalQuantity: Number(row?.cantidad ?? 0),
+    totalDelivered: Number(row?.entregado ?? 0),
+    pendingQuantity: Number(row?.pendiente ?? 0),
+    pendingRows: Number(row?.filas_pendientes ?? 0),
+    unmatchedRows: Number(row?.sin_unico ?? 0),
+  };
+}
+
+function incomeConditions(options: TangoIncomeFilters) {
+  const conditions: Prisma.Sql[] = [];
+  const clients = (options.clients ?? []).map(normalizeSearch);
+  if (clients.length) conditions.push(Prisma.sql`${Prisma.raw(norm("cliente_res"))} = ANY(${clients}::text[])`);
+  if (options.operation) conditions.push(Prisma.sql`operacion = ${options.operation}`);
+  if (options.years?.length) conditions.push(Prisma.sql`extract(year FROM fecha_pedido)::int = ANY(${options.years}::int[])`);
+  if (options.months?.length) conditions.push(Prisma.sql`extract(month FROM fecha_pedido)::int = ANY(${options.months}::int[])`);
+  if (options.status === "pending") conditions.push(Prisma.sql`pendiente > 0`);
+  if (options.status === "complete") conditions.push(Prisma.sql`pendiente <= 0`);
+  if (options.status === "without-order-date") conditions.push(Prisma.sql`(pendiente <= 0 AND fecha_pedido IS NULL)`);
+  const query = normalizeSearch(options.search);
+  if (query) {
+    const haystack = norm(
+      "concat_ws(E'\\x01', cliente_res, operacion, orden_de_compra, codigo_cliente, codigo_unico, origen, comentarios)",
+    );
+    conditions.push(Prisma.sql`strpos(${Prisma.raw(haystack)}, ${query}) > 0`);
+  }
+  return conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}` : Prisma.empty;
+}
+
+const AGGREGATE_COLUMNS = Prisma.raw(`
+  count(*)::int AS total, sum(cantidad)::float8 AS cantidad, sum(entregado)::float8 AS entregado,
+  sum(pendiente)::float8 AS pendiente, (count(*) FILTER (WHERE pendiente > 0))::int AS filas_pendientes,
+  (count(*) FILTER (WHERE codigo_unico = ''))::int AS sin_unico
+`);
+
+// Todo el filtrado, orden y totales se resuelven en PostgreSQL: antes se traían
+// las ~128 mil filas a memoria en cada consulta (cada filtro, cada carga de página).
+export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilters = {}) {
+  const where = incomeConditions(options);
+  const limit = Math.max(1, Math.min(Number(options.limit ?? 750), 5000));
+
+  const [rows, filteredAggregate, groups] = await Promise.all([
+    excelPostgres.$queryRaw<IncomeDbRow[]>(Prisma.sql`
+      WITH ${RESOLVED_INCOME_CTE}
+      SELECT id, cliente_res, operacion, to_char(fecha_pedido, 'DD/MM/YYYY') AS fecha_display,
+        extract(year FROM fecha_pedido)::int AS anio, extract(month FROM fecha_pedido)::int AS mes,
+        orden_de_compra, codigo_cliente, codigo_unico, cantidad::float8 AS cantidad, origen,
+        to_char(fecha_entrega, 'DD/MM/YYYY') AS entrega_display, entregado::float8 AS entregado,
+        pendiente::float8 AS pendiente, comentarios, pending_tango_entry, created_by
+      FROM r ${where}
+      ORDER BY fecha_pedido DESC NULLS LAST, id DESC
+      LIMIT ${limit}`),
+    excelPostgres.$queryRaw<IncomeAggregate[]>(Prisma.sql`
+      WITH ${RESOLVED_INCOME_CTE}
+      SELECT ${AGGREGATE_COLUMNS} FROM r ${where}`),
+    excelPostgres.$queryRaw<
+      (IncomeAggregate & { cliente_res: string; operacion: string; anio: number | null; origen: string; ultima: Date | null })[]
+    >(Prisma.sql`
+      WITH ${RESOLVED_INCOME_CTE}
+      SELECT cliente_res, operacion, extract(year FROM fecha_pedido)::int AS anio, origen,
+        max(updated_at) AS ultima, ${AGGREGATE_COLUMNS}
+      FROM r GROUP BY 1, 2, 3, 4`),
+  ]);
+
+  const totals = aggregateToSummary({
+    total: groups.reduce((sum, g) => sum + Number(g.total), 0),
+    cantidad: groups.reduce((sum, g) => sum + Number(g.cantidad ?? 0), 0),
+    entregado: groups.reduce((sum, g) => sum + Number(g.entregado ?? 0), 0),
+    pendiente: groups.reduce((sum, g) => sum + Number(g.pendiente ?? 0), 0),
+    filas_pendientes: groups.reduce((sum, g) => sum + Number(g.filas_pendientes), 0),
+    sin_unico: groups.reduce((sum, g) => sum + Number(g.sin_unico), 0),
   });
-  const totalSummary = summarize(allRows);
-  const lastUpdated = await excelPostgres.tangoIncome.findFirst({
-    orderBy: { updatedAt: "desc" },
-    select: { updatedAt: true },
-  });
+  const lastUpdated = groups.reduce<Date | null>(
+    (latest, g) => (g.ultima && (!latest || g.ultima > latest) ? g.ultima : latest),
+    null,
+  );
+
   const summary: TangoIncomeSummary = {
     exists: true,
     filePath: "PostgreSQL / tango_ingresos",
-    lastUpdated: lastUpdated?.updatedAt.toISOString() ?? null,
-    totalRows: totalSummary.totalRows,
-    clients: new Set(allRows.map((row) => normalizeSearch(row.client))).size,
-    operations: new Set(allRows.map((row) => normalizeSearch(row.operation))).size,
-    totalQuantity: totalSummary.totalQuantity,
-    totalDelivered: totalSummary.totalDelivered,
-    pendingQuantity: totalSummary.pendingQuantity,
-    pendingRows: totalSummary.pendingRows,
+    lastUpdated: lastUpdated?.toISOString() ?? null,
+    totalRows: totals.totalRows,
+    clients: new Set(groups.map((g) => normalizeSearch(g.cliente_res))).size,
+    operations: new Set(groups.map((g) => normalizeSearch(g.operacion))).size,
+    totalQuantity: totals.totalQuantity,
+    totalDelivered: totals.totalDelivered,
+    pendingQuantity: totals.pendingQuantity,
+    pendingRows: totals.pendingRows,
   };
+
+  const mappedRows: TangoIncomeRow[] = rows.map((row) => {
+    const status = row.pendiente > 0 ? "pending" : !row.fecha_display ? "without-order-date" : "complete";
+    return {
+      id: row.id.toString(),
+      rowIndex: Number(row.id),
+      client: row.cliente_res,
+      operation: row.operacion,
+      orderDate: row.fecha_display ?? "",
+      orderYear: row.anio,
+      orderMonth: row.mes,
+      orderNumber: row.orden_de_compra,
+      clientCode: row.codigo_cliente,
+      uniqueCode: row.codigo_unico,
+      quantity: row.cantidad,
+      source: row.origen,
+      deliveryDate: row.entrega_display ?? "",
+      delivered: row.entregado,
+      pending: row.pendiente,
+      comments: row.comentarios,
+      status,
+      pendingTangoEntry: row.pending_tango_entry,
+      manualEntry: Boolean(row.created_by),
+    };
+  });
+
   return {
-    rows: filteredRows.slice(0, options.limit ?? 750),
-    totalFiltered: filteredRows.length,
-    viewSummary: summarize(filteredRows),
+    rows: mappedRows,
+    totalFiltered: Number(filteredAggregate[0]?.total ?? 0),
+    viewSummary: aggregateToSummary(filteredAggregate[0]),
     summary,
     options: {
-      clients: Array.from(new Set(allRows.map((row) => row.client))).sort((a, b) => a.localeCompare(b)),
-      operations: Array.from(new Set(allRows.map((row) => row.operation))).sort((a, b) => a.localeCompare(b)),
-      years: Array.from(new Set(allRows.map((row) => row.orderYear).filter((year): year is number => year !== null)))
-        .sort((a, b) => b - a),
-      origins: Array.from(new Set(allRows.map((row) => row.source).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es")),
+      clients: Array.from(new Set(groups.map((g) => g.cliente_res))).sort((a, b) => a.localeCompare(b)),
+      operations: Array.from(new Set(groups.map((g) => g.operacion))).sort((a, b) => a.localeCompare(b)),
+      years: Array.from(new Set(groups.map((g) => g.anio).filter((year): year is number => year !== null))).sort(
+        (a, b) => b - a,
+      ),
+      origins: Array.from(new Set(groups.map((g) => g.origen).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es")),
     },
   };
 }
