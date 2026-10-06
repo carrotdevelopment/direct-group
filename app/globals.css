@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Tailwind v4 deja los botones con cursor por defecto: se restaura la manito. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+summary {
+  cursor: pointer;
+}
+
+
 :root {
   --ink: #10233f;
   --muted: #62728a;
