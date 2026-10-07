@@ -1,5 +1,10 @@
 import { runMonthlyPriceRequests } from "@/lib/supplier-mail";
 
+// cron no carga el .env como lo hace Next: se lee a mano (SMTP_* y conexión a la base).
+try {
+  process.loadEnvFile(".env");
+} catch {}
+
 // Lo ejecuta cron todos los días: solo envía a partir del primer día hábil del mes
 // y una única vez por proveedor activo y por mes.
 runMonthlyPriceRequests()
