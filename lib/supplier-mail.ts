@@ -138,8 +138,12 @@ export async function sendPriceRequestToContact(id: string, trigger: Trigger, no
 export async function runMonthlyPriceRequests(now = new Date()) {
   if (!isOnOrAfterFirstBusinessDay(now)) return { skipped: "Todavía no es el primer día hábil del mes.", sent: 0, failed: 0 };
   const period = periodOf(now);
+  const { year, month } = dateParts(now);
+  // Un proveedor agregado después del primer día hábil entra recién el mes siguiente:
+  // así cargar un contacto a mitad de mes no dispara un envío inmediato.
+  const cutoff = new Date(Date.UTC(year, month - 1, firstBusinessDay(year, month) + 1, 3, 0, 0));
   const contacts = await excelPostgres.supplierMailContact.findMany({
-    where: { active: true, logs: { none: { period, status: "sent", trigger: "auto" } } },
+    where: { active: true, createdAt: { lt: cutoff }, logs: { none: { period, status: "sent", trigger: "auto" } } },
     orderBy: { supplier: "asc" },
   });
   let sent = 0;
