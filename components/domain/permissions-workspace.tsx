@@ -15,10 +15,19 @@ export function PermissionsWorkspace({ currentUserId }: { currentUserId: string 
   const [clientOptions, setClientOptions] = useState<string[]>([]);
   const [clientSearch, setClientSearch] = useState("");
   useEffect(() => {
-    fetch("/api/lookups?kind=client-codes")
-      .then(response => response.json() as Promise<{ mappings?: { client: string; active: boolean }[] }>)
-      .then(data => setClientOptions(Array.from(new Set((data.mappings ?? []).filter(item => item.active).map(item => item.client).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"))))
-      .catch(() => setClientOptions([]));
+    // Clientes activos de la tabla Clientes más los que tienen códigos activos en Códigos Cliente
+    // (hay clientes que figuran en una sola de las dos).
+    Promise.all([
+      fetch("/api/lookups?kind=clients").then(response => response.json() as Promise<{ clients?: { name: string; active: boolean }[] }>).catch(() => ({ clients: [] as { name: string; active: boolean }[] })),
+      fetch("/api/lookups?kind=client-codes").then(response => response.json() as Promise<{ mappings?: { client: string; active: boolean }[] }>).catch(() => ({ mappings: [] as { client: string; active: boolean }[] })),
+    ]).then(([clientsData, codesData]) => {
+      const byLowerName = new Map<string, string>();
+      for (const name of [...(clientsData.clients ?? []).filter(item => item.active).map(item => item.name), ...(codesData.mappings ?? []).filter(item => item.active).map(item => item.client)]) {
+        const trimmed = (name ?? "").trim();
+        if (trimmed && !byLowerName.has(trimmed.toLowerCase())) byLowerName.set(trimmed.toLowerCase(), trimmed);
+      }
+      setClientOptions(Array.from(byLowerName.values()).sort((x, y) => x.localeCompare(y, "es")));
+    });
   }, []);
   async function load() {
     const response = await fetch("/api/users"); const data = await response.json();
