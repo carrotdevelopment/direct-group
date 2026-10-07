@@ -63,7 +63,32 @@ function createMessage(from: string, message: MailMessage) {
   ].join("\r\n");
 }
 
+// DigitalOcean bloquea el SMTP saliente: si hay MAIL_RELAY_URL, el correo se manda por HTTPS
+// a un Google Apps Script publicado con la cuenta remitente.
+async function sendViaRelay(message: MailMessage) {
+  const url = process.env.MAIL_RELAY_URL as string;
+  const token = process.env.MAIL_RELAY_TOKEN;
+  if (!token) throw new Error("Falta configurar MAIL_RELAY_TOKEN.");
+  const response = await fetch(url, {
+    method: "POST",
+    redirect: "follow",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ token, to: message.to, subject: message.subject, body: message.text }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const raw = await response.text();
+  let data: { ok?: boolean; error?: string; from?: string } = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error("El puente de correo no respondió como se esperaba. Revisá la publicación del script.");
+  }
+  if (!data.ok) throw new Error(data.error || "El puente de correo rechazó el envío.");
+  return { from: data.from || process.env.SMTP_FROM || "cuenta de Google" };
+}
+
 export async function sendSmtpMail(message: MailMessage) {
+  if (process.env.MAIL_RELAY_URL) return sendViaRelay(message);
   const config = getSmtpConfig();
   let socket: net.Socket | tls.TLSSocket = config.secure
     ? tls.connect({
@@ -144,5 +169,5 @@ export async function sendSmtpMail(message: MailMessage) {
 }
 
 export function getConfiguredMailFrom() {
-  return process.env.SMTP_FROM || process.env.SMTP_USER || null;
+  return process.env.SMTP_FROM || process.env.SMTP_USER || (process.env.MAIL_RELAY_URL ? "la cuenta de Google del puente de correo" : null);
 }
