@@ -8,6 +8,7 @@ import {
   Mail,
   Pencil,
   Plus,
+  Trash2,
   Save,
   Search,
   Send,
@@ -27,6 +28,19 @@ type SupplierMailConfig = {
   active: boolean;
   lastSent: string | null;
 };
+
+type ContactApi = {
+  id: string;
+  supplier: string;
+  contactName: string;
+  email: string;
+  active: boolean;
+  lastSentAt: string | null;
+};
+
+function fromApi(contact: ContactApi): SupplierMailConfig {
+  return { id: contact.id, supplier: contact.supplier, contactName: contact.contactName, email: contact.email, active: contact.active, lastSent: contact.lastSentAt };
+}
 
 type PriceRecord = {
   id: string;
@@ -55,30 +69,15 @@ type ProductRecord = {
   supplier: string;
 };
 
-const supplierSeed: SupplierMailConfig[] = [
-  {
-    id: "supplier-acegame",
-    supplier: "ACEGAME",
-    contactName: "Contacto comercial",
-    email: "precios@acegame.com",
-    active: true,
-    lastSent: "2026-06-01",
-  },
-];
-
 const emptySupplierForm = { supplier: "", contactName: "", email: "" };
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function formatDate(value: string | null) {
   if (!value) return "Nunca";
   return new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00Z`));
+    timeZone: "America/Argentina/Buenos_Aires",
+  }).format(new Date(value));
 }
 
 function formatNumber(value: number) {
@@ -106,8 +105,7 @@ function withCalculatedMarkup(record: PriceRecord): PriceRecord {
 }
 
 export function PriceRequestWorkspace() {
-  const [suppliers, setSuppliers] =
-    useState<SupplierMailConfig[]>(supplierSeed);
+  const [suppliers, setSuppliers] = useState<SupplierMailConfig[]>([]);
   const [prices, setPrices] = useState<PriceRecord[]>([]);
   const [pricesLoading, setPricesLoading] = useState(true);
   const [pricesFetching, setPricesFetching] = useState(false);
@@ -155,14 +153,8 @@ export function PriceRequestWorkspace() {
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
 
   useEffect(() => {
-    const storedSuppliers = localStorage.getItem("dg-supplier-mail-configs-v2");
-    if (storedSuppliers) {
-      queueMicrotask(() =>
-        setSuppliers(JSON.parse(storedSuppliers) as SupplierMailConfig[]),
-      );
-    }
-
     let active = true;
+    void loadContacts();
     fetch("/api/local-db/prices?meta=1")
       .then((response) => response.json())
       .then((data: { options?: PriceOptions }) => {
@@ -256,9 +248,14 @@ export function PriceRequestWorkspace() {
 
   const canLoadPrices = !pricesLoading && !pricesFetching;
 
-  function persistSuppliers(next: SupplierMailConfig[]) {
-    setSuppliers(next);
-    localStorage.setItem("dg-supplier-mail-configs-v2", JSON.stringify(next));
+  async function loadContacts() {
+    try {
+      const response = await fetch("/api/price-requests/contacts");
+      const data = (await response.json()) as { contacts?: ContactApi[] };
+      setSuppliers((data.contacts ?? []).map(fromApi));
+    } catch {
+      setMailStatus({ tone: "error", text: "No pude cargar los proveedores del envío mensual." });
+    }
   }
 
   async function persistPrices(next: PriceRecord[]) {
@@ -425,7 +422,7 @@ export function PriceRequestWorkspace() {
     setSupplierModalOpen(true);
   }
 
-  function saveSupplier(event: FormEvent) {
+  async function saveSupplier(event: FormEvent) {
     event.preventDefault();
     if (
       !supplierForm.supplier.trim() ||
@@ -437,43 +434,45 @@ export function PriceRequestWorkspace() {
       );
       return;
     }
-
-    if (editingSupplierId) {
-      persistSuppliers(
-        suppliers.map((config) =>
-          config.id === editingSupplierId
-            ? {
-                ...config,
-                supplier: supplierForm.supplier.trim(),
-                contactName: supplierForm.contactName.trim(),
-                email: supplierForm.email.trim(),
-              }
-            : config,
-        ),
-      );
-    } else {
-      persistSuppliers([
-        ...suppliers,
+    try {
+      const response = await fetch(
+        editingSupplierId ? `/api/price-requests/contacts/${editingSupplierId}` : "/api/price-requests/contacts",
         {
-          id: crypto.randomUUID(),
-          supplier: supplierForm.supplier.trim(),
-          contactName: supplierForm.contactName.trim(),
-          email: supplierForm.email.trim(),
-          active: true,
-          lastSent: null,
+          method: editingSupplierId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            supplier: supplierForm.supplier.trim(),
+            contactName: supplierForm.contactName.trim(),
+            email: supplierForm.email.trim(),
+          }),
         },
-      ]);
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "No se pudo guardar.");
+      await loadContacts();
+      setSupplierModalOpen(false);
+    } catch (error) {
+      setSupplierError(error instanceof Error ? error.message : "No se pudo guardar.");
     }
-
-    setSupplierModalOpen(false);
   }
 
-  function toggleSupplier(id: string) {
-    persistSuppliers(
-      suppliers.map((config) =>
-        config.id === id ? { ...config, active: !config.active } : config,
-      ),
-    );
+  async function toggleSupplier(id: string) {
+    const config = suppliers.find((item) => item.id === id);
+    if (!config) return;
+    setSuppliers((current) => current.map((item) => (item.id === id ? { ...item, active: !item.active } : item)));
+    const response = await fetch(`/api/price-requests/contacts/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: !config.active }),
+    });
+    if (!response.ok) await loadContacts();
+  }
+
+  async function deleteSupplier(config: SupplierMailConfig) {
+    if (!window.confirm(`¿Quitar a ${config.supplier} del envío mensual?`)) return;
+    const response = await fetch(`/api/price-requests/contacts/${config.id}`, { method: "DELETE" });
+    if (!response.ok) setMailStatus({ tone: "error", text: "No se pudo quitar el proveedor." });
+    await loadContacts();
   }
 
   async function sendTestRequest(config: SupplierMailConfig) {
@@ -481,14 +480,8 @@ export function PriceRequestWorkspace() {
     setMailStatus(null);
 
     try {
-      const response = await fetch("/api/price-requests/send-test", {
+      const response = await fetch(`/api/price-requests/contacts/${config.id}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          supplier: config.supplier,
-          contactName: config.contactName,
-          email: config.email,
-        }),
       });
       const data = (await response.json()) as SendMailResponse;
       if (!response.ok || !data.ok) {
@@ -499,11 +492,7 @@ export function PriceRequestWorkspace() {
         return;
       }
 
-      persistSuppliers(
-        suppliers.map((item) =>
-          item.id === config.id ? { ...item, lastSent: todayIso() } : item,
-        ),
-      );
+      await loadContacts();
       setMailStatus({
         tone: "success",
         text: `${data.message} Salió desde ${data.from || "la casilla SMTP configurada"}.`,
@@ -571,7 +560,7 @@ export function PriceRequestWorkspace() {
       <PageHeader
         eyebrow="Precios"
         title="Solicitudes y base de precios"
-        description="Configurá a quién se solicita la lista cada día 1 y consultá el historial de precios recibidos y estructurados."
+        description="Configurá a quién se solicita la lista el primer día hábil de cada mes y consultá el historial de precios recibidos y estructurados."
       />
 
       <section className="card mb-5 overflow-hidden">
@@ -582,8 +571,9 @@ export function PriceRequestWorkspace() {
               Proveedores y destinatarios
             </h2>
             <p className="mt-1 text-[11px] text-[#62728a]">
-              El correo mensual se programa para el día 1. El botón de prueba
-              envía ahora mismo a la casilla cargada.
+              Los proveedores activos reciben solos el pedido de catálogo el
+              primer día hábil de cada mes. El botón de prueba envía ahora mismo
+              a la casilla cargada.
             </p>
           </div>
           <Button size="sm" onClick={openNewSupplier}>
@@ -640,7 +630,7 @@ export function PriceRequestWorkspace() {
                     </span>
                   </td>
                   <td className="px-2 py-2 text-center text-[#425979]">
-                    Día 1 mensual
+                    1.er día hábil
                   </td>
                   <td className="px-2 py-2 text-center text-[#425979]">
                     {formatDate(config.lastSent)}
@@ -678,6 +668,15 @@ export function PriceRequestWorkspace() {
                       className="h-8 px-3 text-[10px]"
                     >
                       <Pencil size={13} /> Editar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => deleteSupplier(config)}
+                      className="ml-1 h-8 px-2 text-[10px]"
+                      aria-label={`Quitar ${config.supplier}`}
+                    >
+                      <Trash2 size={13} />
                     </Button>
                   </td>
                 </tr>
@@ -1340,8 +1339,14 @@ export function PriceRequestWorkspace() {
             <div className="mt-6 grid gap-4">
               <label className="text-[11px] font-extrabold text-[#334b6b]">
                 Proveedor *
+                <datalist id="mail-supplier-options">
+                  {allSupplierOptions.map((supplier) => (
+                    <option key={supplier} value={supplier} />
+                  ))}
+                </datalist>
                 <input
                   value={supplierForm.supplier}
+                  list="mail-supplier-options"
                   onChange={(event) =>
                     setSupplierForm({
                       ...supplierForm,
@@ -1381,7 +1386,7 @@ export function PriceRequestWorkspace() {
                 />
               </label>
               <div className="rounded-xl bg-[#edf4fc] px-2 py-2 text-[11px] text-[#425979]">
-                Programación fija: día 1 de cada mes. Para probar ahora, usá
+                Programación fija: primer día hábil de cada mes, solo si el proveedor está activo. Para probar ahora, usá
                 &quot;Enviar prueba&quot; en la tabla.
               </div>
             </div>

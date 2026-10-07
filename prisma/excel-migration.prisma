@@ -624,3 +624,31 @@ model AjusteRequest {
   @@index([status])
   @@map("ajuste_requests")
 }
+
+model SupplierMailContact {
+  id          String            @id @default(uuid()) @db.Uuid
+  supplier    String            @db.VarChar(255)
+  contactName String            @map("contacto") @db.VarChar(255)
+  email       String            @db.VarChar(255)
+  active      Boolean           @default(true)
+  lastSentAt  DateTime?         @map("last_sent_at") @db.Timestamptz(6)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  logs        SupplierMailLog[]
+
+  @@map("supplier_mail_contacts")
+}
+
+model SupplierMailLog {
+  id        BigInt              @id @default(autoincrement())
+  contactId String              @map("contact_id") @db.Uuid
+  period    String              @db.VarChar(7)
+  status    String              @db.VarChar(20)
+  trigger   String              @db.VarChar(20)
+  error     String?
+  sentAt    DateTime            @default(now()) @map("sent_at") @db.Timestamptz(6)
+  contact   SupplierMailContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, period])
+  @@map("supplier_mail_logs")
+}
