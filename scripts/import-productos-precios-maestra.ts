@@ -31,8 +31,13 @@ const percentFromMultiplier = (value: unknown) => {
 
 async function main() {
   const workbook = XLSX.read(fs.readFileSync(filePath), { type: "buffer" });
-  const products = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets["DB_Producto"], { defval: "" });
-  const prices = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets["DB_Precios"], { defval: "" });
+  // Algunos encabezados del Excel traen espacios (" Costo DG "): se leen con el nombre recortado.
+  const readSheet = (name: string) =>
+    XLSX.utils
+      .sheet_to_json<Record<string, unknown>>(workbook.Sheets[name], { defval: "" })
+      .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim(), value])));
+  const products = readSheet("DB_Producto");
+  const prices = readSheet("DB_Precios");
 
   // ---------- Productos
   const [dbProducts, brands, suppliers, categories] = await Promise.all([
