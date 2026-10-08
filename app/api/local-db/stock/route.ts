@@ -10,6 +10,7 @@ import { readEgressRows, readIncomeRows } from "@/lib/operation-excel-db";
 import { usesPostgres } from "@/lib/data-source";
 import {
   readClientCodesFromPostgres,
+  readClientsFromPostgres,
   readProductsFromPostgres,
   readSantanderCostsFromPostgres,
   readSantanderStockFromPostgres,
@@ -63,10 +64,12 @@ function number(value: unknown) {
 }
 
 function operation(value: unknown) {
+  // Los egresos importados guardan "ROBO_AJUSTE" y los cargados desde Pasajes "ROBO/AJUSTE": son lo mismo.
   return text(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
+    .toUpperCase()
+    .replace(/_/g, "/");
 }
 
 function dateFromParts(day: unknown, month: unknown, year: unknown) {
@@ -128,15 +131,34 @@ export async function GET(request: Request) {
   const year = today.getFullYear();
   const targetPeriod = periodIndex(year, month);
 
-  if (canonicalClient(client) !== "santander") {
+  const postgres = usesPostgres();
+
+  // Clientes con productos asignados, para el selector de la pantalla.
+  if (url.searchParams.get("clients") && postgres) {
+    const [clients, assignments] = await Promise.all([readClientsFromPostgres(), readClientCodesFromPostgres()]);
+    const withCodes = new Set(assignments.filter((m) => m.active && !m.voidedAt).map((m) => canonicalClient(m.client)));
+    const names = clients
+      .filter((c) => c.active !== false && withCodes.has(canonicalClient(c.name)))
+      .map((c) => c.name)
+      .sort((a, b) => (canonicalClient(a) === "santander" ? -1 : canonicalClient(b) === "santander" ? 1 : a.localeCompare(b, "es")));
+    return NextResponse.json({ clients: names.length ? names : ["Santander"] });
+  }
+
+  let clientName = "Santander";
+  if (postgres) {
+    const clients = await readClientsFromPostgres();
+    const found = clients.find((c) => c.active !== false && canonicalClient(c.name) === canonicalClient(client));
+    if (!found) return NextResponse.json({ rows: [], message: "Elegí un cliente de la lista." });
+    clientName = found.name;
+  } else if (canonicalClient(client) !== "santander") {
     return NextResponse.json({
       rows: [],
       message: "Por ahora solo está cargada la vista de stock Santander.",
     });
   }
+  const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 
-  const postgres = usesPostgres();
-  const [mappingRows, productRows, persistedStockRows, costRows] = postgres
+  const [mappingRows, productRows, allStockRows, allCostRows] = postgres
     ? await Promise.all([
         readClientCodesFromPostgres(),
         readProductsFromPostgres(),
@@ -149,8 +171,10 @@ export async function GET(request: Request) {
         readSantanderStockRowsFromExcel(),
         readSantanderCostRowsFromExcel(),
       ];
+  const persistedStockRows = allStockRows.filter((row) => sameClient(row.client));
+  const costRows = allCostRows.filter((row) => sameClient(row.client));
   const operationRows = postgres
-    ? await readStockOperationRowsFromPostgres()
+    ? await readStockOperationRowsFromPostgres(clientName)
     : {
         incomes: readIncomeRows({ client: "santander", limit: Number.MAX_SAFE_INTEGER }),
         egresses: readEgressRows({ client: "Santander", limit: Number.MAX_SAFE_INTEGER }),
@@ -161,7 +185,7 @@ export async function GET(request: Request) {
   // All non-voided Santander assignments up to today
   const allMappings = mappingRows.filter(
     (m) =>
-      canonicalClient(m.client) === "santander" &&
+      sameClient(m.client) &&
       !m.voidedAt &&
       periodIndex(m.assignedYear, m.assignedMonth) <= targetPeriod,
   );
@@ -214,6 +238,11 @@ export async function GET(request: Request) {
   const egresses = egressRows as Array<Record<string, unknown>>;
   const costs = latestCostByCode(targetPeriod, costRows);
   const incomeOps = new Set(["COMPRA", "PASAJE", "ROBO/AJUSTE", "DEVOLUCION"]);
+  // En Tango los pasajes que entran a Umiles se registran como ajustes de ingreso.
+  if (canonicalClient(clientName) === "umiles") {
+    incomeOps.add("AJUSTE NO VALORIZADO");
+    incomeOps.add("AJUSTE VALORIZADO");
+  }
   const incomeDateOps = new Set(["COMPRA", "PASAJE"]);
   const egressOps = new Set(["CANJE", "ROBO/AJUSTE", "PASAJE", "CAMBIO"]);
   const incomesByClientCode = new Map<string, Array<Record<string, unknown>>>();
@@ -338,7 +367,7 @@ export async function GET(request: Request) {
   const withStockData = rows.filter((r) => r.hasStockData).length;
   return NextResponse.json({
     rows,
-    message: `${vigentes} productos vigentes Santander · ${withStockData} con datos de stock cargados.`,
+    message: `${vigentes} productos vigentes ${clientName} · ${withStockData} con datos de stock cargados.`,
     source: usesPostgres() ? "postgresql" : "excel",
   });
 }

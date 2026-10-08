@@ -374,8 +374,9 @@ export async function readIncomeRowsFromPostgres(options: {
   }));
 }
 
-export async function readStockOperationRowsFromPostgres() {
-  // El stock de Santander se calcula contra el Cliente ya resuelto (no el
+export async function readStockOperationRowsFromPostgres(client = "Santander") {
+  const wantedClient = client.trim().toLowerCase();
+  // El stock de un cliente se calcula contra el Cliente ya resuelto (no el
   // depósito crudo de Tango), así que hay que traer todos los ingresos y
   // filtrar en JS con la misma prioridad que usa la página de Ingresos.
   const [incomeRows, resolution, egressGroups] = await Promise.all([
@@ -393,7 +394,7 @@ export async function readStockOperationRowsFromPostgres() {
     excelPostgres.egress.groupBy({
       by: ["clientCode", "operation"],
       where: {
-        client: { equals: "santander", mode: "insensitive" },
+        client: { equals: client.trim(), mode: "insensitive" },
         deletedAt: null,
       },
       _sum: { quantity: true },
@@ -402,7 +403,7 @@ export async function readStockOperationRowsFromPostgres() {
 
   const santanderRows = incomeRows.filter((row) => {
     const codeKey = normalizeSearch(row.clientCode);
-    return resolveTangoClient(codeKey, resolution).toLowerCase() === "santander";
+    return resolveTangoClient(codeKey, resolution).toLowerCase() === wantedClient;
   });
 
   const groups = new Map<

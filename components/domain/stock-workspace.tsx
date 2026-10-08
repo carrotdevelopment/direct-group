@@ -37,7 +37,6 @@ type StockRow = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CLIENTS = ["Santander"];
 const today = new Date();
 const MONTHS = [
   "Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -74,7 +73,8 @@ function packageRound(value: number, size: number) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function StockWorkspace() {
-  const [client, setClient] = useState(CLIENTS[0]);
+  const [clients, setClients] = useState<string[]>(["Santander"]);
+  const [client, setClient] = useState("Santander");
   const [rows, setRows] = useState<StockRow[]>([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -82,6 +82,15 @@ export function StockWorkspace() {
   const [uniqueSearch, setUniqueSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [planningMonths, setPlanningMonths] = useState("2");
+
+  useEffect(() => {
+    fetch("/api/local-db/stock?clients=1")
+      .then((response) => response.json() as Promise<{ clients?: string[] }>)
+      .then((data) => {
+        if (data.clients?.length) setClients(data.clients);
+      })
+      .catch(() => undefined);
+  }, []);
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -307,7 +316,7 @@ export function StockWorkspace() {
               onChange={(e) => setClient(e.target.value)}
               className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
             >
-              {CLIENTS.map((n) => (
+              {clients.map((n) => (
                 <option key={n}>{n}</option>
               ))}
             </select>
