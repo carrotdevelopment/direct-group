@@ -597,6 +597,9 @@ model PasajeRequest {
   respondedBy     String?   @map("responded_by") @db.VarChar(255)
   respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
   responseComment String?   @map("response_comment")
+  confirmedQuantity Decimal? @map("cantidad_confirmada") @db.Decimal(18, 4)
+  confirmedBy     String?   @map("confirmed_by") @db.VarChar(255)
+  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
 
   @@index([status])
   @@map("pasaje_requests")

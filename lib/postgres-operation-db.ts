@@ -71,21 +71,21 @@ async function loadTangoClientResolution() {
   return { byClientCode, historicalClientByCode };
 }
 
+export const UNASSIGNED_CLIENT = "Sin asignar";
+
 // El "Cliente" de Tango (STA22.NOMBRE_SUC) es en realidad el depósito/campaña,
-// no el cliente real de DG (confirmado con la base: un mismo depósito como
-// "Urbano Express" mezcla códigos de decenas de clientes distintos). Prioridad:
-// 1) referencia histórica por código (más cobertura, 2012-2026), 2) Códigos
-// Cliente activos, 3) el texto de Tango como último recurso.
+// no el cliente real de DG (un mismo depósito como "Urbano Express" mezcla
+// códigos de decenas de clientes distintos), así que nunca se usa. El cliente
+// sale del código cliente: 1) Códigos Cliente activos, 2) referencia histórica
+// (2012-2026). Sin match queda "Sin asignar" para corregirlo en Códigos cliente.
 function resolveTangoClient(
   codeKey: string,
-  rawClient: unknown,
   resolution: Awaited<ReturnType<typeof loadTangoClientResolution>>,
 ) {
   return (
-    resolution.historicalClientByCode.get(codeKey) ||
     resolution.byClientCode.get(codeKey)?.client ||
-    text(rawClient) ||
-    "Sin cliente"
+    resolution.historicalClientByCode.get(codeKey) ||
+    UNASSIGNED_CLIENT
   );
 }
 
@@ -98,7 +98,7 @@ function norm(expression: string) {
 }
 
 // Resuelve el cliente real de cada ingreso en la base (misma prioridad que
-// resolveTangoClient: referencia histórica, Códigos Cliente activos, texto de Tango).
+// resolveTangoClient: Códigos Cliente activos, referencia histórica, "Sin asignar").
 const RESOLVED_INCOME_CTE = Prisma.raw(`
   act AS (
     SELECT DISTINCT ON (${norm("codigo_cliente")})
@@ -118,7 +118,7 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`
       btrim(coalesce(t.codigo_cliente, '')) AS codigo_cliente, coalesce(t.cantidad, 0) AS cantidad,
       btrim(coalesce(t.origen_del_pasaje, '')) AS origen, t.fecha_entrega, coalesce(t.entregado, 0) AS entregado,
       btrim(coalesce(t.comentarios, '')) AS comentarios, t.pending_tango_entry, t.created_by, t.updated_at,
-      coalesce(nullif(hist.client, ''), nullif(act.cliente, ''), nullif(btrim(coalesce(t.cliente, '')), ''), 'Sin cliente') AS cliente_res,
+      coalesce(nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar') AS cliente_res,
       coalesce(act.codigo_unico, '') AS codigo_unico,
       greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente
     FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t
@@ -396,7 +396,7 @@ export async function readStockOperationRowsFromPostgres() {
 
   const santanderRows = incomeRows.filter((row) => {
     const codeKey = normalizeSearch(row.clientCode);
-    return resolveTangoClient(codeKey, row.client, resolution).toLowerCase() === "santander";
+    return resolveTangoClient(codeKey, resolution).toLowerCase() === "santander";
   });
 
   const groups = new Map<

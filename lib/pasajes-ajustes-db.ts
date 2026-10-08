@@ -69,13 +69,20 @@ export type PasajeInput = {
   comments?: string;
 };
 
-export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
-  const createdBy = actor.name;
-  if (input.quantity <= 0) throw new PasajeAjusteError("La cantidad tiene que ser mayor a cero.");
-  if (!input.fromClient.trim() || !input.fromClientCode.trim()) {
+export class PasajeBatchError extends PasajeAjusteError {
+  constructor(public rowErrors: { index: number; message: string }[]) {
+    super("Hay filas con errores. Corregilas y volvé a enviar: no se cargó ninguna.", 422);
+  }
+}
+
+// Valida un pasaje y devuelve los datos listos para guardar.
+async function preparePasaje(input: PasajeInput, actor: PasajeActor) {
+  const quantity = Number(input.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new PasajeAjusteError("La cantidad tiene que ser mayor a cero.");
+  if (!text(input.fromClient) || !text(input.fromClientCode)) {
     throw new PasajeAjusteError("Completá la empresa emisora y su código cliente.");
   }
-  if (!input.toClient.trim() || !input.toClientCode.trim()) {
+  if (!text(input.toClient) || !text(input.toClientCode)) {
     throw new PasajeAjusteError("Completá la empresa receptora y su código cliente.");
   }
   if (
@@ -84,24 +91,44 @@ export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
   ) {
     throw new PasajeAjusteError("El origen y el destino no pueden ser el mismo código cliente.");
   }
-  if (!input.uniqueCode.trim()) {
+  if (!text(input.uniqueCode)) {
     throw new PasajeAjusteError("Falta el código único del producto.");
   }
   assertCanCreateFor(actor, input.fromClient);
   await assertSharedUniqueCode(input.fromClientCode, input.toClientCode, input.uniqueCode);
-  return excelPostgres.pasajeRequest.create({
-    data: {
-      fromClient: text(input.fromClient),
-      fromClientCode: text(input.fromClientCode),
-      toClient: text(input.toClient),
-      toClientCode: text(input.toClientCode),
-      uniqueCode: text(input.uniqueCode),
-      product: text(input.product) || null,
-      quantity: input.quantity,
-      comments: text(input.comments) || null,
-      createdBy,
-    },
-  });
+  return {
+    fromClient: text(input.fromClient),
+    fromClientCode: text(input.fromClientCode),
+    toClient: text(input.toClient),
+    toClientCode: text(input.toClientCode),
+    uniqueCode: text(input.uniqueCode),
+    product: text(input.product) || null,
+    quantity,
+    comments: text(input.comments) || null,
+    createdBy: actor.name,
+  };
+}
+
+export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
+  return excelPostgres.pasajeRequest.create({ data: await preparePasaje(input, actor) });
+}
+
+// Carga en lote: se validan todas las filas y, si alguna falla, no se carga ninguna.
+export async function createPasajesBatch(inputs: PasajeInput[], actor: PasajeActor) {
+  if (!Array.isArray(inputs) || inputs.length === 0) throw new PasajeAjusteError("No hay filas para cargar.");
+  if (inputs.length > 200) throw new PasajeAjusteError("Se pueden cargar hasta 200 pasajes por vez.");
+  const prepared: Awaited<ReturnType<typeof preparePasaje>>[] = [];
+  const rowErrors: { index: number; message: string }[] = [];
+  for (let index = 0; index < inputs.length; index += 1) {
+    try {
+      prepared.push(await preparePasaje(inputs[index], actor));
+    } catch (error) {
+      rowErrors.push({ index, message: error instanceof Error ? error.message : "Fila inválida." });
+    }
+  }
+  if (rowErrors.length) throw new PasajeBatchError(rowErrors);
+  const result = await excelPostgres.pasajeRequest.createMany({ data: prepared });
+  return { created: result.count };
 }
 
 export async function listPasajes(actor: PasajeActor, status?: string) {
@@ -112,9 +139,12 @@ export async function listPasajes(actor: PasajeActor, status?: string) {
   return rows.filter((row) => visibleToActor(actor, [row.fromClient, row.toClient]));
 }
 
+// Estados: pending (espera aprobación del receptor) → approved (el receptor aprobó:
+// se carga el ingreso y el egreso queda en espera) → confirmed (el emisor confirma la
+// cantidad enviada: se ejecuta el egreso). rejected cierra el pasaje sin mover stock.
 export async function respondPasaje(
   id: string,
-  action: "accept" | "reject",
+  action: "approve" | "reject",
   actor: PasajeActor,
   comment?: string,
 ) {
@@ -124,38 +154,24 @@ export async function respondPasaje(
     if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
     if (pasaje.status !== "pending") throw new PasajeAjusteError("Ese pasaje ya fue resuelto.", 409);
     if (!canActForClient(actor, pasaje.toClient)) {
-      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${pasaje.toClient} puede aceptar o rechazar este pasaje.`, 403);
+      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${pasaje.toClient} puede aprobar o rechazar este pasaje.`, 403);
     }
     if (isSelf(actor, pasaje.createdBy)) {
-      throw new PasajeAjusteError("No podés resolver un pasaje que generaste vos: lo tiene que aceptar la otra parte.", 403);
+      throw new PasajeAjusteError("No podés resolver un pasaje que generaste vos: lo tiene que aprobar la otra parte.", 403);
     }
 
     const updated = await tx.pasajeRequest.update({
       where: { id },
       data: {
-        status: action === "accept" ? "accepted" : "rejected",
+        status: action === "approve" ? "approved" : "rejected",
         respondedBy,
         respondedAt: new Date(),
         responseComment: text(comment) || null,
       },
     });
 
-    if (action === "accept") {
+    if (action === "approve") {
       const now = new Date();
-      await tx.egress.create({
-        data: {
-          client: pasaje.fromClient,
-          clientCode: pasaje.fromClientCode,
-          uniqueCode: pasaje.uniqueCode,
-          product: pasaje.product,
-          operation: "PASAJE",
-          date: now,
-          quantity: pasaje.quantity,
-          destination: pasaje.toClient,
-          comments: `Pasaje a ${pasaje.toClient} (${pasaje.toClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
-          createdBy: respondedBy,
-        },
-      });
       await tx.tangoIncome.create({
         data: {
           client: pasaje.toClient,
@@ -175,8 +191,69 @@ export async function respondPasaje(
 
     return updated;
   });
-  if (action === "accept") invalidateIncomeGroups();
+  if (action === "approve") invalidateIncomeGroups();
   return result;
+}
+
+// El emisor confirma cuánto se envió realmente. Se ejecuta el egreso por esa cantidad y,
+// si es menor a la aprobada, la diferencia se carga como egreso "Ajuste de Stock".
+export async function confirmPasaje(id: string, confirmedQuantity: number, actor: PasajeActor) {
+  const quantityConfirmed = Number(confirmedQuantity);
+  if (!Number.isFinite(quantityConfirmed) || quantityConfirmed < 0) {
+    throw new PasajeAjusteError("La cantidad confirmada no es válida.");
+  }
+  return excelPostgres.$transaction(async (tx) => {
+    const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
+    if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
+    if (pasaje.status !== "approved") {
+      throw new PasajeAjusteError("Solo se pueden confirmar pasajes aprobados que todavía no se confirmaron.", 409);
+    }
+    if (!canActForClient(actor, pasaje.fromClient)) {
+      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${pasaje.fromClient} puede confirmar este pasaje.`, 403);
+    }
+    const approved = Number(pasaje.quantity);
+    if (quantityConfirmed > approved) {
+      throw new PasajeAjusteError(`No se puede confirmar más de lo aprobado (${approved}).`);
+    }
+
+    const now = new Date();
+    const updated = await tx.pasajeRequest.update({
+      where: { id },
+      data: { status: "confirmed", confirmedQuantity: quantityConfirmed, confirmedBy: actor.name, confirmedAt: now },
+    });
+    const base = {
+      client: pasaje.fromClient,
+      clientCode: pasaje.fromClientCode,
+      uniqueCode: pasaje.uniqueCode,
+      product: pasaje.product,
+      date: now,
+      createdBy: actor.name,
+    };
+    if (quantityConfirmed > 0) {
+      await tx.egress.create({
+        data: {
+          ...base,
+          operation: "PASAJE",
+          quantity: quantityConfirmed,
+          destination: pasaje.toClient,
+          comments: `Pasaje a ${pasaje.toClient} (${pasaje.toClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
+        },
+      });
+    }
+    const difference = approved - quantityConfirmed;
+    if (difference > 0) {
+      await tx.egress.create({
+        data: {
+          ...base,
+          operation: "ROBO/AJUSTE",
+          quantity: difference,
+          destination: pasaje.toClient,
+          comments: `Ajuste de Stock: pasaje a ${pasaje.toClient} (${pasaje.toClientCode}) confirmado por menos cantidad (aprobado ${approved}, confirmado ${quantityConfirmed})`,
+        },
+      });
+    }
+    return updated;
+  });
 }
 
 export type AjusteInput = {
