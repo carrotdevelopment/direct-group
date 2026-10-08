@@ -113,17 +113,23 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`
     FROM tango_client_code_map
     ORDER BY ${norm("client_code")}, id DESC
   ),
+  canon AS (
+    SELECT DISTINCT ON (lower(btrim(nombre))) lower(btrim(nombre)) AS k, btrim(nombre) AS nombre
+    FROM base_clientes
+    ORDER BY lower(btrim(nombre)), id
+  ),
   r AS (
     SELECT t.id, btrim(coalesce(t.operacion, '')) AS operacion, t.fecha_pedido, btrim(coalesce(t.orden_de_compra, '')) AS orden_de_compra,
       btrim(coalesce(t.codigo_cliente, '')) AS codigo_cliente, coalesce(t.cantidad, 0) AS cantidad,
       btrim(coalesce(t.origen_del_pasaje, '')) AS origen, t.fecha_entrega, coalesce(t.entregado, 0) AS entregado,
       btrim(coalesce(t.comentarios, '')) AS comentarios, t.pending_tango_entry, t.created_by, t.updated_at,
-      coalesce(nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar') AS cliente_res,
+      coalesce(canon.nombre, nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar') AS cliente_res,
       coalesce(act.codigo_unico, '') AS codigo_unico,
       greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente
     FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t
     LEFT JOIN hist ON hist.k = t.k
     LEFT JOIN act ON act.k = t.k
+    LEFT JOIN canon ON canon.k = lower(btrim(coalesce(nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar')))
   )
 `);
 
