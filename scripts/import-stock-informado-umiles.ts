@@ -47,7 +47,23 @@ async function main() {
   }
 
   const seen = new Set<string>();
-  const rows = [];
+  type StockInput = {
+    client: string;
+    comments: string | null;
+    clientCode: string;
+    product: string | null;
+    supplier: string | null;
+    uniqueCode: string | null;
+    category: string | null;
+    informedStock: number;
+    packageSize: number | null;
+    dgCostNoVat: number;
+    totalCost: number;
+    unitProfit: number;
+    salePrice: number;
+    sourceRowNumber: number;
+  };
+  const rows: StockInput[] = [];
   let duplicated = 0;
   for (let i = headerIndex + 1; i < matrix.length; i += 1) {
     const row = matrix[i];
