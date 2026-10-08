@@ -15,7 +15,7 @@ import {
   readPricesFromPostgres,
   readProductsFromPostgres,
   readSantanderCostsFromPostgres,
-  replaceSantanderCostsInPostgres,
+  deleteSantanderCostFromPostgres,
   upsertSantanderCostsInPostgres,
   upsertFreightCriterionInPostgres,
 } from "@/lib/postgres-replica-db";
@@ -64,6 +64,14 @@ function periodIndex(year: number, month: number) {
 
 function periodLabel(year: number, month: number) {
   return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+// La estructura de costos se guarda por cliente: se acepta cualquier cliente activo de Clientes.
+async function costClientName(client: string) {
+  const wanted = canonicalClient(client);
+  if (!wanted) return null;
+  const clients = await readClientsFromPostgres();
+  return clients.find((item) => item.active !== false && canonicalClient(item.name) === wanted)?.name ?? null;
 }
 
 function normalizeCode(value: string) {
@@ -142,14 +150,13 @@ export async function GET(request: Request) {
   const historyFor = url.searchParams.get("historyFor") || "";
   const today = new Date();
 
-  if (canonicalClient(client) !== "santander") {
-    return NextResponse.json({
-      rows: [],
-      message: "Por ahora solo está cargada la estructura real de Santander.",
-    });
+  const clientName = await costClientName(client);
+  if (!clientName) {
+    return NextResponse.json({ rows: [], message: "Elegí un cliente de la lista." });
   }
+  const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 
-  const [assignmentSource, productSource, priceSource, allCostRows, freightCriteriaStore] =
+  const [assignmentSource, productSource, priceSource, storedCostRows, freightCriteriaStore] =
     await Promise.all([
           readClientCodesFromPostgres(),
           readProductsFromPostgres(),
@@ -157,6 +164,7 @@ export async function GET(request: Request) {
           readSantanderCostsFromPostgres(),
           readFreightCriteriaFromPostgres(),
         ]);
+  const allCostRows = storedCostRows.filter((row) => sameClient(row.client));
 
   // Period filter — default to current month/year
   const reqMonth = url.searchParams.get("month");
@@ -195,7 +203,7 @@ export async function GET(request: Request) {
 
   // All assignments for this client — deduplicate by uniqueCode, keeping the latest batch
   const allAssignments = assignmentSource.filter(
-    (mapping) => canonicalClient(mapping.client) === "santander" &&
+    (mapping) => sameClient(mapping.client) &&
       !mapping.voidedAt && periodIndex(mapping.assignedYear, mapping.assignedMonth) <= targetPeriod,
   );
   const latestAssignmentByCode = new Map<string, typeof allAssignments[0]>();
@@ -324,6 +332,14 @@ export async function GET(request: Request) {
     })
     .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
 
+  if (rows.length === 0) {
+    return NextResponse.json({
+      rows,
+      message: `${clientName} todavía no tiene códigos cliente cargados: cargalos en Códigos cliente para ver su estructura.`,
+      source: "postgresql",
+    });
+  }
+
   const activeCount = rows.filter((r) => r.segment === "active").length;
   const inactiveStockCount = rows.filter((r) => r.segment === "inactive_with_stock").length;
   const inactiveCount = rows.filter((r) => r.segment === "inactive").length;
@@ -350,7 +366,8 @@ export async function PUT(request: Request) {
   const year = Number(body.year || now.getFullYear());
   const rows = body.rows || [];
 
-  if (canonicalClient(client) !== "santander") {
+  const clientName = await costClientName(client);
+  if (!clientName) {
     return NextResponse.json(
       { ok: false, message: "Cliente inválido." },
       { status: 400 },
@@ -362,7 +379,7 @@ export async function PUT(request: Request) {
   const nextRows: ExcelSantanderCostRow[] = rows.map((row) => {
     const calc = calculateSantanderCost(row, rates);
     return {
-      client: "Santander",
+      client: clientName,
       period,
       month,
       year,
@@ -416,7 +433,7 @@ export async function PUT(request: Request) {
   return NextResponse.json({
     ok: true,
     rows,
-    message: `${rows.length} fila${rows.length === 1 ? "" : "s"} de Santander ${period} guardada${rows.length === 1 ? "" : "s"}.`,
+    message: `${rows.length} fila${rows.length === 1 ? "" : "s"} de ${clientName} ${period} guardada${rows.length === 1 ? "" : "s"}.`,
     source: "postgresql",
   });
 }
@@ -433,7 +450,8 @@ export async function PATCH(request: Request) {
     pvcWithVat?: number;
   };
 
-  if (canonicalClient(body.client || "") !== "santander") {
+  const patchClientName = await costClientName(body.client || "");
+  if (!patchClientName) {
     return NextResponse.json({ ok: false, message: "Cliente inválido." }, { status: 400 });
   }
 
@@ -444,7 +462,9 @@ export async function PATCH(request: Request) {
   }
 
   const allRows = await readSantanderCostsFromPostgres();
-  const idx = allRows.findIndex((r) => r.uniqueCode === uniqueCode && r.period === period);
+  const idx = allRows.findIndex(
+    (r) => r.uniqueCode === uniqueCode && r.period === period && canonicalClient(r.client) === canonicalClient(patchClientName),
+  );
   if (idx === -1) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
   }
@@ -510,22 +530,17 @@ export async function DELETE(request: Request) {
   const uniqueCode = url.searchParams.get("uniqueCode") || "";
   const period = url.searchParams.get("period") || "";
 
-  if (canonicalClient(client) !== "santander") {
+  const deleteClientName = await costClientName(client);
+  if (!deleteClientName) {
     return NextResponse.json({ ok: false, message: "Cliente inválido." }, { status: 400 });
   }
   if (!uniqueCode || !period) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
-  const allRows = await readSantanderCostsFromPostgres();
-  const filtered = allRows.filter(
-    (r) => !(r.uniqueCode === uniqueCode && r.period === period),
-  );
-
-  if (filtered.length === allRows.length) {
+  const removed = await deleteSantanderCostFromPostgres(deleteClientName, uniqueCode, period);
+  if (removed === 0) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
   }
-
-  await replaceSantanderCostsInPostgres(filtered);
   return NextResponse.json({ ok: true, message: "Registro eliminado." });
 }

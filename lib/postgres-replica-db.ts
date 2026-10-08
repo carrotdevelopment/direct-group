@@ -452,6 +452,13 @@ export async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow
   }, { timeout: 600_000 });
 }
 
+export async function deleteSantanderCostFromPostgres(client: string, uniqueCode: string, period: string) {
+  const result = await excelPostgres.excelSantanderCost.deleteMany({
+    where: { client: { equals: client, mode: "insensitive" }, uniqueCode, period },
+  });
+  return result.count;
+}
+
 export async function readFreightCriteriaFromPostgres() {
   const rows = await excelPostgres.excelFreightCriterion.findMany();
   const store: Record<string, FreightCriterionEntry[]> = {};
