@@ -35,6 +35,15 @@ async function main() {
     .slice(headerIndex + 1)
     .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]])) as Record<string, unknown>)
     .filter((record) => String(record["Código Cliente"] ?? "").trim() !== "" && record["Dia"] !== "");
+  // Algunas filas traen el año con signo negativo (-2025): es un error de carga, el año real es el positivo.
+  let fixedYears = 0;
+  for (const record of records) {
+    if (typeof record["Año"] === "number" && record["Año"] < 0) {
+      record["Año"] = Math.abs(record["Año"]);
+      fixedYears += 1;
+    }
+  }
+  if (fixedYears) console.log(`Años negativos corregidos: ${fixedYears}.`);
   console.log(`Filas con datos en ${sheetName}: ${records.length}`);
 
   const profile = await excelPostgres.egressImportProfile.findFirst({ where: { client: "Umiles", active: true } });
