@@ -10,7 +10,7 @@ const db = vi.hoisted(() => ({
   upsertSantanderCostsInPostgres: vi.fn(), upsertFreightCriterionInPostgres: vi.fn(),
 }));
 vi.mock("@/lib/postgres-replica-db", () => db);
-import { GET, PUT, PATCH } from "@/app/api/local-db/cost-structures/route";
+import { GET, PUT, PATCH, DELETE } from "@/app/api/local-db/cost-structures/route";
 
 const saved = {
   client: "Santander", uniqueCode: "A", clientCode: "OLD", period: "2026-06", year: 2026, month: 6,
@@ -52,8 +52,9 @@ describe("estructura de costos: API con persistencia simulada", () => {
     db.readFreightCriteriaFromPostgres.mockResolvedValue({ A: [{ mode: "fixed", value: 999, effectiveFrom: "2026-07" }] });
     for (const month of [7, 8, 9]) {
       const data = await (await GET(new Request(`http://localhost/api/local-db/cost-structures?client=Santander&year=2026&month=${month}`))).json();
-      expect(data.rows[0].previousAdjustment).toEqual({ period: "2026-09", freightNoVat: 70, pvcNoVat: 300, pvcWithVat: 363 });
-      expect(data.rows[0].freightNoVat).toBe(999);
+      const old = data.rows.find((row: { clientCode: string }) => row.clientCode === "OLD");
+      expect(old.previousAdjustment).toEqual({ period: "2026-09", freightNoVat: 70, pvcNoVat: 300, pvcWithVat: 363 });
+      expect(old.freightNoVat).toBe(999);
     }
   });
 
@@ -93,6 +94,65 @@ describe("estructura de costos: API con persistencia simulada", () => {
     db.readClientRatesFromPostgres.mockResolvedValue([rate("2026-09", 50)]);
     await PUT(request("PUT", { client: "Santander", year: 2026, month: 8, rows: [saved] }));
     expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ insurance: 0, totalCost: 110, profit: 90 })]);
+  });
+});
+
+describe("estructura de costos: un producto con varios códigos cliente", () => {
+  const umiles = (clientCode: string, extra: object = {}) => ({
+    ...saved, client: "Umiles", clientCode, uniqueCode: "A", period: "2026-07", month: 7, ...extra,
+  });
+  const get = async (month: number) =>
+    (await (await GET(new Request(`http://localhost/api/local-db/cost-structures?client=Umiles&year=2026&month=${month}`))).json()).rows as
+      Array<{ id: string; clientCode: string; segment: string; pvcNoVat: number; previousAdjustment: { period: string } | null; pvcHistory: unknown[] }>;
+
+  beforeEach(() => {
+    db.readClientsFromPostgres.mockResolvedValue([{ id: "2", name: "Umiles" }]);
+  });
+
+  it("muestra cada código vigente con su propio PVC", async () => {
+    db.readClientCodesFromPostgres.mockResolvedValue([
+      { uniqueCode: "A", client: "Umiles", clientCode: "URB-013", assignedYear: 2026, assignedMonth: 1, active: true },
+      { uniqueCode: "A", client: "Umiles", clientCode: "URB-148", assignedYear: 2026, assignedMonth: 3, active: true },
+    ]);
+    db.readSantanderCostsFromPostgres.mockResolvedValue([
+      umiles("URB-013", { pvcNoVat: 467 }), umiles("URB-148", { pvcNoVat: 459 }),
+    ]);
+    const rows = await get(8);
+    expect(rows.map((row) => [row.id, row.pvcNoVat])).toEqual([["URB-013", 467], ["URB-148", 459]]);
+  });
+
+  it("un código vigente sin costos no toma el PVC de otro código vigente del mismo producto", async () => {
+    db.readClientCodesFromPostgres.mockResolvedValue([
+      { uniqueCode: "A", client: "Umiles", clientCode: "URB-013", assignedYear: 2026, assignedMonth: 1, active: true },
+      { uniqueCode: "A", client: "Umiles", clientCode: "URB-148", assignedYear: 2026, assignedMonth: 3, active: true },
+    ]);
+    db.readSantanderCostsFromPostgres.mockResolvedValue([umiles("URB-148", { pvcNoVat: 459 })]);
+    const rows = await get(8);
+    expect(rows.find((row) => row.clientCode === "URB-013")).toMatchObject({ pvcNoVat: 0, previousAdjustment: null, pvcHistory: [] });
+  });
+
+  it("un producto que pasó a un código nuevo conserva la historia del código anterior", async () => {
+    db.readClientCodesFromPostgres.mockResolvedValue([
+      { uniqueCode: "A", client: "Umiles", clientCode: "URB-OLD", assignedYear: 2026, assignedMonth: 1, active: false },
+      { uniqueCode: "A", client: "Umiles", clientCode: "URB-NEW", assignedYear: 2026, assignedMonth: 8, active: true },
+    ]);
+    db.readSantanderCostsFromPostgres.mockResolvedValue([umiles("URB-OLD", { pvcNoVat: 400 })]);
+    const rows = await get(8);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ clientCode: "URB-NEW", segment: "active", pvcNoVat: 400, previousAdjustment: { period: "2026-07" } });
+  });
+
+  it("editar y borrar el historial identifican la fila por código cliente", async () => {
+    db.readSantanderCostsFromPostgres.mockResolvedValue([
+      umiles("URB-013", { pvcNoVat: 467 }), umiles("URB-148", { pvcNoVat: 459 }),
+    ]);
+    const patched = await PATCH(request("PATCH", { client: "Umiles", clientCode: "urb-148", uniqueCode: "A", period: "2026-07", pvcNoVat: 500 }));
+    expect(patched.status).toBe(200);
+    expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ clientCode: "URB-148", pvcNoVat: 500 })]);
+
+    db.deleteSantanderCostFromPostgres.mockResolvedValue(1);
+    await DELETE(new Request("http://localhost/api/local-db/cost-structures?client=Umiles&clientCode=URB-013&uniqueCode=A&period=2026-07", { method: "DELETE" }));
+    expect(db.deleteSantanderCostFromPostgres).toHaveBeenCalledWith("Umiles", { clientCode: "URB-013", uniqueCode: "A" }, "2026-07");
   });
 });
 

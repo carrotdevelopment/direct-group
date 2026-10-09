@@ -75,7 +75,14 @@ async function costClientName(client: string) {
 }
 
 function normalizeCode(value: string) {
-  return value.trim().toLowerCase();
+  return (value ?? "").trim().toLowerCase();
+}
+
+// Una fila guardada se identifica por código cliente; sin código cliente, por producto.
+function sameCostRow(row: { clientCode: string; uniqueCode: string }, code: { clientCode?: string; uniqueCode?: string }) {
+  return code.clientCode
+    ? normalizeCode(row.clientCode) === normalizeCode(code.clientCode)
+    : row.uniqueCode === code.uniqueCode;
 }
 
 function valueFromPrice(value: number | undefined, fallback: number) {
@@ -126,20 +133,47 @@ function calculateSantanderCost(row: CostStructureRow, rates: CostRate[]) {
     debitTax: amount("impuesto_debito"), creditTax: amount("impuesto_credito"), missionsTax: amount("impuesto_misiones") };
 }
 
-function latestByUniqueCode<T extends { uniqueCode: string }>(
-  rows: T[],
-  getPeriod: (row: T) => number,
-  targetPeriod: number,
-) {
-  const map = new Map<string, T>();
+function groupBy<T>(rows: T[], key: (row: T) => string) {
+  const map = new Map<string, T[]>();
   for (const row of rows) {
-    if (getPeriod(row) > targetPeriod) continue;
-    const current = map.get(row.uniqueCode);
-    if (!current || getPeriod(row) > getPeriod(current)) {
-      map.set(row.uniqueCode, row);
-    }
+    const k = key(row);
+    if (!k) continue;
+    map.set(k, [...(map.get(k) ?? []), row]);
   }
   return map;
+}
+
+function latestOf<T>(rows: T[], getPeriod: (row: T) => number, targetPeriod: number) {
+  let latest: T | undefined;
+  for (const row of rows) {
+    if (getPeriod(row) > targetPeriod) continue;
+    if (!latest || getPeriod(row) > getPeriod(latest)) latest = row;
+  }
+  return latest;
+}
+
+// Una fila por código cliente vigente (un producto puede tener varios, cada uno con su PVC).
+// De los no vigentes se muestra el último código de cada producto que ya no tenga uno vigente.
+function assignmentsToShow<T extends { clientCode: string; uniqueCode: string; active: boolean; assignedYear: number; assignedMonth: number }>(
+  assignments: T[],
+) {
+  const assignedAt = (row: T) => periodIndex(row.assignedYear, row.assignedMonth);
+  const latestByClientCode = new Map<string, T>();
+  for (const row of assignments) {
+    const key = normalizeCode(row.clientCode) || `sku:${normalizeCode(row.uniqueCode)}`;
+    const current = latestByClientCode.get(key);
+    if (!current || assignedAt(row) >= assignedAt(current)) latestByClientCode.set(key, row);
+  }
+  const active = [...latestByClientCode.values()].filter((row) => row.active);
+  const activeProducts = new Set(active.map((row) => normalizeCode(row.uniqueCode)));
+  const inactiveByProduct = new Map<string, T>();
+  for (const row of latestByClientCode.values()) {
+    const product = normalizeCode(row.uniqueCode);
+    if (row.active || activeProducts.has(product)) continue;
+    const current = inactiveByProduct.get(product);
+    if (!current || assignedAt(row) > assignedAt(current)) inactiveByProduct.set(product, row);
+  }
+  return [...active, ...inactiveByProduct.values()];
 }
 
 export async function GET(request: Request) {
@@ -201,22 +235,11 @@ export async function GET(request: Request) {
     });
   }
 
-  // All assignments for this client — deduplicate by uniqueCode, keeping the latest batch
   const allAssignments = assignmentSource.filter(
     (mapping) => sameClient(mapping.client) &&
       !mapping.voidedAt && periodIndex(mapping.assignedYear, mapping.assignedMonth) <= targetPeriod,
   );
-  const latestAssignmentByCode = new Map<string, typeof allAssignments[0]>();
-  for (const assignment of allAssignments) {
-    const current = latestAssignmentByCode.get(assignment.uniqueCode);
-    if (
-      !current ||
-      periodIndex(assignment.assignedYear, assignment.assignedMonth) >
-        periodIndex(current.assignedYear, current.assignedMonth)
-    ) {
-      latestAssignmentByCode.set(assignment.uniqueCode, assignment);
-    }
-  }
+  const shownAssignments = assignmentsToShow(allAssignments);
 
   const products = new Map(
     productSource
@@ -231,39 +254,35 @@ export async function GET(request: Request) {
     pricesByUniqueCode.set(code, current);
   }
 
-  // Latest saved cost row per uniqueCode, up to the requested period
-  const latestCosts = latestByUniqueCode(
-    allCostRows,
-    (row) => periodIndex(row.year, row.month),
-    targetPeriod,
-  );
-  // Reference columns show the latest saved adjustment, not the selected period.
-  const latestAdjustments = latestByUniqueCode(
-    allCostRows,
-    row => periodIndex(row.year, row.month),
-    Number.POSITIVE_INFINITY,
-  );
+  // Costos guardados de cada código cliente, más los del mismo producto con códigos que ya no se
+  // muestran (un producto que pasó a un código nuevo conserva su historia). Los de otro código
+  // que también se muestra quedan afuera: dos códigos vigentes del mismo producto no comparten PVC.
+  const costsByClientCode = groupBy(allCostRows, (row) => normalizeCode(row.clientCode));
+  const costsByProduct = groupBy(allCostRows, (row) => normalizeCode(row.uniqueCode));
+  const shownClientCodes = new Set(shownAssignments.map((assignment) => normalizeCode(assignment.clientCode)));
+  const costRowsFor = (assignment: (typeof shownAssignments)[number]) => {
+    const clientCode = normalizeCode(assignment.clientCode);
+    const own = clientCode ? costsByClientCode.get(clientCode) ?? [] : [];
+    const inherited = (costsByProduct.get(normalizeCode(assignment.uniqueCode)) ?? [])
+      .filter((row) => !shownClientCodes.has(normalizeCode(row.clientCode)));
+    // Primero los propios: ante dos filas del mismo período, gana la del código.
+    return [...own, ...inherited];
+  };
+  const costPeriod = (row: ExcelSantanderCostRow) => periodIndex(row.year, row.month);
 
-  // Freight criteria — keyed by uniqueCode
-  // History map: last 3 periods per uniqueCode up to targetPeriod (desc)
-  const historyByCode = new Map<string, Array<{ period: string; pvcWithVat: number }>>();
-  for (const row of allCostRows) {
-    if (periodIndex(row.year, row.month) > targetPeriod) continue;
-    const list = historyByCode.get(row.uniqueCode) ?? [];
-    list.push({ period: row.period, pvcWithVat: row.pvcWithVat });
-    historyByCode.set(row.uniqueCode, list);
-  }
-  for (const [code, list] of historyByCode) {
-    historyByCode.set(
-      code,
-      list.sort((a, b) => b.period.localeCompare(a.period)).slice(0, 3),
-    );
-  }
-
-  const rows: CostStructureRow[] = Array.from(latestAssignmentByCode.values())
+  const rows: CostStructureRow[] = shownAssignments
     .map((assignment) => {
-      const cost = latestCosts.get(assignment.uniqueCode);
-      const previous = latestAdjustments.get(assignment.uniqueCode);
+      const costRows = costRowsFor(assignment);
+      // Último costo guardado hasta el período consultado.
+      const cost = latestOf(costRows, costPeriod, targetPeriod);
+      // Las columnas de referencia muestran el último ajuste guardado, no el del período elegido.
+      const previous = latestOf(costRows, costPeriod, Number.POSITIVE_INFINITY);
+      // Historial: últimos 3 períodos hasta el consultado.
+      const pvcHistory = costRows
+        .filter((row) => costPeriod(row) <= targetPeriod)
+        .map((row) => ({ period: row.period, pvcWithVat: row.pvcWithVat }))
+        .sort((a, b) => b.period.localeCompare(a.period))
+        .slice(0, 3);
       const prices = pricesByUniqueCode.get(normalizeCode(assignment.uniqueCode)) ?? [];
       const costDgPrice = latestPriceValue(prices, targetPeriod, "costDg");
       const publicPricePrice = latestPriceValue(prices, targetPeriod, "publicPrice");
@@ -284,7 +303,7 @@ export async function GET(request: Request) {
           : "inactive";
 
       return {
-        id: assignment.uniqueCode,
+        id: assignment.clientCode || assignment.uniqueCode,
         active,
         stock,
         date: cost ? `${cost.period}-01` : "",
@@ -323,7 +342,7 @@ export async function GET(request: Request) {
         hasPriceAlert:
           savedCostDg > 0 && liveCostDg > 0 && Math.abs(savedCostDg - liveCostDg) > 0.01,
         segment,
-        pvcHistory: historyByCode.get(assignment.uniqueCode) ?? [],
+        pvcHistory,
         freightCriterion: getActiveCriterion(
           freightCriteriaStore[assignment.uniqueCode] ?? [],
           targetPeriodKey,
@@ -443,6 +462,7 @@ export async function PATCH(request: Request) {
   if (denied) return denied;
   const body = (await request.json()) as {
     client?: string;
+    clientCode?: string;
     uniqueCode?: string;
     period?: string;
     freightNoVat?: number;
@@ -455,15 +475,17 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: false, message: "Cliente inválido." }, { status: 400 });
   }
 
+  const clientCode = body.clientCode || "";
   const uniqueCode = body.uniqueCode || "";
   const period = body.period || "";
-  if (!uniqueCode || !period) {
+  if ((!clientCode && !uniqueCode) || !period) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
   const allRows = await readSantanderCostsFromPostgres();
   const idx = allRows.findIndex(
-    (r) => r.uniqueCode === uniqueCode && r.period === period && canonicalClient(r.client) === canonicalClient(patchClientName),
+    (r) => sameCostRow(r, { clientCode, uniqueCode }) && r.period === period &&
+      canonicalClient(r.client) === canonicalClient(patchClientName),
   );
   if (idx === -1) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
@@ -527,6 +549,7 @@ export async function DELETE(request: Request) {
   if (denied) return denied;
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
+  const clientCode = url.searchParams.get("clientCode") || "";
   const uniqueCode = url.searchParams.get("uniqueCode") || "";
   const period = url.searchParams.get("period") || "";
 
@@ -534,11 +557,11 @@ export async function DELETE(request: Request) {
   if (!deleteClientName) {
     return NextResponse.json({ ok: false, message: "Cliente inválido." }, { status: 400 });
   }
-  if (!uniqueCode || !period) {
+  if ((!clientCode && !uniqueCode) || !period) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
-  const removed = await deleteSantanderCostFromPostgres(deleteClientName, uniqueCode, period);
+  const removed = await deleteSantanderCostFromPostgres(deleteClientName, { clientCode, uniqueCode }, period);
   if (removed === 0) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
   }

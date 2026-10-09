@@ -109,6 +109,11 @@ function round2(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+// Un registro histórico es único por período y código cliente (un producto puede tener varios).
+function historyKey(row: HistoryRow) {
+  return `${(row.clientCode || row.uniqueCode).trim().toLowerCase()}::${row.period}`;
+}
+
 // "2026-07" or "2026-07-01" → "07/2026"
 function displayPeriod(value: string | null) {
   if (!value) return "—";
@@ -581,20 +586,21 @@ export function CostStructureWorkspace() {
     }
   }
 
-  async function saveHistoryEdit(uniqueCode: string, period: string) {
+  async function saveHistoryEdit(row: HistoryRow) {
+    const { clientCode, uniqueCode, period } = row;
     if (!historyEditValues) return;
     const { freightNoVat, pvcNoVat, pvcWithVat } = historyEditValues;
     try {
       const res = await fetch("/api/local-db/cost-structures", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, uniqueCode, period, freightNoVat, pvcNoVat, pvcWithVat }),
+        body: JSON.stringify({ client, clientCode, uniqueCode, period, freightNoVat, pvcNoVat, pvcWithVat }),
       });
       const data = (await res.json()) as { ok?: boolean; message?: string; profitPercentage?: number };
       if (!res.ok || data.ok === false) throw new Error(data.message || "Error al guardar");
       setHistoryRows((prev) =>
         prev.map((r) =>
-          r.uniqueCode === uniqueCode && r.period === period
+          historyKey(r) === historyKey(row)
             ? { ...r, freightNoVat, pvcNoVat, pvcWithVat, profitPercentage: data.profitPercentage ?? r.profitPercentage }
             : r,
         ),
@@ -607,13 +613,13 @@ export function CostStructureWorkspace() {
     }
   }
 
-  async function deleteHistoryRow(uniqueCode: string, period: string) {
+  async function deleteHistoryRow(row: HistoryRow) {
     try {
-      const params = new URLSearchParams({ client, uniqueCode, period });
+      const params = new URLSearchParams({ client, clientCode: row.clientCode, uniqueCode: row.uniqueCode, period: row.period });
       const res = await fetch(`/api/local-db/cost-structures?${params}`, { method: "DELETE" });
       const data = (await res.json()) as { ok?: boolean; message?: string };
       if (!res.ok || data.ok === false) throw new Error(data.message || "Error al eliminar");
-      setHistoryRows((prev) => prev.filter((r) => !(r.uniqueCode === uniqueCode && r.period === period)));
+      setHistoryRows((prev) => prev.filter((r) => historyKey(r) !== historyKey(row)));
       setHistoryDeleteConfirm(null);
       setHistoryStatus("Registro eliminado.");
     } catch (err) {
@@ -1526,7 +1532,7 @@ export function CostStructureWorkspace() {
                   </thead>
                   <tbody>
                     {historyRows.map((row) => {
-                      const key = `${row.uniqueCode}::${row.period}`;
+                      const key = historyKey(row);
                       const isEditing = historyEditId === key;
                       const isDeleting = historyDeleteConfirm === key;
                       const hInput =
@@ -1587,7 +1593,7 @@ export function CostStructureWorkspace() {
                                 <span className="text-[9px] font-bold text-[#b7433f]">¿Eliminar?</span>
                                 <button
                                   type="button"
-                                  onClick={() => deleteHistoryRow(row.uniqueCode, row.period)}
+                                  onClick={() => deleteHistoryRow(row)}
                                   className="rounded bg-[#b7433f] px-1.5 py-0.5 text-[9px] font-bold text-white hover:bg-[#9e3935]"
                                 >
                                   Sí
@@ -1604,7 +1610,7 @@ export function CostStructureWorkspace() {
                               <div className="flex items-center justify-center gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => saveHistoryEdit(row.uniqueCode, row.period)}
+                                  onClick={() => saveHistoryEdit(row)}
                                   className="rounded bg-[#0b5bbb] px-2 py-0.5 text-[9px] font-bold text-white hover:bg-[#0a4fa8]"
                                 >
                                   Guardar

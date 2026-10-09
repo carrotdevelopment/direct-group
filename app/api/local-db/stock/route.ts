@@ -190,12 +190,13 @@ export async function GET(request: Request) {
       periodIndex(m.assignedYear, m.assignedMonth) <= targetPeriod,
   );
 
-  // Active: most recent active assignment per uniqueCode
+  // Active: most recent active assignment per clientCode (a product can have several codes,
+  // each with its own incomes and egresses)
   type Mapping = (typeof allMappings)[number];
   const activeByCode = new Map<string, Mapping>();
   for (const m of allMappings) {
     if (!m.active) continue;
-    const key = normalizeCode(m.uniqueCode);
+    const key = normalizeCode(m.clientCode) || normalizeCode(m.uniqueCode);
     const current = activeByCode.get(key);
     const mPeriod = periodIndex(m.assignedYear, m.assignedMonth);
     if (!current || mPeriod > periodIndex(current.assignedYear, current.assignedMonth)) {
@@ -204,7 +205,7 @@ export async function GET(request: Request) {
   }
 
   // Inactive: most recent inactive per uniqueCode that has no active counterpart
-  const activeKeys = new Set([...activeByCode.keys()]);
+  const activeKeys = new Set([...activeByCode.values()].map((m) => normalizeCode(m.uniqueCode)));
   const inactiveByCode = new Map<string, Mapping>();
   for (const m of allMappings) {
     if (m.active) continue;
@@ -264,10 +265,17 @@ export async function GET(request: Request) {
     egressesByClientCode.set(key, grouped);
   }
 
+  // El respaldo por producto no toma datos de otro código vigente del mismo producto.
+  const activeClientCodes = new Set([...activeByCode.values()].map((m) => normalizeCode(m.clientCode)));
+  const fromOtherActiveCode = (row: { clientCode: string } | undefined, clientCode: string) =>
+    row && normalizeCode(row.clientCode) !== clientCode && activeClientCodes.has(normalizeCode(row.clientCode));
+  const byProduct = <T extends { clientCode: string }>(row: T | undefined, clientCode: string) =>
+    fromOtherActiveCode(row, clientCode) ? undefined : row;
+
   const rows = assignments.map((assignment) => {
     const stock =
       stockByClientCode.get(normalizeCode(assignment.clientCode)) ||
-      stockByUniqueCode.get(normalizeCode(assignment.uniqueCode));
+      byProduct(stockByUniqueCode.get(normalizeCode(assignment.uniqueCode)), normalizeCode(assignment.clientCode));
     const product = products.get(normalizeCode(assignment.uniqueCode));
     const clientCode = normalizeCode(assignment.clientCode);
     const matchingIncomes = incomesByClientCode.get(clientCode) ?? [];
@@ -320,7 +328,7 @@ export async function GET(request: Request) {
       transactionsPerDay === 0 ? 0 : theoreticalStock / transactionsPerDay;
     const cost =
       costs.get(normalizeCode(assignment.clientCode)) ||
-      costs.get(normalizeCode(assignment.uniqueCode));
+      byProduct(costs.get(normalizeCode(assignment.uniqueCode)), clientCode);
     const packageSize = stock?.packageSize || cost?.unitsPerPackage || 1;
     const reportedStock = stock?.reportedStock || realStock;
     const webAvailable = reportedStock - totalTransactions;

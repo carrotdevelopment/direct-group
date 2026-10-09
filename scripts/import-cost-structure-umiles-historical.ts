@@ -124,9 +124,10 @@ function main() {
     console.log(`${path.split(/[\\/]/).pop()} [${sheetName}]: ${used} filas válidas.`);
   }
 
-  // Un mismo período + SKU con dos códigos cliente: queda la última fila (misma regla que Santander).
+  // Una fila por período + código cliente (un producto puede tener dos códigos con su propio PVC).
+  // Si el mismo código aparece dos veces en el período, queda la última fila.
   const byKey = new Map<string, ExcelSantanderCostRow>();
-  for (const row of rows) byKey.set(`${row.period}|${row.uniqueCode}`, row);
+  for (const row of rows) byKey.set(`${row.period}|${(row.clientCode || row.uniqueCode).toLowerCase()}`, row);
   const finalRows = [...byKey.values()];
 
   const byPeriod = new Map<string, number>();
@@ -146,7 +147,12 @@ function main() {
       async (transaction) => {
         for (const row of finalRows) {
           await transaction.excelSantanderCost.deleteMany({
-            where: { client: row.client, period: row.period, uniqueCode: row.uniqueCode },
+            where: {
+              client: row.client, period: row.period,
+              ...(row.clientCode
+                ? { clientCode: { equals: row.clientCode, mode: "insensitive" } }
+                : { uniqueCode: row.uniqueCode }),
+            },
           });
           await transaction.excelSantanderCost.create({
             data: {

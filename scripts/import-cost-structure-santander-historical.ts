@@ -10,7 +10,12 @@ async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow[]) {
     async (transaction) => {
       for (const row of rows) {
         await transaction.excelSantanderCost.deleteMany({
-          where: { client: row.client, period: row.period, uniqueCode: row.uniqueCode },
+          where: {
+            client: row.client, period: row.period,
+            ...(row.clientCode
+              ? { clientCode: { equals: row.clientCode, mode: "insensitive" } }
+              : { uniqueCode: row.uniqueCode }),
+          },
         });
         await transaction.excelSantanderCost.create({
           data: {

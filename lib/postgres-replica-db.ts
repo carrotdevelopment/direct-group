@@ -423,15 +423,20 @@ export async function replaceSantanderCostsInPostgres(rows: ExcelSantanderCostRo
   }, { timeout: 600_000 });
 }
 
+// Una fila por cliente + período + código cliente: un mismo producto puede tener dos códigos
+// cliente con su propio PVC. Sin código cliente (filas viejas) se identifica por producto.
+export function costRowIdentity(row: { clientCode?: string; uniqueCode?: string }) {
+  const clientCode = row.clientCode?.trim();
+  return clientCode
+    ? { clientCode: { equals: clientCode, mode: "insensitive" as const } }
+    : { uniqueCode: row.uniqueCode ?? "" };
+}
+
 export async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow[]) {
   await excelPostgres.$transaction(async (transaction) => {
     for (const row of rows) {
       await transaction.excelSantanderCost.deleteMany({
-        where: {
-          client: row.client,
-          period: row.period,
-          uniqueCode: row.uniqueCode,
-        },
+        where: { client: row.client, period: row.period, ...costRowIdentity(row) },
       });
       await transaction.excelSantanderCost.create({
         data: {
@@ -452,9 +457,13 @@ export async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow
   }, { timeout: 600_000 });
 }
 
-export async function deleteSantanderCostFromPostgres(client: string, uniqueCode: string, period: string) {
+export async function deleteSantanderCostFromPostgres(
+  client: string,
+  code: { clientCode?: string; uniqueCode?: string },
+  period: string,
+) {
   const result = await excelPostgres.excelSantanderCost.deleteMany({
-    where: { client: { equals: client, mode: "insensitive" }, uniqueCode, period },
+    where: { client: { equals: client, mode: "insensitive" }, period, ...costRowIdentity(code) },
   });
   return result.count;
 }
