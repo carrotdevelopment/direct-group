@@ -5,6 +5,7 @@ import { Check, ChevronDown, Columns3, Layers, Pencil, Plus, Settings, Trash2, X
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
+import { locateEgressData } from "@/lib/egress-file-layout";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
 
@@ -158,14 +159,15 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
   const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
   const ws   = wb.Sheets[wb.SheetNames[sheetIdx] ?? wb.SheetNames[0]];
   const all  = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as string[][];
-  const headers = (all[Math.max(0, startRow - 1)] ?? cols).map((cell) => String(cell ?? "").trim());
-  const values = all.slice(startRow).filter((r) => r.some((c) => String(c).trim()));
+  const layout = locateEgressData(all, cols, startRow);
+  const headers = (all[layout.headerIndex] ?? cols).map((cell) => String(cell ?? "").trim());
+  const values = all.slice(layout.dataStart).filter((r) => r.some((c) => String(c).trim()));
   const filas = values.map((cells) => {
     const row: Fila = {};
-    cols.forEach((c, i) => { row[c] = String(cells[i] ?? "").trim(); });
+    cols.forEach((c, i) => { row[c] = String(cells[layout.positions[i]] ?? "").trim(); });
     return row;
   });
-  return { filas, values, headers, sheets: wb.SheetNames };
+  return { filas, values, headers, sheets: wb.SheetNames, headerFound: layout.headerFound, dataStart: layout.dataStart };
 }
 
 // Fecha de una celda en formato AAAA-MM-DD: número de serie de Excel, AAAA-MM-DD o DD/MM/AAAA.
@@ -402,11 +404,11 @@ function ConfigPanel({ config, onChange, onClose }: {
           <div className="mt-1 text-[9px] text-[#9aabb8]">{parsedCols.length} columnas</div>
         </div>
         <div>
-          <label className={L}>Fila de inicio (0-indexed)
+          <label className={L}>Fila de inicio (si no se encuentran los títulos)
             <input type="number" value={filaInicio} onChange={(e) => setFilaInicio(e.target.value)}
               className="mt-1 h-9 w-full rounded-lg border border-[#dbe4ef] bg-white px-3 text-center text-xs normal-case outline-none" />
           </label>
-          <p className="mt-2 text-[9px] text-[#9aabb8]">Fila donde empiezan los datos (0-indexed). Por defecto 2 si el encabezado está en la fila 1.</p>
+          <p className="mt-2 text-[9px] text-[#9aabb8]">La plataforma busca sola la fila con los títulos de estas columnas y lee los datos desde la fila siguiente. Este número se usa solo si no la encuentra: cuenta desde 0, así que si los títulos están en la fila 1 de Excel, los datos empiezan en 1.</p>
         </div>
       </div>
 
