@@ -1,7 +1,7 @@
 import "server-only";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
-import { canActForClient, type PasajeActor } from "@/lib/module-access";
+import { canActForClient, canConfirmPasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
 
 export class PasajeAjusteError extends Error {
   constructor(message: string, public status = 400) {
@@ -46,8 +46,8 @@ function isSelf(actor: PasajeActor, createdBy: string) {
   return actor.role !== "ADMIN" && actor.name.trim().toLowerCase() === createdBy.trim().toLowerCase();
 }
 
-// Un operador solo puede generar movimientos desde los clientes que se le
-// asignaron en Permisos; el administrador no tiene restricción.
+// Un operador solo puede generar ajustes de los clientes que se le asignaron en Permisos; el
+// administrador no tiene restricción. Los pasajes se pueden generar desde cualquier cliente.
 function assertCanCreateFor(actor: PasajeActor, client: string) {
   if (!canActForClient(actor, client)) {
     throw new PasajeAjusteError(`No tenés asignado el cliente ${client} para generar este movimiento.`, 403);
@@ -94,7 +94,6 @@ async function preparePasaje(input: PasajeInput, actor: PasajeActor) {
   if (!text(input.uniqueCode)) {
     throw new PasajeAjusteError("Falta el código único del producto.");
   }
-  assertCanCreateFor(actor, input.fromClient);
   await assertSharedUniqueCode(input.fromClientCode, input.toClientCode, input.uniqueCode);
   return {
     fromClient: text(input.fromClient),
@@ -136,7 +135,7 @@ export async function listPasajes(actor: PasajeActor, status?: string) {
     where: status ? { status } : undefined,
     orderBy: { createdAt: "desc" },
   });
-  return rows.filter((row) => visibleToActor(actor, [row.fromClient, row.toClient]));
+  return rows.filter((row) => canSeePasaje(actor, row));
 }
 
 // Estados: pending (espera aprobación del receptor) → approved (el receptor aprobó:
@@ -208,8 +207,8 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
     if (pasaje.status !== "approved") {
       throw new PasajeAjusteError("Solo se pueden confirmar pasajes aprobados que todavía no se confirmaron.", 409);
     }
-    if (!canActForClient(actor, pasaje.fromClient)) {
-      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${pasaje.fromClient} puede confirmar este pasaje.`, 403);
+    if (!canConfirmPasaje(actor, pasaje)) {
+      throw new PasajeAjusteError(`Solo quien generó el pasaje o tiene asignado el cliente ${pasaje.fromClient} puede confirmarlo.`, 403);
     }
     const approved = Number(pasaje.quantity);
     if (quantityConfirmed > approved) {

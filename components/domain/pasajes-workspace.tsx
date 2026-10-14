@@ -184,7 +184,10 @@ export function PasajesWorkspace({
     restrictedClients === null || restrictedClients.some((assigned) => assigned.toLowerCase() === client.toLowerCase());
   const isOwn = (createdBy: string) =>
     restrictedClients !== null && createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
-  const cannotCreate = restrictedClients !== null && restrictedClients.length === 0;
+  const createdByMe = (createdBy: string) => createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
+  // Los pasajes se generan desde cualquier cliente (los aprueba quien tiene el destino); los
+  // ajustes, solo de los clientes asignados.
+  const cannotCreateAjuste = restrictedClients !== null && restrictedClients.length === 0;
 
   async function loadAll() {
     try {
@@ -211,6 +214,8 @@ export function PasajesWorkspace({
   }
 
   useEffect(() => {
+    // Synchronize the lists with the server when the page opens.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAll();
   }, []);
 
@@ -259,15 +264,15 @@ export function PasajesWorkspace({
           <span className="text-[10px] font-bold text-[#8a99ad]">{status}</span>
           {tab === "pasajes" ? (
             <>
-              <Button size="sm" variant="secondary" disabled={cannotCreate} onClick={() => setBatchModalOpen(true)}>
+              <Button size="sm" variant="secondary" onClick={() => setBatchModalOpen(true)}>
                 <ListPlus size={15} /> Carga en lote
               </Button>
-              <Button size="sm" disabled={cannotCreate} onClick={() => setPasajeModalOpen(true)}>
+              <Button size="sm" onClick={() => setPasajeModalOpen(true)}>
                 <ArrowRightLeft size={15} /> Nuevo pasaje
               </Button>
             </>
           ) : (
-            <Button size="sm" disabled={cannotCreate} onClick={() => setAjusteModalOpen(true)}>
+            <Button size="sm" disabled={cannotCreateAjuste} onClick={() => setAjusteModalOpen(true)}>
               <SlidersHorizontal size={15} /> Nuevo ajuste
             </Button>
           )}
@@ -277,8 +282,8 @@ export function PasajesWorkspace({
       {restrictedClients !== null && (
         <div className="mb-4 rounded-xl bg-[#eef3fb] px-4 py-3 text-xs font-bold text-[#52647d]">
           {restrictedClients.length
-            ? `Tus clientes asignados: ${restrictedClients.join(", ")}. Podés generar movimientos desde ellos y aceptar los que lleguen hacia ellos.`
-            : "Todavía no tenés clientes asignados para operar en esta sección. Pedile a un administrador que te los asigne en Permisos."}
+            ? `Tus clientes asignados: ${restrictedClients.join(", ")}. Podés generar pasajes desde cualquier cliente (los aprueba quien tenga asignado el destino), aprobar los que lleguen a tus clientes y cargar ajustes de tus clientes.`
+            : "Podés generar pasajes desde cualquier cliente: los aprueba quien tenga asignado el destino. Para aprobar pasajes o cargar ajustes, pedile a un administrador que te asigne clientes en Permisos."}
         </div>
       )}
 
@@ -354,7 +359,7 @@ export function PasajesWorkspace({
                       {p.responseComment ? ` · ${p.responseComment}` : ""}
                     </div>
                   </div>
-                  {canAct(p.fromClient) ? (
+                  {canAct(p.fromClient) || createdByMe(p.createdBy) ? (
                     <Button size="sm" onClick={() => setConfirming(p)}>
                       <Check size={14} /> Confirmar envío
                     </Button>
@@ -478,7 +483,7 @@ export function PasajesWorkspace({
         <PasajeModal
           mappings={mappings}
           productByCode={productByCode}
-          allowedClients={restrictedClients}
+          allowedClients={null}
           onClose={() => setPasajeModalOpen(false)}
           onCreated={() => {
             setPasajeModalOpen(false);
@@ -490,7 +495,7 @@ export function PasajesWorkspace({
         <BatchPasajesModal
           mappings={mappings}
           productByCode={productByCode}
-          allowedClients={restrictedClients}
+          allowedClients={null}
           onClose={() => setBatchModalOpen(false)}
           onCreated={() => {
             setBatchModalOpen(false);
