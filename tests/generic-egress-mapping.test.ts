@@ -42,3 +42,33 @@ describe("mapeo canónico de egresos", () => {
     expect(result.quantity).toBe(1);
   });
 });
+
+describe("canjes con fecha en una sola columna y sin cantidad", () => {
+  const mapping = {
+    ...defaultEgressMappings.Umiles,
+    dateDay: [], dateMonth: [], dateYear: [],
+    date: ["Fecha Canje", "Fecha"],
+    clientCode: ["SKU"], product: ["Producto_nombre"], quantity: [],
+  };
+
+  it("toma la fecha de la columna única (número de serie de Excel) y cuenta 1 por fila", () => {
+    const result = canonicalizeEgressRecord({ "Fecha Canje": "45943.6", SKU: "URB-386", Producto_nombre: "Mate" }, mapping);
+    expect(result.date?.toISOString().slice(0, 10)).toBe("2025-10-13");
+    expect(result.quantity).toBe(1);
+    expect(result.clientCode).toBe("URB-386");
+  });
+
+  it("acepta la fecha ya convertida a AAAA-MM-DD y en DD/MM/AAAA", () => {
+    expect(canonicalizeEgressRecord({ "Fecha Canje": "2026-10-13", SKU: "U1" }, mapping).date?.toISOString().slice(0, 10)).toBe("2026-10-13");
+    expect(canonicalizeEgressRecord({ "Fecha Canje": "13/10/2026", SKU: "U1" }, mapping).date?.toISOString().slice(0, 10)).toBe("2026-10-13");
+  });
+
+  it("si la cantidad tiene columna, usa ese valor", () => {
+    const result = canonicalizeEgressRecord({ "Fecha Canje": "2026-10-13", SKU: "U1", Cantidad: "3" }, { ...mapping, quantity: ["Cantidad"] });
+    expect(result.quantity).toBe(3);
+  });
+
+  it("sin fecha no inventa una", () => {
+    expect(canonicalizeEgressRecord({ SKU: "U1" }, mapping).date).toBeNull();
+  });
+});

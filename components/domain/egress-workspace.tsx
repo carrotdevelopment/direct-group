@@ -30,7 +30,9 @@ type Lote = {
 };
 type SortDir = "asc" | "desc";
 type ColDef = { key: string; label: string; required?: boolean; type?: "date" | "number" };
-type FieldMapping = { fechaDia: string; fechaMes: string; fechaAno: string; codigo: string; desc: string; cant: string };
+// fecha: columna única con la fecha completa; si está vacía se usan día, mes y año por separado.
+// cant vacía: cada fila cuenta como una unidad.
+type FieldMapping = { fecha: string; fechaDia: string; fechaMes: string; fechaAno: string; codigo: string; desc: string; cant: string };
 type ColConfig = { columnas: string[]; filaInicio: number; mapping: FieldMapping };
 type ClienteConfig = { nombre: string; configurado: boolean; canje: ColConfig };
 type GridRow = { _id: string } & Record<string, string>;
@@ -58,23 +60,23 @@ const STD_COLS: Record<Exclude<TipoEgreso, "CANJE">, ColDef[]> = {
 
 // ── Configs ───────────────────────────────────────────────────────────────────
 
-const DEFAULT_MAPPING: FieldMapping = { fechaDia: "", fechaMes: "", fechaAno: "", codigo: "", desc: "", cant: "" };
+const DEFAULT_MAPPING: FieldMapping = { fecha: "", fechaDia: "", fechaMes: "", fechaAno: "", codigo: "", desc: "", cant: "" };
 
 const INITIAL_CONFIGS: ClienteConfig[] = [
   { nombre: "Santander", configurado: true, canje: {
       filaInicio: 2,
       columnas: ["Dia","Mes","Año","Nro guia","Fecha","ID","SKU","Localidad","Provincia","CP","Cantidad","Destino","Comentario"],
-      mapping: { fechaDia: "Dia", fechaMes: "Mes", fechaAno: "Año", codigo: "SKU", desc: "ID", cant: "Cantidad" },
+      mapping: { fecha: "", fechaDia: "Dia", fechaMes: "Mes", fechaAno: "Año", codigo: "SKU", desc: "ID", cant: "Cantidad" },
   }},
   { nombre: "Credicoop", configurado: true, canje: {
       filaInicio: 2,
       columnas: ["Día","Mes","Año","IdRedencion","Apellido_nombre","Domicilio","Codigo_postal","Localidad","Provincia","IdRecompensa","Estado","Puntos","Fecha","Descripcion","Telefono1","Telefono2","Cantidad"],
-      mapping: { fechaDia: "Día", fechaMes: "Mes", fechaAno: "Año", codigo: "IdRedencion", desc: "Apellido_nombre", cant: "Cantidad" },
+      mapping: { fecha: "", fechaDia: "Día", fechaMes: "Mes", fechaAno: "Año", codigo: "IdRedencion", desc: "Apellido_nombre", cant: "Cantidad" },
   }},
   { nombre: "Producteca", configurado: true, canje: {
       filaInicio: 2,
       columnas: ["Dia","Mes","Año","Nro Pedido","Id Venta del Canal","Cliente","Estado del Pedido","Estado de Pago","Estado de Entrega","Nro de Guía","Notas Pedido","Artículo","Código","SKU","Marca","Color","Talle","Cantidad","Moneda","Precio","Monto","Costo de Envío Discriminado","Canal","Depósito","Medio de Pago","Metodo de Pago","Id Pago MercadoPago","Persona de Contacto","Email","Teléfono","CUIT/DNI","Lista de Precios","Dirección","Provincia","Localidad","Código Postal","Barrio","Notas Contacto","Tipo de documento","Nº de documento","Dirección de facturación","Comentarios","Código Postal","Localidad","Provincia","Razón social","Registro estatal","Condición ante el IVA","Nombre del comprador","Apellido del comprador","Tags","Id factura","Recibe","Medio de envío","Nro de Envío","Id alternativo","Nº de carrito","Notas de envío","Modalidad de envío"],
-      mapping: { fechaDia: "Dia", fechaMes: "Mes", fechaAno: "Año", codigo: "SKU", desc: "Artículo", cant: "Cantidad" },
+      mapping: { fecha: "", fechaDia: "Dia", fechaMes: "Mes", fechaAno: "Año", codigo: "SKU", desc: "Artículo", cant: "Cantidad" },
   }},
   ...["Umiles","Syngenta","Pampa","Massalin","HSBC","Amex","Importados"].map((n): ClienteConfig => ({
     nombre: n, configurado: false, canje: { columnas: [], filaInicio: 2, mapping: { ...DEFAULT_MAPPING } },
@@ -94,7 +96,6 @@ const TIPO_COLORS: Record<TipoEgreso, string> = {
 const ALL_TIPOS = ["CANJE","PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as TipoEgreso[];
 const TIPOS_STD  = ["PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as const;
 const TODAY      = new Date().toISOString().slice(0, 10);
-const THIS_MONTH_START = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; })();
 // Egresos suele traer cargas históricas (migraciones), no solo operación del
 // mes en curso: arrancar en "este mes" dejaba la grilla vacía por defecto.
 const HISTORY_DEFAULT_START = "2000-01-01";
@@ -167,6 +168,38 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
   return { filas, values, headers, sheets: wb.SheetNames };
 }
 
+// Fecha de una celda en formato AAAA-MM-DD: número de serie de Excel, AAAA-MM-DD o DD/MM/AAAA.
+export function isoDateFromCell(value: string | undefined) {
+  const raw = String(value ?? "").trim();
+  if (/^\d{5}(\.\d+)?$/.test(raw)) {
+    const serial = Math.floor(Number(raw));
+    if (serial > 30000 && serial < 80000) return new Date(Date.UTC(1899, 11, 30) + serial * 86_400_000).toISOString().slice(0, 10);
+  }
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const local = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (local) return `${local[3].length === 2 ? "20" + local[3] : local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
+  return "";
+}
+
+// Mapeo guardado en la base → mapeo de la pantalla. Si día, mes y año apuntan a la misma columna,
+// es una fecha completa; una columna mapeada que no está en la lista se toma como sin mapear.
+function profileMapping(columns: string[], mapping: Record<string, string[]>): FieldMapping {
+  const known = (value: string | undefined) => (value && columns.includes(value) ? value : "");
+  const [day, month, year] = [mapping.dateDay?.[0], mapping.dateMonth?.[0], mapping.dateYear?.[0]];
+  const sameColumn = !!day && day === month && day === year;
+  const fecha = sameColumn ? known(day) : !day && !month && !year ? known(mapping.date?.[0]) : "";
+  return {
+    fecha,
+    fechaDia: fecha ? "" : day ?? "",
+    fechaMes: fecha ? "" : month ?? "",
+    fechaAno: fecha ? "" : year ?? "",
+    codigo: mapping.clientCode?.[0] ?? "",
+    desc: mapping.product?.[0] ?? "",
+    cant: known(mapping.quantity?.[0]),
+  };
+}
+
 function deriveDisplay(fila: Fila, cfg: ClienteConfig) {
   const m = cfg.canje.mapping;
 
@@ -177,12 +210,12 @@ function deriveDisplay(fila: Fila, cfg: ClienteConfig) {
   const fechaFromParts = (dia && mes && ano)
     ? `${ano.length === 2 ? "20" + ano : ano}-${mes.padStart(2, "0")}-${dia.padStart(2, "0")}`
     : "";
-  const fecha = fechaFromParts || fila["Fecha"] || fila.fecha || "";
+  const fecha = (m.fecha ? isoDateFromCell(fila[m.fecha]) : "") || fechaFromParts || fila["Fecha"] || fila.fecha || "";
 
   // Fallbacks handle both mapped imports and manually-entered "otras operaciones" rows
   const codigo = (m.codigo ? fila[m.codigo] : null) ?? fila.codigo_cliente ?? fila["SKU"] ?? "";
   const desc   = (m.desc   ? fila[m.desc]   : null) ?? fila.producto ?? fila["Artículo"] ?? fila["Descripcion"] ?? fila["Apellido_nombre"] ?? "";
-  const cant   = (m.cant   ? fila[m.cant]   : null) ?? fila.cantidad ?? fila["Cantidad"] ?? "";
+  const cant   = (m.cant   ? fila[m.cant]   : null) ?? fila.cantidad ?? fila["Cantidad"] ?? (m.cant ? "" : "1");
 
   return { fecha, codigo, desc, cant };
 }
@@ -193,7 +226,9 @@ function toFila(row: GridRow, mapping: FieldMapping): Fila {
   const { fecha, codigo_cliente, producto, cantidad, destino, comentarios } = row;
 
   // Date: split into day/month/year using mapped column names
-  if (fecha) {
+  if (fecha && mapping.fecha) {
+    fila[mapping.fecha] = fecha;
+  } else if (fecha) {
     const [ano, mes, dia] = fecha.split("-");
     fila[mapping.fechaDia || "Dia"] = String(parseInt(dia, 10));
     fila[mapping.fechaMes || "Mes"] = String(parseInt(mes, 10));
@@ -221,9 +256,13 @@ function toExcelRecord(fila: Fila, tipo: TipoEgreso, config: ClienteConfig) {
   const [year = "", month = "", day = ""] = display.fecha.split("-");
   const mapping = config.canje.mapping;
 
-  if (day) record[mapping.fechaDia || "Dia"] = String(Number(day));
-  if (month) record[mapping.fechaMes || "Mes"] = String(Number(month));
-  if (year) record[mapping.fechaAno || "Año"] = year;
+  if (mapping.fecha) {
+    if (display.fecha) record[mapping.fecha] = display.fecha;
+  } else {
+    if (day) record[mapping.fechaDia || "Dia"] = String(Number(day));
+    if (month) record[mapping.fechaMes || "Mes"] = String(Number(month));
+    if (year) record[mapping.fechaAno || "Año"] = year;
+  }
   if (display.codigo) record[mapping.codigo || "SKU"] = display.codigo;
   if (display.desc) record[mapping.desc || "ID"] = display.desc;
   if (display.cant) record[mapping.cant || "Cantidad"] = display.cant;
@@ -316,7 +355,8 @@ function ConfigPanel({ config, onChange, onClose }: {
   const [filaInicio, setFilaInicio] = useState(String(config.canje.filaInicio));
   const [mapping, setMapping] = useState<FieldMapping>(config.canje.mapping ?? { ...DEFAULT_MAPPING });
 
-  const parsedCols = colsText.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Separa por línea y por tabulador: un encabezado pegado de Excel puede traer celdas en la misma línea.
+  const parsedCols = colsText.split(/[\n\t]/).map((l) => l.trim()).filter(Boolean);
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const text = e.clipboardData.getData("text");
@@ -325,6 +365,8 @@ function ConfigPanel({ config, onChange, onClose }: {
       setColsText(text.split("\t").map((c) => c.trim()).filter(Boolean).join("\n"));
     }
   }
+
+  const dateSingle = !!mapping.fecha || (!mapping.fechaDia && !mapping.fechaMes && !mapping.fechaAno);
 
   function setMap(key: keyof FieldMapping, val: string) {
     setMapping((m) => ({ ...m, [key]: val }));
@@ -372,9 +414,30 @@ function ConfigPanel({ config, onChange, onClose }: {
       <div className="mt-5 rounded-xl border border-[#d8c4f8] bg-white p-4">
         <div className={`${L} mb-3`}>Mapeo de columnas canónicas</div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Fecha — three separate dropdowns */}
+          {/* Fecha — una columna con la fecha completa, o día, mes y año por separado */}
           <div className="sm:col-span-2 lg:col-span-1">
-            <div className={`${L} mb-2`}>Fecha</div>
+            <div className={`${L} mb-2 flex items-center gap-2`}>Fecha
+              {([["single", "Una columna"], ["parts", "Día, Mes y Año"]] as const).map(([mode, label]) => (
+                <button key={mode} type="button"
+                  onClick={() => setMapping((m) => mode === "single"
+                    ? { ...m, fechaDia: "", fechaMes: "", fechaAno: "", fecha: m.fecha || m.fechaDia }
+                    : { ...m, fecha: "", fechaDia: m.fechaDia || m.fecha })}
+                  className={`rounded-md px-2 py-0.5 text-[9px] normal-case ${(mode === "single") === dateSingle ? "bg-[#7c2dd4] text-white" : "border border-[#dbe4ef] text-[#62728a]"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {dateSingle ? (
+              <label className={L}>Columna con la fecha
+                <div className="relative">
+                  <select value={mapping.fecha} onChange={(e) => setMap("fecha", e.target.value)} className={selCls}>
+                    <option value="">—</option>
+                    {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
+                </div>
+              </label>
+            ) : (
             <div className="grid grid-cols-3 gap-2">
               {([ ["Día", "fechaDia"], ["Mes", "fechaMes"], ["Año", "fechaAno"] ] as [string, keyof FieldMapping][]).map(([label, key]) => (
                 <label key={key} className={L}>{label}
@@ -388,6 +451,7 @@ function ConfigPanel({ config, onChange, onClose }: {
                 </label>
               ))}
             </div>
+            )}
           </div>
           {/* Código */}
           <div>
@@ -418,7 +482,7 @@ function ConfigPanel({ config, onChange, onClose }: {
             <label className={L}>Cantidad
               <div className="relative">
                 <select value={mapping.cant} onChange={(e) => setMap("cant", e.target.value)} className={selCls}>
-                  <option value="">— sin mapear —</option>
+                  <option value="">— sin columna: 1 por fila —</option>
                   {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
@@ -429,10 +493,10 @@ function ConfigPanel({ config, onChange, onClose }: {
         {/* Preview of current mapping */}
         {parsedCols.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-[#62728a]">
-            <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Día → {mapping.fechaDia || "—"} · Mes → {mapping.fechaMes || "—"} · Año → {mapping.fechaAno || "—"}</span>
+            <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">{dateSingle ? `Fecha → ${mapping.fecha || "—"}` : `Día → ${mapping.fechaDia || "—"} · Mes → ${mapping.fechaMes || "—"} · Año → ${mapping.fechaAno || "—"}`}</span>
             <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Código → {mapping.codigo || "—"}</span>
             <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Desc → {mapping.desc || "—"}</span>
-            <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Cant → {mapping.cant || "—"}</span>
+            <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Cant → {mapping.cant || "1 por fila"}</span>
           </div>
         )}
       </div>
@@ -963,14 +1027,14 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   const dateParts = useMemo(() => {
     const cfg = configs.find((c) => c.nombre === cliente);
     const m   = cfg?.canje.mapping ?? DEFAULT_MAPPING;
-    return new Set([m.fechaDia, m.fechaMes, m.fechaAno].filter(Boolean));
+    return new Set([m.fecha, m.fechaDia, m.fechaMes, m.fechaAno].filter(Boolean));
   }, [configs, cliente]);
 
   // Full ordered list: tipo → date parts → rest of canonical → remaining raw
   const allDisplayKeys = useMemo(() => {
     const cfg          = configs.find((c) => c.nombre === cliente);
     const m            = cfg?.canje.mapping ?? DEFAULT_MAPPING;
-    const datePartKeys = [m.fechaDia, m.fechaMes, m.fechaAno].filter(Boolean);
+    const datePartKeys = [m.fecha, m.fechaDia, m.fechaMes, m.fechaAno].filter(Boolean);
     const datePartSet  = new Set(datePartKeys);
     const otherRaw     = allRawKeys.filter((k) => !datePartSet.has(k));
     return ["ID egreso", "cliente", "tipo", ...datePartKeys, "codigo", "desc", "cant", ...otherRaw.filter(k => k !== "ID egreso")];
@@ -1379,14 +1443,7 @@ export function EgressWorkspace() {
           canje: {
             columnas: profile.columns,
             filaInicio: profile.headerRow,
-            mapping: {
-              fechaDia: profile.mapping.dateDay?.[0] ?? "",
-              fechaMes: profile.mapping.dateMonth?.[0] ?? "",
-              fechaAno: profile.mapping.dateYear?.[0] ?? "",
-              codigo: profile.mapping.clientCode?.[0] ?? "",
-              desc: profile.mapping.product?.[0] ?? "",
-              cant: profile.mapping.quantity?.[0] ?? "",
-            },
+            mapping: profileMapping(profile.columns, profile.mapping),
           },
         }));
         if (next.length) setConfigs(next);
@@ -1524,7 +1581,7 @@ export function EgressWorkspace() {
             dateDay: mapping.fechaDia ? [mapping.fechaDia] : [],
             dateMonth: mapping.fechaMes ? [mapping.fechaMes] : [],
             dateYear: mapping.fechaAno ? [mapping.fechaAno] : [],
-            date: ["Fecha", "Fecha Canje", "Fecha pedido", "Fecha canje"],
+            date: [...(mapping.fecha ? [mapping.fecha] : []), "Fecha", "Fecha Canje", "Fecha pedido", "Fecha canje"],
             clientCode: mapping.codigo ? [mapping.codigo] : [],
             product: mapping.desc ? [mapping.desc] : [],
             quantity: mapping.cant ? [mapping.cant] : [],

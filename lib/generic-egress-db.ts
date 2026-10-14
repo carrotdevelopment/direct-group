@@ -117,8 +117,15 @@ function dateFromRow(row: Record<string, unknown>, mapping: EgressFieldMapping) 
     const date = new Date(Date.UTC(year, month - 1, day));
     if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return date;
   }
-  const raw = text(valueFrom(row, mapping.date));
+  const value = valueFrom(row, mapping.date);
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  const raw = text(value);
   if (!raw) return null;
+  // Fecha guardada como número de serie de Excel (45943 = 13/10/2025; la parte decimal es la hora).
+  if (/^\d{5}(\.\d+)?$/.test(raw)) {
+    const serial = Math.floor(Number(raw));
+    if (serial > 30000 && serial < 80000) return new Date(Date.UTC(1899, 11, 30) + serial * 86_400_000);
+  }
   const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   const local = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/);
   if (iso) return new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
@@ -163,7 +170,8 @@ export function canonicalizeEgressRecord(
       options.resolveProduct?.(uniqueCode) ||
       options.rawProduct?.(record) ||
       text(valueFrom(record, mapping.product)),
-    quantity: numeric(valueFrom(record, mapping.quantity)),
+    // Sin columna de cantidad configurada, cada fila es una unidad (canjes de a uno).
+    quantity: mapping.quantity?.length ? numeric(valueFrom(record, mapping.quantity)) : 1,
     destination: text(valueFrom(record, mapping.destination)),
     comments: text(valueFrom(record, mapping.comments)),
   };
