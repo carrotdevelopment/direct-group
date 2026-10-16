@@ -8,7 +8,7 @@ import { useSession, signOut } from "next-auth/react";
 import {
   ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator, ChartNoAxesCombined,
   CircleDollarSign, ClipboardList, FileKey2, FileUp,
-  Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Truck, Users, Warehouse, X,
+  Mail, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Truck, Users, Warehouse, X,
 } from "lucide-react";
 import { hasModule, pageModule } from "@/lib/module-access";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,9 @@ const navigation: NavGroup[] = [
   ]},
   { label: "Stock", items: [
     { label: "Stock", href: "/stock", icon: Warehouse },
+  ]},
+  { label: "Comunicación", items: [
+    { label: "Correos", href: "/correos", icon: Mail },
   ]},
   { label: "Entidades", items: [
     { label: "Clientes", href: "/clientes", icon: Users },
@@ -105,6 +108,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
+      // Restore the sidebar preference saved in this browser.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCollapsed(localStorage.getItem("dg-sidebar-collapsed") === "1");
     } catch {}
   }, []);
