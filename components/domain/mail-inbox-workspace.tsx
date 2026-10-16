@@ -167,7 +167,7 @@ export function MailInboxWorkspace() {
               {detail.messages.map((message) => (
                 <article key={message.id} className="px-6 py-4">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <div className="min-w-0 text-xs">
+                    <div className="min-w-0 break-words text-xs [overflow-wrap:anywhere]">
                       <div className="font-black text-[#10233f]">{message.from}</div>
                       {message.to && <div className="mt-0.5 text-[#62728a]">Para: {message.to}</div>}
                       {message.cc && <div className="mt-0.5 text-[#62728a]">CC: {message.cc}</div>}
