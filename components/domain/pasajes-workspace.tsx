@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, Check, ListPlus, Plus, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, Check, FileSpreadsheet, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
 type ProductLookup = { code: string; name: string };
@@ -26,6 +27,10 @@ type Pasaje = {
   confirmedQuantity: string | null;
   confirmedBy: string | null;
   confirmedAt: string | null;
+  requestDate: string | null;
+  warning: string | null;
+  sourceRow: number | null;
+  batch: { fileName: string | null; requestDate: string | null } | null;
 };
 
 type Ajuste = {
@@ -57,7 +62,7 @@ function statusBadge(status: string) {
 
 function statusLabel(status: string) {
   if (status === "pending") return "Pendiente aprobación";
-  if (status === "approved") return "Aprobado · egreso en espera";
+  if (status === "approved") return "Aprobado · esperando a Urbano";
   if (status === "confirmed") return "Confirmado";
   if (status === "accepted") return "Aceptado";
   return "Rechazado";
@@ -170,8 +175,10 @@ export function PasajesWorkspace({
   const [status, setStatus] = useState("Cargando...");
   const [pasajeModalOpen, setPasajeModalOpen] = useState(false);
   const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
-  const [batchModalOpen, setBatchModalOpen] = useState(false);
-  const [confirming, setConfirming] = useState<Pasaje | null>(null);
+  const [solicitudModalOpen, setSolicitudModalOpen] = useState(false);
+  const [realQuantity, setRealQuantity] = useState<Record<string, string>>({});
+  const [selectedConfirm, setSelectedConfirm] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const productByCode = useMemo(() => {
@@ -237,6 +244,47 @@ export function PasajesWorkspace({
     }
   }
 
+  // Acciones sobre varios pasajes juntos (los de una solicitud a Urbano).
+  async function bulk(body: object, okMessage: string) {
+    setError("");
+    setBusy(true);
+    try {
+      const response = await fetch("/api/pasajes/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await response.json()) as { done?: string[]; failed?: { id: string; message: string }[]; message?: string };
+      if (!response.ok) throw new Error(data.message || "No se pudo procesar.");
+      if (data.failed?.length) setError(`${data.done?.length ?? 0} ${okMessage}; ${data.failed.length} no: ${[...new Set(data.failed.map((item) => item.message))].join(" ")}`);
+      setStatus(`${data.done?.length ?? 0} ${okMessage}.`);
+      setSelectedConfirm(new Set());
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo procesar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const realFor = (p: Pasaje) => realQuantity[p.id] ?? String(Number(p.quantity));
+  const canConfirm = (p: Pasaje) => canAct(p.fromClient) || createdByMe(p.createdBy);
+  const requestLabel = (p: Pasaje) => {
+    const date = p.batch?.requestDate ?? p.requestDate;
+    if (!date) return "";
+    const [year, month, day] = date.slice(0, 10).split("-");
+    return ` · Solicitud a Urbano del ${day}/${month}/${year}${p.sourceRow ? `, fila ${p.sourceRow}` : ""}`;
+  };
+
+  async function confirmSelected(list: Pasaje[]) {
+    const items = list.filter((p) => selectedConfirm.has(p.id)).map((p) => ({ id: p.id, quantity: Number(realFor(p)) }));
+    const invalid = items.find((item) => !Number.isFinite(item.quantity) || item.quantity < 0);
+    if (invalid) return setError("Revisá las cantidades: tienen que ser números mayores o iguales a cero.");
+    const partial = items.filter((item) => item.quantity < Number(list.find((p) => p.id === item.id)?.quantity));
+    if (!window.confirm(`Confirmar ${items.length} ${items.length === 1 ? "pasaje" : "pasajes"}${partial.length ? ` (${partial.length} con menos cantidad que la solicitada; la diferencia queda en el origen)` : ""}? Se mueve el stock por la cantidad real.`)) return;
+    await bulk({ action: "confirm", items }, "pasajes confirmados");
+  }
+
   const pendingPasajes = pasajes.filter((p) => p.status === "pending");
   const approvedPasajes = pasajes.filter((p) => p.status === "approved");
   const resolvedPasajes = pasajes.filter((p) => p.status !== "pending" && p.status !== "approved");
@@ -264,8 +312,8 @@ export function PasajesWorkspace({
           <span className="text-[10px] font-bold text-[#8a99ad]">{status}</span>
           {tab === "pasajes" ? (
             <>
-              <Button size="sm" variant="secondary" onClick={() => setBatchModalOpen(true)}>
-                <ListPlus size={15} /> Carga en lote
+              <Button size="sm" variant="secondary" onClick={() => setSolicitudModalOpen(true)}>
+                <FileSpreadsheet size={15} /> Cargar solicitud a Urbano
               </Button>
               <Button size="sm" onClick={() => setPasajeModalOpen(true)}>
                 <ArrowRightLeft size={15} /> Nuevo pasaje
@@ -294,8 +342,18 @@ export function PasajesWorkspace({
       {tab === "pasajes" ? (
         <div className="space-y-4">
           <section className="card animate-enter overflow-hidden">
-            <div className="border-b border-[#e1e8f1] bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e1e8f1] bg-white p-4">
               <h2 className="text-sm font-black text-[#10233f]">Pendientes de aprobación</h2>
+              {(() => {
+                const mine = pendingPasajes.filter((p) => canAct(p.toClient) && !isOwn(p.createdBy));
+                return mine.length > 1 ? (
+                  <Button size="sm" disabled={busy} onClick={() => {
+                    if (window.confirm(`Aprobar los ${mine.length} pasajes pendientes que te tocan aprobar?`)) void bulk({ action: "approve", ids: mine.map((p) => p.id) }, "pasajes aprobados");
+                  }}>
+                    <Check size={14} /> Aprobar todos ({mine.length})
+                  </Button>
+                ) : null;
+              })()}
             </div>
             <div className="divide-y divide-[#e7edf4]">
               {pendingPasajes.length === 0 && (
@@ -311,9 +369,10 @@ export function PasajesWorkspace({
                       {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Cantidad: {p.quantity}
                     </div>
                     <div className="mt-0.5 text-[10px] text-[#8a99ad]">
-                      Generado por {p.createdBy} el {formatDateTime(p.createdAt)}
+                      Generado por {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
                       {p.comments ? ` · ${p.comments}` : ""}
                     </div>
+                    {p.warning && <div className="mt-0.5 text-[10px] font-bold text-[#985b00]">{p.warning}</div>}
                   </div>
                   {canAct(p.toClient) && !isOwn(p.createdBy) ? (
                     <div className="flex gap-2">
@@ -335,39 +394,89 @@ export function PasajesWorkspace({
           </section>
 
           <section className="card animate-enter overflow-hidden">
-            <div className="border-b border-[#e1e8f1] bg-white p-4">
-              <h2 className="text-sm font-black text-[#10233f]">Aprobados · pendientes de confirmar el egreso</h2>
-              <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
-                El ingreso del cliente destino ya se cargó. El egreso del emisor se ejecuta cuando confirma la cantidad enviada.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e1e8f1] bg-white p-4">
+              <div>
+                <h2 className="text-sm font-black text-[#10233f]">Aprobados · cargar lo que pasó Urbano</h2>
+                <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
+                  Todavía no se movió stock. Cargá la cantidad que realmente pasó Urbano y confirmá: egresa del origen e
+                  ingresa al destino esa cantidad. Si pasó menos, la diferencia queda en el origen; con 0, no se realizó.
+                </p>
+              </div>
+              {(() => {
+                const mine = approvedPasajes.filter(canConfirm);
+                const selected = mine.filter((p) => selectedConfirm.has(p.id));
+                return mine.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setSelectedConfirm(selected.length === mine.length ? new Set() : new Set(mine.map((p) => p.id)))}>
+                      {selected.length === mine.length ? "Quitar selección" : `Seleccionar todos (${mine.length})`}
+                    </Button>
+                    <Button size="sm" disabled={busy || selected.length === 0} onClick={() => void confirmSelected(approvedPasajes)}>
+                      <Check size={14} /> Confirmar {selected.length || ""}
+                    </Button>
+                  </div>
+                ) : null;
+              })()}
             </div>
             <div className="divide-y divide-[#e7edf4]">
               {approvedPasajes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando confirmación.</p>
+                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando lo que informe Urbano.</p>
               )}
-              {approvedPasajes.map((p) => (
-                <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div className="text-xs">
-                    <div className="font-bold text-[#10233f]">
-                      {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
+              {approvedPasajes.map((p) => {
+                const requested = Number(p.quantity);
+                const real = Number(realFor(p));
+                return (
+                  <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="flex min-w-0 items-start gap-3 text-xs">
+                      {canConfirm(p) && (
+                        <input
+                          type="checkbox"
+                          aria-label="Incluir en la confirmación"
+                          className="mt-1"
+                          checked={selectedConfirm.has(p.id)}
+                          onChange={(event) => setSelectedConfirm((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(p.id); else next.delete(p.id);
+                            return next;
+                          })}
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-bold text-[#10233f]">
+                          {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
+                        </div>
+                        <div className="mt-0.5 text-[#62728a]">
+                          {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Solicitado: {requested}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                          Aprobado por {p.respondedBy} el {p.respondedAt ? formatDateTime(p.respondedAt) : ""}{requestLabel(p)}
+                          {p.responseComment ? ` · ${p.responseComment}` : ""}
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-[#62728a]">
-                      {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Aprobado: {p.quantity}
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-[#8a99ad]">
-                      Aprobado por {p.respondedBy} el {p.respondedAt ? formatDateTime(p.respondedAt) : ""}
-                      {p.responseComment ? ` · ${p.responseComment}` : ""}
-                    </div>
+                    {canConfirm(p) ? (
+                      <label className="flex items-center gap-2 text-[11px] font-extrabold text-[#334b6b]">
+                        Pasó
+                        <input
+                          type="number"
+                          min="0"
+                          max={requested}
+                          value={realFor(p)}
+                          onChange={(event) => {
+                            setRealQuantity((current) => ({ ...current, [p.id]: event.target.value }));
+                            setSelectedConfirm((current) => new Set(current).add(p.id));
+                          }}
+                          className="h-9 w-20 rounded-lg border border-[#dbe4ef] px-2 text-right text-xs tabular-nums outline-none focus:border-[#7da4d3]"
+                        />
+                        <span className={real < requested ? "text-[#985b00]" : "text-[#8a99ad]"}>
+                          {real === 0 ? "no se realizó" : real < requested ? `faltan ${requested - real}` : `de ${requested}`}
+                        </span>
+                      </label>
+                    ) : (
+                      <span className="text-[10px] font-bold text-[#8a99ad]">Lo confirma {p.createdBy} o quien tenga {p.fromClient}</span>
+                    )}
                   </div>
-                  {canAct(p.fromClient) || createdByMe(p.createdBy) ? (
-                    <Button size="sm" onClick={() => setConfirming(p)}>
-                      <Check size={14} /> Confirmar envío
-                    </Button>
-                  ) : (
-                    <span className="text-[10px] font-bold text-[#8a99ad]">Esperando la confirmación de {p.fromClient}</span>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
@@ -392,8 +501,9 @@ export function PasajesWorkspace({
                       {p.respondedBy} el {p.respondedAt ? formatDateTime(p.respondedAt) : ""}
                       {p.responseComment ? ` · ${p.responseComment}` : ""}
                       {p.status === "confirmed" && p.confirmedAt
-                        ? ` · Confirmado por ${p.confirmedBy}: ${Number(p.confirmedQuantity)} de ${Number(p.quantity)} el ${formatDateTime(p.confirmedAt)}`
+                        ? ` · Confirmado por ${p.confirmedBy} el ${formatDateTime(p.confirmedAt)}: ${Number(p.confirmedQuantity) === 0 ? "no se realizó" : `pasó ${Number(p.confirmedQuantity)} de ${Number(p.quantity)}`}`
                         : ""}
+                      {requestLabel(p)}
                     </div>
                   </div>
                   <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${statusBadge(p.status)}`}>
@@ -491,28 +601,8 @@ export function PasajesWorkspace({
           }}
         />
       )}
-      {batchModalOpen && (
-        <BatchPasajesModal
-          mappings={mappings}
-          productByCode={productByCode}
-          allowedClients={null}
-          onClose={() => setBatchModalOpen(false)}
-          onCreated={() => {
-            setBatchModalOpen(false);
-            void loadAll();
-          }}
-        />
-      )}
-      {confirming && (
-        <ConfirmPasajeModal
-          pasaje={confirming}
-          productName={productByCode.get(confirming.uniqueCode.toLowerCase()) || confirming.product || confirming.uniqueCode}
-          onClose={() => setConfirming(null)}
-          onConfirmed={() => {
-            setConfirming(null);
-            void loadAll();
-          }}
-        />
+      {solicitudModalOpen && (
+        <PasajeSolicitudModal onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
       )}
       {ajusteModalOpen && (
         <AjusteModal
@@ -870,355 +960,6 @@ function PasajeModal({
           </Button>
           <Button type="submit" disabled={submitting}>
             Generar pasaje
-          </Button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function BatchPasajesModal({
-  mappings,
-  productByCode,
-  allowedClients,
-  onClose,
-  onCreated,
-}: {
-  mappings: Mapping[];
-  productByCode: Map<string, string>;
-  allowedClients: string[] | null;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [rows, setRows] = useState<PasajeDraft[]>(() => Array.from({ length: 5 }, () => ({ ...emptyDraft })));
-  const [serverErrors, setServerErrors] = useState<Record<number, string>>({});
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const skuOptions = useMemo(() => skuOptionsFrom(mappings, productByCode), [mappings, productByCode]);
-
-  const isBlank = (row: PasajeDraft) =>
-    !row.sku && !row.fromClient && !row.fromClientCode && !row.toClient && !row.toClientCode && !row.quantity && !row.comments;
-  const rowErrors = rows.map((row) => (isBlank(row) ? null : validateDraft(row, mappings, allowedClients)));
-  const filledCount = rows.filter((row) => !isBlank(row)).length;
-  const invalidCount = rowErrors.filter(Boolean).length;
-
-  function updateRow(index: number, patch: Partial<PasajeDraft>) {
-    setServerErrors({});
-    setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  }
-
-  function chooseSku(index: number, skuValue: string) {
-    const match = skuOptions.find(
-      (option) => sameText(option.value, skuValue) || sameText(option.label, skuValue),
-    );
-    const sku = match?.value ?? skuValue.trim();
-    const { fromPool } = optionsForSku(mappings, sku, allowedClients);
-    const clients = distinct(fromPool.map((m) => m.client));
-    const fromClient = clients.length === 1 ? clients[0] : "";
-    const codes = fromClient ? codesFor(fromPool, fromClient) : [];
-    updateRow(index, { sku, fromClient, fromClientCode: codes.length === 1 ? codes[0] : "", toClient: "", toClientCode: "" });
-  }
-
-  async function submit() {
-    const filled = rows.map((row, index) => ({ row, index })).filter(({ row }) => !isBlank(row));
-    if (filled.length === 0) return setError("Completá al menos una fila.");
-    if (invalidCount > 0) return setError("Corregí las filas marcadas en rojo antes de enviar.");
-    setError("");
-    setSubmitting(true);
-    try {
-      const response = await fetch("/api/pasajes/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows: filled.map(({ row }) => ({
-            fromClient: row.fromClient,
-            fromClientCode: row.fromClientCode,
-            toClient: row.toClient,
-            toClientCode: row.toClientCode,
-            uniqueCode: row.sku,
-            quantity: Number(row.quantity),
-            comments: row.comments,
-          })),
-        }),
-      });
-      const data = (await response.json()) as { message?: string; rowErrors?: { index: number; message: string }[] };
-      if (!response.ok) {
-        if (data.rowErrors) {
-          const mapped: Record<number, string> = {};
-          for (const item of data.rowErrors) mapped[filled[item.index].index] = item.message;
-          setServerErrors(mapped);
-        }
-        throw new Error(data.message || "No se pudieron cargar los pasajes.");
-      }
-      onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron cargar los pasajes.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const cell = "border-r border-[#e7edf4] p-1 align-top last:border-r-0";
-  const control =
-    "h-9 w-full rounded-lg border border-[#dbe4ef] bg-white px-2 text-[11px] outline-none focus:border-[#7da4d3] disabled:bg-[#f2f5f9]";
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
-      <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
-      <div className="relative flex max-h-[92vh] w-full max-w-7xl flex-col rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]">
-          <X size={18} />
-        </button>
-        <div className="eyebrow">Carga en lote</div>
-        <h2 className="mt-2 text-xl font-black">Cargar varios pasajes a la vez</h2>
-        <p className="mt-1 text-xs text-[#62728a]">
-          Una fila por pasaje. Elegí el producto y se habilitan los clientes y códigos que lo tienen. Si alguna fila tiene
-          errores no se carga ninguna.
-        </p>
-        <datalist id="batch-sku-options">
-          {skuOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </datalist>
-        <div className="mt-4 min-h-0 flex-1 overflow-auto rounded-xl border border-[#dbe4ef]">
-          <table className="w-full min-w-[1150px] table-fixed text-left text-[11px]">
-            <thead className="sticky top-0 bg-[#123f78] text-white">
-              <tr>
-                {["#", "Producto (código único)", "Cliente origen", "Cód. origen", "Cliente destino", "Cód. destino", "Cantidad", "Comentario", ""].map(
-                  (title, i) => (
-                    <th
-                      key={i}
-                      className={`px-2 py-2 font-bold ${i === 0 ? "w-8" : i === 8 ? "w-10" : i === 6 ? "w-24" : i === 3 || i === 5 ? "w-32" : ""}`}
-                    >
-                      {title}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#e7edf4]">
-              {rows.map((row, index) => {
-                const { forSku, fromPool } = optionsForSku(mappings, row.sku, allowedClients);
-                const problem = serverErrors[index] ?? rowErrors[index];
-                const toCodes = codesFor(forSku, row.toClient).filter(
-                  (code) => !(sameText(row.toClient, row.fromClient) && sameText(code, row.fromClientCode)),
-                );
-                return (
-                  <tr key={index} className={problem ? "bg-[#fff6f5]" : ""}>
-                    <td className={`${cell} px-2 py-3 text-center font-bold text-[#8a99ad]`}>{index + 1}</td>
-                    <td className={cell}>
-                      <input
-                        list="batch-sku-options"
-                        value={row.sku}
-                        placeholder="Código único"
-                        onChange={(event) => chooseSku(index, event.target.value)}
-                        className={control}
-                      />
-                      {row.sku && productByCode.get(row.sku.toLowerCase()) && (
-                        <div className="truncate px-1 pt-0.5 text-[10px] text-[#62728a]">
-                          {productByCode.get(row.sku.toLowerCase())}
-                        </div>
-                      )}
-                    </td>
-                    <td className={cell}>
-                      <select
-                        value={row.fromClient}
-                        disabled={!row.sku}
-                        onChange={(event) => {
-                          const codes = codesFor(fromPool, event.target.value);
-                          updateRow(index, { fromClient: event.target.value, fromClientCode: codes.length === 1 ? codes[0] : "", toClientCode: "" });
-                        }}
-                        className={control}
-                      >
-                        <option value="">—</option>
-                        {distinct(fromPool.map((m) => m.client)).map((client) => (
-                          <option key={client}>{client}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className={cell}>
-                      <select
-                        value={row.fromClientCode}
-                        disabled={!row.fromClient}
-                        onChange={(event) => updateRow(index, { fromClientCode: event.target.value, toClientCode: "" })}
-                        className={control}
-                      >
-                        <option value="">—</option>
-                        {codesFor(fromPool, row.fromClient).map((code) => (
-                          <option key={code}>{code}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className={cell}>
-                      <select
-                        value={row.toClient}
-                        disabled={!row.sku}
-                        onChange={(event) => {
-                          const codes = codesFor(forSku, event.target.value).filter(
-                            (code) => !(sameText(event.target.value, row.fromClient) && sameText(code, row.fromClientCode)),
-                          );
-                          updateRow(index, { toClient: event.target.value, toClientCode: codes.length === 1 ? codes[0] : "" });
-                        }}
-                        className={control}
-                      >
-                        <option value="">—</option>
-                        {distinct(forSku.map((m) => m.client)).map((client) => (
-                          <option key={client}>{client}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className={cell}>
-                      <select
-                        value={row.toClientCode}
-                        disabled={!row.toClient}
-                        onChange={(event) => updateRow(index, { toClientCode: event.target.value })}
-                        className={control}
-                      >
-                        <option value="">—</option>
-                        {toCodes.map((code) => (
-                          <option key={code}>{code}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className={cell}>
-                      <input
-                        type="number"
-                        min="1"
-                        value={row.quantity}
-                        onChange={(event) => updateRow(index, { quantity: event.target.value })}
-                        className={control}
-                      />
-                    </td>
-                    <td className={cell}>
-                      <input value={row.comments} onChange={(event) => updateRow(index, { comments: event.target.value })} className={control} />
-                      {problem && <div className="px-1 pt-1 text-[10px] font-bold text-[#a43d39]">{problem}</div>}
-                    </td>
-                    <td className={`${cell} text-center`}>
-                      <button
-                        type="button"
-                        aria-label={`Quitar fila ${index + 1}`}
-                        onClick={() => setRows((current) => (current.length > 1 ? current.filter((_, i) => i !== index) : current))}
-                        className="mt-1 rounded-lg p-2 text-[#74849a] hover:bg-[#fce9e8] hover:text-[#a43d39]"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {error && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => setRows((current) => [...current, ...Array.from({ length: 5 }, () => ({ ...emptyDraft }))])}
-            >
-              <Plus size={13} /> Agregar 5 filas
-            </Button>
-            <span className="text-[11px] font-bold text-[#62728a]">
-              {filledCount} fila{filledCount === 1 ? "" : "s"} cargada{filledCount === 1 ? "" : "s"}
-              {invalidCount > 0 ? ` · ${invalidCount} con errores` : ""}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button type="button" disabled={submitting || filledCount === 0 || invalidCount > 0} onClick={() => void submit()}>
-              {submitting ? "Cargando..." : `Generar ${filledCount || ""} pasaje${filledCount === 1 ? "" : "s"}`}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmPasajeModal({
-  pasaje,
-  productName,
-  onClose,
-  onConfirmed,
-}: {
-  pasaje: Pasaje;
-  productName: string;
-  onClose: () => void;
-  onConfirmed: () => void;
-}) {
-  const approved = Number(pasaje.quantity);
-  const [quantity, setQuantity] = useState(String(approved));
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const parsed = Number(quantity);
-  const difference = Number.isFinite(parsed) ? approved - parsed : 0;
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!Number.isFinite(parsed) || parsed < 0) return setError("Ingresá una cantidad válida.");
-    if (parsed > approved) return setError(`No podés confirmar más de lo aprobado (${approved}).`);
-    setError("");
-    setSubmitting(true);
-    try {
-      const response = await fetch(`/api/pasajes/${pasaje.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "confirm", quantity: parsed }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "No se pudo confirmar el pasaje.");
-      onConfirmed();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo confirmar el pasaje.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
-      <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
-      <form onSubmit={submit} className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]">
-          <X size={18} />
-        </button>
-        <div className="eyebrow">Confirmar pasaje</div>
-        <h2 className="mt-2 text-xl font-black">Confirmar la cantidad enviada</h2>
-        <p className="mt-2 text-xs text-[#62728a]">
-          {pasaje.fromClient} ({pasaje.fromClientCode}) → {pasaje.toClient} ({pasaje.toClientCode})
-          <br />
-          {productName} · Aprobado: <strong>{approved}</strong>
-        </p>
-        <label className="mt-4 block text-[11px] font-extrabold text-[#334b6b]">
-          Cantidad realmente enviada
-          <input
-            type="number"
-            min="0"
-            max={approved}
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-            className={selectClass}
-          />
-        </label>
-        {difference > 0 && (
-          <p className="mt-3 rounded-xl bg-[#fff0d9] px-3 py-2 text-[11px] font-bold text-[#985b00]">
-            Se confirma por {difference} unidad{difference === 1 ? "" : "es"} menos: esa diferencia se carga como un
-            egreso &quot;Ajuste de Stock&quot; para que el stock del emisor quede correcto.
-          </p>
-        )}
-        {error && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
-        <div className="mt-6 flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button type="submit" disabled={submitting}>
-            Confirmar y ejecutar egreso
           </Button>
         </div>
       </form>

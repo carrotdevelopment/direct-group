@@ -600,9 +600,41 @@ model PasajeRequest {
   confirmedQuantity Decimal? @map("cantidad_confirmada") @db.Decimal(18, 4)
   confirmedBy     String?   @map("confirmed_by") @db.VarChar(255)
   confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  // Pasajes cargados desde la solicitud de pasaje de stock a Urbano (Excel).
+  batchId         String?   @map("lote_id") @db.Uuid
+  requestDate     DateTime? @map("fecha_solicitud") @db.Date
+  fromShipper     String?   @map("shipper_origen") @db.VarChar(20)
+  toShipper       String?   @map("shipper_destino") @db.VarChar(20)
+  sourceRow       Int?      @map("fila_origen")
+  warning         String?   @map("aviso")
+  batch           PasajeBatch? @relation(fields: [batchId], references: [id])
 
   @@index([status])
+  @@index([batchId])
   @@map("pasaje_requests")
+}
+
+// Una solicitud de pasaje de stock a Urbano cargada desde Excel.
+model PasajeBatch {
+  id          String          @id @default(uuid()) @db.Uuid
+  fileName    String?         @map("nombre_archivo") @db.VarChar(255)
+  requestDate DateTime?       @map("fecha_solicitud") @db.Date
+  createdBy   String          @map("created_by") @db.VarChar(255)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  pasajes     PasajeRequest[]
+
+  @@map("pasaje_lotes")
+}
+
+// Shippers de Urbano: qué cliente (o clientes) corresponde a cada número de shipper.
+model UrbanoShipper {
+  code      String   @id @map("codigo") @db.VarChar(20)
+  name      String   @map("nombre") @db.VarChar(255)
+  clients   String[] @map("clientes")
+  active    Boolean  @default(true) @map("activo")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("urbano_shippers")
 }
 
 // Ajuste de stock (rotura, faltante, sobrante) de un cliente. Cantidad

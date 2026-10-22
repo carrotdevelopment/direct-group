@@ -69,12 +69,6 @@ export type PasajeInput = {
   comments?: string;
 };
 
-export class PasajeBatchError extends PasajeAjusteError {
-  constructor(public rowErrors: { index: number; message: string }[]) {
-    super("Hay filas con errores. Corregilas y volvé a enviar: no se cargó ninguna.", 422);
-  }
-}
-
 // Valida un pasaje y devuelve los datos listos para guardar.
 async function preparePasaje(input: PasajeInput, actor: PasajeActor) {
   const quantity = Number(input.quantity);
@@ -112,35 +106,19 @@ export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
   return excelPostgres.pasajeRequest.create({ data: await preparePasaje(input, actor) });
 }
 
-// Carga en lote: se validan todas las filas y, si alguna falla, no se carga ninguna.
-export async function createPasajesBatch(inputs: PasajeInput[], actor: PasajeActor) {
-  if (!Array.isArray(inputs) || inputs.length === 0) throw new PasajeAjusteError("No hay filas para cargar.");
-  if (inputs.length > 200) throw new PasajeAjusteError("Se pueden cargar hasta 200 pasajes por vez.");
-  const prepared: Awaited<ReturnType<typeof preparePasaje>>[] = [];
-  const rowErrors: { index: number; message: string }[] = [];
-  for (let index = 0; index < inputs.length; index += 1) {
-    try {
-      prepared.push(await preparePasaje(inputs[index], actor));
-    } catch (error) {
-      rowErrors.push({ index, message: error instanceof Error ? error.message : "Fila inválida." });
-    }
-  }
-  if (rowErrors.length) throw new PasajeBatchError(rowErrors);
-  const result = await excelPostgres.pasajeRequest.createMany({ data: prepared });
-  return { created: result.count };
-}
-
 export async function listPasajes(actor: PasajeActor, status?: string) {
   const rows = await excelPostgres.pasajeRequest.findMany({
     where: status ? { status } : undefined,
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { sourceRow: "asc" }],
+    include: { batch: { select: { fileName: true, requestDate: true } } },
   });
   return rows.filter((row) => canSeePasaje(actor, row));
 }
 
-// Estados: pending (espera aprobación del receptor) → approved (el receptor aprobó:
-// se carga el ingreso y el egreso queda en espera) → confirmed (el emisor confirma la
-// cantidad enviada: se ejecuta el egreso). rejected cierra el pasaje sin mover stock.
+// Estados: pending (espera aprobación del receptor) → approved (el receptor aprobó; todavía no se
+// mueve stock: se espera lo que informe Urbano) → confirmed (quien generó el pasaje o tiene el
+// cliente origen carga la cantidad realmente pasada: egresa del origen e ingresa al destino esa
+// cantidad). rejected cierra el pasaje sin mover stock.
 export async function respondPasaje(
   id: string,
   action: "approve" | "reject",
@@ -169,39 +147,37 @@ export async function respondPasaje(
       },
     });
 
-    if (action === "approve") {
-      const now = new Date();
-      await tx.tangoIncome.create({
-        data: {
-          client: pasaje.toClient,
-          clientCode: pasaje.toClientCode,
-          operation: "PASAJE",
-          orderDate: now,
-          quantity: pasaje.quantity,
-          deliveredQuantity: pasaje.quantity,
-          deliveryDate: now,
-          transferOrigin: pasaje.fromClient,
-          comments: `Pasaje desde ${pasaje.fromClient} (${pasaje.fromClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
-          pendingTangoEntry: true,
-          createdBy: respondedBy,
-        },
-      });
-    }
-
     return updated;
   });
-  if (action === "approve") invalidateIncomeGroups();
   return result;
 }
 
-// El emisor confirma cuánto se envió realmente. Se ejecuta el egreso por esa cantidad y,
-// si es menor a la aprobada, la diferencia se carga como egreso "Ajuste de Stock".
+// Aprueba o rechaza varios pasajes de una vez (por ejemplo, todos los de una solicitud a Urbano).
+// Cada uno se resuelve por separado: los que no se pueden quedan informados con su motivo.
+export async function respondPasajes(ids: string[], action: "approve" | "reject", actor: PasajeActor, comment?: string) {
+  if (!Array.isArray(ids) || ids.length === 0) throw new PasajeAjusteError("No hay pasajes para resolver.");
+  if (ids.length > 300) throw new PasajeAjusteError("Se pueden resolver hasta 300 pasajes por vez.");
+  const done: string[] = [];
+  const failed: { id: string; message: string }[] = [];
+  for (const id of ids) {
+    try {
+      await respondPasaje(String(id), action, actor, comment);
+      done.push(String(id));
+    } catch (error) {
+      failed.push({ id: String(id), message: error instanceof Error ? error.message : "No se pudo resolver." });
+    }
+  }
+  return { done, failed };
+}
+
+// Se confirma cuánto pasó realmente (lo que informa Urbano): egresa del origen e ingresa al destino
+// esa cantidad. Si es menor a la aprobada, la diferencia queda en el origen; con 0 no se mueve nada.
 export async function confirmPasaje(id: string, confirmedQuantity: number, actor: PasajeActor) {
   const quantityConfirmed = Number(confirmedQuantity);
   if (!Number.isFinite(quantityConfirmed) || quantityConfirmed < 0) {
     throw new PasajeAjusteError("La cantidad confirmada no es válida.");
   }
-  return excelPostgres.$transaction(async (tx) => {
+  const result = await excelPostgres.$transaction(async (tx) => {
     const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
     if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
     if (pasaje.status !== "approved") {
@@ -229,6 +205,21 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
       createdBy: actor.name,
     };
     if (quantityConfirmed > 0) {
+      await tx.tangoIncome.create({
+        data: {
+          client: pasaje.toClient,
+          clientCode: pasaje.toClientCode,
+          operation: "PASAJE",
+          orderDate: now,
+          quantity: quantityConfirmed,
+          deliveredQuantity: quantityConfirmed,
+          deliveryDate: now,
+          transferOrigin: pasaje.fromClient,
+          comments: `Pasaje desde ${pasaje.fromClient} (${pasaje.fromClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
+          pendingTangoEntry: true,
+          createdBy: actor.name,
+        },
+      });
       await tx.egress.create({
         data: {
           ...base,
@@ -239,20 +230,27 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
         },
       });
     }
-    const difference = approved - quantityConfirmed;
-    if (difference > 0) {
-      await tx.egress.create({
-        data: {
-          ...base,
-          operation: "ROBO/AJUSTE",
-          quantity: difference,
-          destination: pasaje.toClient,
-          comments: `Ajuste de Stock: pasaje a ${pasaje.toClient} (${pasaje.toClientCode}) confirmado por menos cantidad (aprobado ${approved}, confirmado ${quantityConfirmed})`,
-        },
-      });
-    }
     return updated;
   });
+  if (quantityConfirmed > 0) invalidateIncomeGroups();
+  return result;
+}
+
+// Confirma varios pasajes con su cantidad real (la segunda aprobación de una solicitud a Urbano).
+export async function confirmPasajes(items: { id: string; quantity: number }[], actor: PasajeActor) {
+  if (!Array.isArray(items) || items.length === 0) throw new PasajeAjusteError("No hay pasajes para confirmar.");
+  if (items.length > 300) throw new PasajeAjusteError("Se pueden confirmar hasta 300 pasajes por vez.");
+  const done: string[] = [];
+  const failed: { id: string; message: string }[] = [];
+  for (const item of items) {
+    try {
+      await confirmPasaje(String(item.id), Number(item.quantity), actor);
+      done.push(String(item.id));
+    } catch (error) {
+      failed.push({ id: String(item.id), message: error instanceof Error ? error.message : "No se pudo confirmar." });
+    }
+  }
+  return { done, failed };
 }
 
 export type AjusteInput = {
