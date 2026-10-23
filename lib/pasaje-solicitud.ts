@@ -4,7 +4,9 @@
 // La planilla trae, por fila: FECHA · SH · SKU VIEJO · DESCRIPCION · CANT (origen) y
 // SH · SKU NUEVO · DESCRIPCION · CANT (destino). El cliente sale del shipper de Urbano (SH), y el
 // código cliente decide cuando el shipper corresponde a más de un cliente. Si el código es de otro
-// cliente que el del shipper, se usa el dueño del código y la fila queda con aviso.
+// cliente que el del shipper, se usa el dueño del código y la fila queda con aviso. Las filas donde
+// origen y destino son del mismo cliente son cambios de código del mismo producto: no se cargan como
+// pasajes (status "excluded"), se hacen desde otra sección.
 
 export type SolicitudRow = {
   row: number;
@@ -23,7 +25,7 @@ export type ClientCodeRecord = { client: string; clientCode: string; uniqueCode:
 export type ShipperRecord = { code: string; name: string; clients: string[]; active: boolean };
 
 export type ResolvedRow = SolicitudRow & {
-  status: "ok" | "warning" | "error";
+  status: "ok" | "warning" | "error" | "excluded";
   messages: string[];
   fromClient: string | null;
   toClient: string | null;
@@ -159,14 +161,67 @@ export function resolveSolicitud(rows: SolicitudRow[], codeList: ClientCodeRecor
     else if (row.toQuantity !== null && row.fromQuantity !== null && row.toQuantity !== row.fromQuantity) {
       warnings.push(`La cantidad del origen (${row.fromQuantity}) y la del destino (${row.toQuantity}) no coinciden: se solicita ${row.fromQuantity}.`);
     }
+    const sameClient = !errors.length && "client" in from && "client" in to && normalize(from.client) === normalize(to.client);
     return {
       ...row,
-      status: errors.length ? "error" : warnings.length ? "warning" : "ok",
-      messages: [...errors, ...warnings],
+      status: errors.length ? "error" : sameClient ? "excluded" : warnings.length ? "warning" : "ok",
+      messages: sameClient
+        ? [`Cambio de código del mismo cliente (${"client" in from ? from.client : ""}): no se carga como pasaje, se hace desde la sección de cambios de código.`]
+        : [...errors, ...warnings],
       fromClient: "client" in from ? from.client : null,
       toClient: "client" in to ? to.client : null,
       uniqueCode: "uniqueCode" in from ? from.uniqueCode : "uniqueCode" in to ? to.uniqueCode : null,
       quantity: quantity && quantity > 0 ? quantity : null,
     };
+  });
+}
+
+export type ExistingPasaje = {
+  fromClientCode: string;
+  toClientCode: string;
+  quantity: number;
+  requestDate: string | null;
+  status: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+const statusText: Record<string, string> = { pending: "pendiente", approved: "aprobado", confirmed: "confirmado", accepted: "aceptado" };
+
+function displayDate(iso: string | null) {
+  if (!iso) return "";
+  const [year, month, day] = iso.slice(0, 10).split("-");
+  return `${day}/${month}/${year}`;
+}
+
+// Marca como error las filas que ya están cargadas como pasaje (mismo origen, destino, cantidad y
+// fecha de solicitud; los rechazados no cuentan) y avisa las filas repetidas dentro del archivo.
+// Evita duplicar pasajes si vuelven a subir la solicitud para cargar una fila corregida.
+export function markDuplicates(rows: ResolvedRow[], existing: ExistingPasaje[]): ResolvedRow[] {
+  const key = (from: string, to: string, quantity: number | null, date: string | null) =>
+    [normalize(from), normalize(to), Number(quantity), (date ?? "").slice(0, 10)].join("|");
+  const loaded = new Map<string, ExistingPasaje>();
+  for (const pasaje of existing) {
+    if (pasaje.status === "rejected") continue;
+    loaded.set(key(pasaje.fromClientCode, pasaje.toClientCode, pasaje.quantity, pasaje.requestDate), pasaje);
+  }
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    if (row.status === "error" || row.status === "excluded") return row;
+    const rowKey = key(row.fromClientCode, row.toClientCode, row.quantity, row.requestDate);
+    const previous = loaded.get(rowKey);
+    if (previous) {
+      return {
+        ...row,
+        status: "error",
+        messages: [`Ya está cargado: hay un pasaje igual (${statusText[previous.status] ?? previous.status}) de la solicitud del ${displayDate(previous.requestDate)}, cargado por ${previous.createdBy} el ${displayDate(previous.createdAt)}.`],
+      };
+    }
+    const repeatedRow = seen.get(rowKey);
+    seen.set(rowKey, row.row);
+    if (repeatedRow) {
+      return { ...row, status: "warning", messages: [...row.messages, `Es igual a la fila ${repeatedRow} del archivo.`] };
+    }
+    return row;
   });
 }

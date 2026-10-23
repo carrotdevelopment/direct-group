@@ -2,11 +2,13 @@
 CREATE TABLE "pasaje_lotes" (
     "id" UUID NOT NULL,
     "nombre_archivo" VARCHAR(255),
+    "hash_archivo" VARCHAR(64),
     "fecha_solicitud" DATE,
     "created_by" VARCHAR(255) NOT NULL,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "pasaje_lotes_pkey" PRIMARY KEY ("id")
 );
+CREATE UNIQUE INDEX "pasaje_lotes_hash_archivo_key" ON "pasaje_lotes"("hash_archivo");
 
 ALTER TABLE "pasaje_requests"
     ADD COLUMN "lote_id" UUID,

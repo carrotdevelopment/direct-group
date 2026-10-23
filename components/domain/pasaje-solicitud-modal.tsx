@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CheckCircle2, FileSpreadsheet, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseSolicitudSheet, type ResolvedRow, type SolicitudRow } from "@/lib/pasaje-solicitud";
 
@@ -22,6 +22,8 @@ function formatDate(iso: string | null) {
 export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<SolicitudRow[]>([]);
+  const [fileHash, setFileHash] = useState("");
+  const [duplicateFile, setDuplicateFile] = useState<{ fileName: string | null; createdBy: string; createdAt: string } | null>(null);
   const [preview, setPreview] = useState<ResolvedRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -33,11 +35,17 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
     setError("");
     setPreview([]);
     setResult(null);
+    setDuplicateFile(null);
     setFileName(file.name);
     setLoading(true);
     try {
       const XLSX = await import("xlsx");
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const buffer = await file.arrayBuffer();
+      // Huella del archivo: el mismo Excel no se puede cargar dos veces.
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
+      const hash = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      setFileHash(hash);
+      const workbook = XLSX.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const firstRow = XLSX.utils.decode_range(sheet["!ref"] ?? "A1").s.r + 1;
       const parsed = parseSolicitudSheet(XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true }), firstRow);
@@ -46,11 +54,12 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
       const response = await fetch("/api/pasajes/solicitud", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: parsed, preview: true }),
+        body: JSON.stringify({ rows: parsed, fileHash: hash, preview: true }),
       });
-      const data = (await response.json()) as { rows?: ResolvedRow[]; message?: string };
+      const data = (await response.json()) as { rows?: ResolvedRow[]; duplicateFile?: typeof duplicateFile; message?: string };
       if (!response.ok) throw new Error(data.message || "No se pudo validar la solicitud.");
       setPreview(data.rows ?? []);
+      setDuplicateFile(data.duplicateFile ?? null);
     } catch (err) {
       setRows([]);
       setError(err instanceof Error ? err.message : "No se pudo leer el archivo.");
@@ -67,7 +76,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
       const response = await fetch("/api/pasajes/solicitud", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows, fileName }),
+        body: JSON.stringify({ rows, fileName, fileHash }),
       });
       const data = (await response.json()) as CreateResult & { message?: string };
       if (!response.ok) throw new Error(data.message || "No se pudo cargar la solicitud.");
@@ -80,9 +89,10 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
     }
   }
 
-  const valid = preview.filter((row) => row.status !== "error");
-  const withErrors = preview.length - valid.length;
+  const valid = preview.filter((row) => row.status === "ok" || row.status === "warning");
+  const withErrors = preview.filter((row) => row.status === "error").length;
   const withWarnings = preview.filter((row) => row.status === "warning").length;
+  const codeChanges = preview.filter((row) => row.status === "excluded").length;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
@@ -130,7 +140,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
             )}
             {result.skipped.length > 0 && (
               <div className="rounded-xl bg-[#fce9e8] px-4 py-3 text-[#a43d39]">
-                <div className="font-bold">No se cargaron {result.skipped.length} filas con error:</div>
+                <div className="font-bold">No se cargaron {result.skipped.length} filas (con error o cambios de código del mismo cliente):</div>
                 {result.skipped.map((item) => <div key={item.row}>Fila {item.row}: {item.messages.join(" ")}</div>)}
               </div>
             )}
@@ -144,8 +154,15 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
               <span className="rounded-full bg-[#e7f7eb] px-3 py-1 text-[#23783a]">{valid.length - withWarnings} correctas</span>
               {withWarnings > 0 && <span className="rounded-full bg-[#fff0d9] px-3 py-1 text-[#985b00]">{withWarnings} con aviso</span>}
               {withErrors > 0 && <span className="rounded-full bg-[#fce9e8] px-3 py-1 text-[#a43d39]">{withErrors} con error (no se cargan)</span>}
+              {codeChanges > 0 && <span className="rounded-full bg-[#eef1f5] px-3 py-1 text-[#52647d]">{codeChanges} cambios de código del mismo cliente (no se cargan acá)</span>}
               <span className="text-[#8a99ad]">Fecha de la solicitud: {formatDate(preview.find((row) => row.requestDate)?.requestDate ?? null)}</span>
             </div>
+            {duplicateFile && (
+              <div className="mt-3 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
+                Este archivo ya se cargó{duplicateFile.fileName ? ` (${duplicateFile.fileName})` : ""}: lo cargó {duplicateFile.createdBy} el{" "}
+                {new Date(duplicateFile.createdAt).toLocaleDateString("es-AR")}. Para cargar filas corregidas, subí un Excel solo con esas filas.
+              </div>
+            )}
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full text-left text-[11px]">
                 <thead className="sticky top-0 bg-[#f4f7fb] text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
@@ -160,7 +177,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
                 </thead>
                 <tbody className="divide-y divide-[#eef2f7]">
                   {preview.map((row) => (
-                    <tr key={row.row} className={row.status === "error" ? "bg-[#fff8f8]" : row.status === "warning" ? "bg-[#fffaf1]" : "bg-white"}>
+                    <tr key={row.row} className={row.status === "error" ? "bg-[#fff8f8]" : row.status === "warning" ? "bg-[#fffaf1]" : row.status === "excluded" ? "bg-[#f6f7f9] text-[#8a99ad]" : "bg-white"}>
                       <td className="px-3 py-2 text-[#8a99ad]">{row.row}</td>
                       <td className="px-3 py-2">
                         <div className="font-bold text-[#10233f]">{row.fromClient ?? "—"}</div>
@@ -180,7 +197,8 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
                           {row.status === "ok" && <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-[#23783a]" />}
                           {row.status === "warning" && <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[#985b00]" />}
                           {row.status === "error" && <XCircle size={14} className="mt-0.5 shrink-0 text-[#a43d39]" />}
-                          <span className={row.status === "error" ? "text-[#a43d39]" : row.status === "warning" ? "text-[#985b00]" : "text-[#23783a]"}>
+                          {row.status === "excluded" && <ArrowLeftRight size={14} className="mt-0.5 shrink-0 text-[#62728a]" />}
+                          <span className={row.status === "error" ? "text-[#a43d39]" : row.status === "warning" ? "text-[#985b00]" : row.status === "excluded" ? "text-[#52647d]" : "text-[#23783a]"}>
                             {row.messages.length ? row.messages.join(" ") : "Correcta"}
                           </span>
                         </div>
@@ -192,7 +210,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-              <Button type="button" disabled={loading || valid.length === 0} onClick={() => void submit()}>
+              <Button type="button" disabled={loading || valid.length === 0 || !!duplicateFile} onClick={() => void submit()}>
                 Cargar {valid.length} {valid.length === 1 ? "pasaje" : "pasajes"} y avisar a los destinos
               </Button>
             </div>

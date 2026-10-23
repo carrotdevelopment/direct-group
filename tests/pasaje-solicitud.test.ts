@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSolicitudSheet, resolveSolicitud, type ClientCodeRecord, type ShipperRecord } from "@/lib/pasaje-solicitud";
+import { markDuplicates, parseSolicitudSheet, resolveSolicitud, type ClientCodeRecord, type ShipperRecord } from "@/lib/pasaje-solicitud";
 
 const header = ["FECHA", "SH", "SKU VIEJO", "DESCRIPCION", "CANT ", "", "SH", "SKU NUEVO", "DESCRIPCION", "CANT", "", "COSTO $"];
 const sheet = [
@@ -29,11 +29,15 @@ const codes = [
   code("Amex", "DG99-3105", "hfej415", false),
   code("Pampa", "76-5060", "hfej415", false),
   code("Pampa", "76-5099", "otro-sku"),
+  code("Amex", "DG99-3184", "to4500-ar", false),
+  code("Pampa", "76-5026", "to4500-ar"),
 ];
+// Pasaje entre dos clientes: Amex (código que se da de baja) → Pampa.
 const row = (overrides: Partial<ReturnType<typeof parseSolicitudSheet>[number]>) => ({
-  row: 10, requestDate: "2026-10-01", fromShipper: "1315", fromClientCode: "75-5030", fromDescription: "", fromQuantity: 5,
-  toShipper: "1315", toClientCode: "76-5030", toDescription: "", toQuantity: 5, ...overrides,
+  row: 10, requestDate: "2026-10-01", fromShipper: "1258", fromClientCode: "DG99-3184", fromDescription: "", fromQuantity: 5,
+  toShipper: "1315", toClientCode: "76-5026", toDescription: "", toQuantity: 5, ...overrides,
 });
+const sameClientRow = { fromShipper: "1315", fromClientCode: "75-5030", toShipper: "1315", toClientCode: "76-5030" };
 
 describe("lectura de la solicitud de pasaje a Urbano", () => {
   it("encuentra los títulos, toma cada columna por su título y numera las filas como en Excel", () => {
@@ -54,7 +58,7 @@ describe("lectura de la solicitud de pasaje a Urbano", () => {
 describe("resolución de cada pasaje", () => {
   it("el shipper da el cliente y el origen puede ser un código que se da de baja", () => {
     const [result] = resolveSolicitud([row({})], codes, shippers);
-    expect(result).toMatchObject({ status: "ok", fromClient: "Pampa", toClient: "Pampa", uniqueCode: "30433", quantity: 5, messages: [] });
+    expect(result).toMatchObject({ status: "ok", fromClient: "Amex", toClient: "Pampa", uniqueCode: "to4500-ar", quantity: 5, messages: [] });
   });
 
   it("si el código es de otro cliente que el del shipper, usa el dueño del código y deja aviso", () => {
@@ -89,6 +93,37 @@ describe("resolución de cada pasaje", () => {
 
   it("un shipper que no está en la tabla no bloquea: se usa el código y queda aviso", () => {
     const [result] = resolveSolicitud([row({ fromShipper: "9999" })], codes, shippers);
-    expect(result).toMatchObject({ status: "warning", fromClient: "Pampa" });
+    expect(result).toMatchObject({ status: "warning", fromClient: "Amex" });
+  });
+});
+
+describe("cambios de código del mismo cliente y duplicados", () => {
+  it("un pasaje dentro del mismo cliente es un cambio de código y no se carga acá", () => {
+    const [result] = resolveSolicitud([row(sameClientRow)], codes, shippers);
+    expect(result.status).toBe("excluded");
+    expect(result.messages[0]).toContain("Cambio de código del mismo cliente (Pampa)");
+  });
+
+  it("un pasaje del mismo cliente con cantidad inválida sigue siendo un error", () => {
+    const [result] = resolveSolicitud([row({ ...sameClientRow, fromQuantity: 0, toQuantity: 0 })], codes, shippers);
+    expect(result.status).toBe("error");
+  });
+
+  it("marca como cargada una fila igual a un pasaje existente no rechazado, y avisa repetidas en el archivo", () => {
+    const resolved = resolveSolicitud([
+      row({ row: 10, fromShipper: "3102", fromClientCode: "URB-294", toClientCode: "76-5018" }),
+      row({ row: 11, fromShipper: "3102", fromClientCode: "urb-294", toClientCode: "76-5018" }),
+      row({ row: 12, fromShipper: "1247", fromClientCode: "imp-2026", toClientCode: "76-5006" }),
+    ], codes, shippers);
+    const existing = [
+      { fromClientCode: "IMP-2026", toClientCode: "76-5006", quantity: 5, requestDate: "2026-10-01", status: "approved", createdBy: "Liz", createdAt: "2026-10-02T12:00:00.000Z" },
+      { fromClientCode: "URB-294", toClientCode: "76-5018", quantity: 5, requestDate: "2026-10-01", status: "rejected", createdBy: "Liz", createdAt: "2026-10-02T12:00:00.000Z" },
+    ];
+    const [first, repeated, loaded] = markDuplicates(resolved, existing);
+    expect(first.status).toBe("ok");
+    expect(repeated.status).toBe("warning");
+    expect(repeated.messages.join(" ")).toContain("igual a la fila 10");
+    expect(loaded.status).toBe("error");
+    expect(loaded.messages[0]).toContain("Ya está cargado: hay un pasaje igual (aprobado)");
   });
 });

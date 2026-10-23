@@ -10,15 +10,15 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const denied = await checkApiAccess(["pasajes"], true);
   if (denied) return denied;
-  let body: { rows?: unknown; fileName?: unknown; preview?: boolean };
+  let body: { rows?: unknown; fileName?: unknown; fileHash?: unknown; preview?: boolean };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ message: "El pedido no llegó con JSON válido." }, { status: 400 });
   }
   try {
-    if (body.preview) return NextResponse.json({ rows: await previewSolicitud(body.rows) });
-    return NextResponse.json(await createSolicitud(body.rows, body.fileName, await currentPasajeActor()));
+    if (body.preview) return NextResponse.json(await previewSolicitud(body.rows, body.fileHash));
+    return NextResponse.json(await createSolicitud(body.rows, body.fileName, body.fileHash, await currentPasajeActor()));
   } catch (error) {
     if (error instanceof PasajeAjusteError) return NextResponse.json({ message: error.message }, { status: error.status });
     throw error;

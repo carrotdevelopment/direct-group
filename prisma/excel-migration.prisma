@@ -618,6 +618,8 @@ model PasajeRequest {
 model PasajeBatch {
   id          String          @id @default(uuid()) @db.Uuid
   fileName    String?         @map("nombre_archivo") @db.VarChar(255)
+  // SHA-256 del archivo: el mismo Excel no se puede cargar dos veces.
+  fileHash    String?         @unique @map("hash_archivo") @db.VarChar(64)
   requestDate DateTime?       @map("fecha_solicitud") @db.Date
   createdBy   String          @map("created_by") @db.VarChar(255)
   createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)

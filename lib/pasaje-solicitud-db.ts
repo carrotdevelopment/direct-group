@@ -4,7 +4,7 @@ import { prisma } from "@/server/lib/prisma";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import type { PasajeActor } from "@/lib/module-access";
-import { resolveSolicitud, type ResolvedRow, type SolicitudRow } from "@/lib/pasaje-solicitud";
+import { markDuplicates, resolveSolicitud, type SolicitudRow } from "@/lib/pasaje-solicitud";
 
 const MAX_ROWS = 300;
 const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
@@ -48,10 +48,30 @@ async function references() {
   };
 }
 
-export async function previewSolicitud(input: unknown): Promise<ResolvedRow[]> {
+const isoDay = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null);
+const validHash = (value: unknown) => (typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : null);
+
+// Resuelve las filas, marca las que ya están cargadas como pasaje y avisa si el archivo ya se cargó.
+export async function previewSolicitud(input: unknown, fileHash?: unknown) {
   const rows = sanitizeRows(input);
   const { codes, shippers } = await references();
-  return resolveSolicitud(rows, codes, shippers);
+  const resolved = resolveSolicitud(rows, codes, shippers);
+  const dates = [...new Set(resolved.map((row) => row.requestDate).filter((date): date is string => !!date))];
+  const existing = await excelPostgres.pasajeRequest.findMany({
+    where: { status: { not: "rejected" }, requestDate: { in: dates.map((date) => new Date(`${date}T00:00:00.000Z`)) } },
+    select: { fromClientCode: true, toClientCode: true, quantity: true, requestDate: true, status: true, createdBy: true, createdAt: true },
+  });
+  const hash = validHash(fileHash);
+  const previousFile = hash ? await excelPostgres.pasajeBatch.findUnique({ where: { fileHash: hash } }) : null;
+  return {
+    rows: markDuplicates(resolved, existing.map((pasaje) => ({
+      fromClientCode: pasaje.fromClientCode, toClientCode: pasaje.toClientCode, quantity: Number(pasaje.quantity),
+      requestDate: isoDay(pasaje.requestDate), status: pasaje.status, createdBy: pasaje.createdBy, createdAt: pasaje.createdAt.toISOString(),
+    }))),
+    duplicateFile: previousFile
+      ? { fileName: previousFile.fileName, createdBy: previousFile.createdBy, createdAt: previousFile.createdAt.toISOString() }
+      : null,
+  };
 }
 
 export function listUrbanoShippers() {
@@ -124,9 +144,12 @@ async function notifyRepresentatives(
 }
 
 // Crea el lote con las filas válidas (las que tienen error no se cargan) y avisa a los representantes.
-export async function createSolicitud(input: unknown, fileName: unknown, actor: PasajeActor) {
-  const resolved = await previewSolicitud(input);
-  const valid = resolved.filter((row) => row.status !== "error" && row.fromClient && row.toClient && row.uniqueCode && row.quantity);
+export async function createSolicitud(input: unknown, fileName: unknown, fileHash: unknown, actor: PasajeActor) {
+  const { rows: resolved, duplicateFile } = await previewSolicitud(input, fileHash);
+  if (duplicateFile) {
+    throw new PasajeAjusteError(`Este archivo ya se cargó (${duplicateFile.createdBy}, ${new Date(duplicateFile.createdAt).toLocaleDateString("es-AR")}). Para cargar filas corregidas, subí un Excel solo con esas filas.`, 409);
+  }
+  const valid = resolved.filter((row) => (row.status === "ok" || row.status === "warning") && row.fromClient && row.toClient && row.uniqueCode && row.quantity);
   if (valid.length === 0) throw new PasajeAjusteError("Ninguna fila de la solicitud se puede cargar: revisá los errores.");
 
   const products = await excelPostgres.excelProduct.findMany({
@@ -156,7 +179,7 @@ export async function createSolicitud(input: unknown, fileName: unknown, actor: 
 
   const batch = await excelPostgres.$transaction(async (tx) => {
     const created = await tx.pasajeBatch.create({
-      data: { fileName: text(fileName) || null, requestDate: toDate(requestDate), createdBy: actor.name },
+      data: { fileName: text(fileName) || null, fileHash: validHash(fileHash), requestDate: toDate(requestDate), createdBy: actor.name },
     });
     await tx.pasajeRequest.createMany({ data: data.map((row) => ({ ...row, batchId: created.id })) });
     return created;
@@ -166,7 +189,7 @@ export async function createSolicitud(input: unknown, fileName: unknown, actor: 
   return {
     batchId: batch.id,
     created: data.length,
-    skipped: resolved.filter((row) => row.status === "error").map((row) => ({ row: row.row, messages: row.messages })),
+    skipped: resolved.filter((row) => row.status === "error" || row.status === "excluded").map((row) => ({ row: row.row, messages: row.messages })),
     notifications,
   };
 }
