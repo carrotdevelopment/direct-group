@@ -2,17 +2,21 @@ import * as XLSX from "xlsx";
 import fs from "node:fs";
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 
-// Uso: tsx scripts/import-codigos-clientes.ts "<DB_Clientes 1.csv | .xlsm>" [--clientes=Amex,Credicoop] [--vigente-desde=AAAAMM] [--dry-run]
+// Uso: tsx scripts/import-codigos-clientes.ts "<DB_Clientes 1.csv | .xlsm>" [--clientes=Amex,Credicoop] [--vigente-desde=AAAAMM] [--sincronizar-vigencia] [--dry-run]
 // Carga en Códigos cliente las asignaciones de la hoja DB_Clientes 1 (una fila por mes) para los
 // clientes que existen en Clientes. Cada par código cliente + código único entra una vez, con el
 // primer mes en que aparece; queda vigente si figura en el último período de su cliente en el
-// archivo (con --vigente-desde, solo si ese período no es anterior). No toca lo que ya existe.
+// archivo (con --vigente-desde, solo si ese período no es anterior). No toca lo que ya existe, salvo
+// con --sincronizar-vigencia: entonces las asignaciones existentes quedan vigentes solo si figuran en
+// el último período del archivo (usarlo con --clientes, para clientes cuyo archivo está al día: borra
+// la vigencia de códigos asignados a mano en la plataforma que no estén en el archivo).
 // Después completa el código único de los egresos de cada cliente.
 const filePath = process.argv[2];
 const dryRun = process.argv.includes("--dry-run");
 const arg = (name: string) => process.argv.find((value) => value.startsWith(`--${name}=`))?.split("=")[1];
 const onlyClients = arg("clientes")?.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
 const activeFrom = Number(arg("vigente-desde") ?? "0");
+const syncActive = process.argv.includes("--sincronizar-vigencia");
 if (!filePath) {
   console.error('Uso: tsx scripts/import-codigos-clientes.ts "<archivo>" [--clientes=A,B] [--vigente-desde=AAAAMM] [--dry-run]');
   process.exit(1);
@@ -81,12 +85,19 @@ async function main() {
   }
   if (unknown.size) console.log("Clientes del archivo que no existen en Clientes (no se cargan):", Object.fromEntries(unknown));
 
-  const plan: Array<{ client: string; fresh: Pair[] }> = [];
+  type Existing = { id: bigint; clientCode: string | null; uniqueCode: string | null; active: boolean | null; voidedAt: Date | null };
+  const plan: Array<{ client: string; fresh: Pair[]; deactivate: Existing[]; activate: Existing[] }> = [];
   for (const [client, group] of [...byClient.entries()].sort()) {
     const existing = await excelPostgres.excelClientCode.findMany({
       where: { client: { equals: client, mode: "insensitive" } },
-      select: { clientCode: true, uniqueCode: true, active: true, voidedAt: true },
+      select: { id: true, clientCode: true, uniqueCode: true, active: true, voidedAt: true },
     });
+    const shouldBeActive = (item: Existing) => {
+      const pair = group.pairs.get(`${norm(item.clientCode)}|${norm(item.uniqueCode)}`);
+      return !!pair && isActive(pair);
+    };
+    const deactivate = syncActive ? existing.filter((item) => item.active && !item.voidedAt && !shouldBeActive(item)) : [];
+    const activate = syncActive ? existing.filter((item) => !item.active && !item.voidedAt && shouldBeActive(item)) : [];
     const have = new Set(existing.map((item) => `${norm(item.clientCode)}|${norm(item.uniqueCode)}`));
     const fresh = [...group.pairs.entries()].filter(([key]) => !have.has(key)).map(([, pair]) => pair);
     const activeCount = fresh.filter(isActive).length;
@@ -97,9 +108,13 @@ async function main() {
     console.log(
       `${client} (${[...group.sources].map((source) => `${source} ${latestBySource.get(source)}`).join(" + ")}): ` +
       `Pares ${group.pairs.size}, ya existían ${group.pairs.size - fresh.length}, a cargar ${fresh.length} (vigentes ${activeCount}). ` +
-      `En la base: ${existing.length} (vigentes que no están en el último período del archivo: ${staleActive}).`,
+      `En la base: ${existing.length} (vigentes que no están en el último período del archivo: ${staleActive}).` +
+      (syncActive ? ` Sincronizar vigencia: pasan a no vigentes ${deactivate.length}, vuelven a vigentes ${activate.length}.` : ""),
     );
-    plan.push({ client, fresh });
+    if (syncActive && deactivate.length) {
+      console.log(`  No vigentes: ${deactivate.map((item) => `${item.clientCode}=${item.uniqueCode}`).join(", ")}`);
+    }
+    plan.push({ client, fresh, deactivate, activate });
   }
 
   if (dryRun) {
@@ -107,8 +122,10 @@ async function main() {
     return;
   }
 
-  for (const { client, fresh } of plan) {
+  for (const { client, fresh, deactivate, activate } of plan) {
     await excelPostgres.$transaction(async (tx) => {
+      if (deactivate.length) await tx.excelClientCode.updateMany({ where: { id: { in: deactivate.map((item) => item.id) } }, data: { active: false } });
+      if (activate.length) await tx.excelClientCode.updateMany({ where: { id: { in: activate.map((item) => item.id) } }, data: { active: true } });
       if (fresh.length) {
         await tx.excelClientCode.createMany({
           data: fresh.map((pair) => ({
