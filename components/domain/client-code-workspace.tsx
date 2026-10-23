@@ -11,6 +11,7 @@ import {
 import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { ClientCodeMigration } from "@/components/domain/client-code-migration";
 
 type Mapping = {
   id: string;
@@ -1620,6 +1621,13 @@ export function ClientCodeWorkspace() {
       </section>
 
       {/* CONFIRMATION MODAL */}
+      <ClientCodeMigration
+        clients={clients}
+        mappings={mappings}
+        defaultClient={client}
+        onMigrated={loadMappingsFromExcel}
+      />
+
       {pending && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"

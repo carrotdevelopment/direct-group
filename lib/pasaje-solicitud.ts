@@ -166,7 +166,7 @@ export function resolveSolicitud(rows: SolicitudRow[], codeList: ClientCodeRecor
       ...row,
       status: errors.length ? "error" : sameClient ? "excluded" : warnings.length ? "warning" : "ok",
       messages: sameClient
-        ? [`Cambio de código del mismo cliente (${"client" in from ? from.client : ""}): no se carga como pasaje, se hace desde la sección de cambios de código.`]
+        ? [`Cambio de código del mismo cliente (${"client" in from ? from.client : ""}): no se carga como pasaje: se hace desde Códigos cliente → Migración de código cliente.`]
         : [...errors, ...warnings],
       fromClient: "client" in from ? from.client : null,
       toClient: "client" in to ? to.client : null,

@@ -43,3 +43,18 @@ INSERT INTO "urbano_shippers" ("codigo", "nombre", "clientes", "activo") VALUES
     ('2885', 'CENTURION', ARRAY[]::TEXT[], false),
     ('3628', 'BAPRO', ARRAY['Provincia'], false)
 ON CONFLICT ("codigo") DO NOTHING;
+
+-- Migración de código cliente: registro de cada cambio de código del mismo cliente y producto.
+CREATE TABLE "migraciones_codigo_cliente" (
+    "id" UUID NOT NULL,
+    "cliente" VARCHAR(255) NOT NULL,
+    "codigo_anterior" VARCHAR(255) NOT NULL,
+    "codigo_nuevo" VARCHAR(255) NOT NULL,
+    "codigo_unico" VARCHAR(255) NOT NULL,
+    "producto" VARCHAR(255),
+    "cantidad" DECIMAL(18,4) NOT NULL,
+    "created_by" VARCHAR(255) NOT NULL,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "migraciones_codigo_cliente_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "migraciones_codigo_cliente_cliente_created_at_idx" ON "migraciones_codigo_cliente"("cliente", "created_at");

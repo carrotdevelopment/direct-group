@@ -689,3 +689,19 @@ model SupplierMailLog {
   @@index([contactId, period])
   @@map("supplier_mail_logs")
 }
+
+// Migración de código cliente: el stock de un código pasa a otro código del mismo cliente y producto.
+model ClientCodeMigration {
+  id         String   @id @default(uuid()) @db.Uuid
+  client     String   @map("cliente") @db.VarChar(255)
+  oldCode    String   @map("codigo_anterior") @db.VarChar(255)
+  newCode    String   @map("codigo_nuevo") @db.VarChar(255)
+  uniqueCode String   @map("codigo_unico") @db.VarChar(255)
+  product    String?  @map("producto") @db.VarChar(255)
+  quantity   Decimal  @map("cantidad") @db.Decimal(18, 4)
+  createdBy  String   @map("created_by") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([client, createdAt])
+  @@map("migraciones_codigo_cliente")
+}

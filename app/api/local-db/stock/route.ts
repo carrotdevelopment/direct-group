@@ -18,6 +18,7 @@ import {
 import {
   readStockOperationRowsFromPostgres,
 } from "@/lib/postgres-operation-db";
+import { STOCK_EGRESS_OPERATIONS, stockIncomeOperations, stockOperation } from "@/lib/stock-operations";
 
 export const runtime = "nodejs";
 
@@ -63,14 +64,7 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function operation(value: unknown) {
-  // Los egresos importados guardan "ROBO_AJUSTE" y los cargados desde Pasajes "ROBO/AJUSTE": son lo mismo.
-  return text(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/_/g, "/");
-}
+const operation = stockOperation;
 
 function dateFromParts(day: unknown, month: unknown, year: unknown) {
   const d = number(day);
@@ -238,14 +232,9 @@ export async function GET(request: Request) {
   const incomes = incomeRows;
   const egresses = egressRows as Array<Record<string, unknown>>;
   const costs = latestCostByCode(targetPeriod, costRows);
-  const incomeOps = new Set(["COMPRA", "PASAJE", "ROBO/AJUSTE", "DEVOLUCION"]);
-  // En Tango los pasajes que entran a Umiles se registran como ajustes de ingreso.
-  if (canonicalClient(clientName) === "umiles") {
-    incomeOps.add("AJUSTE NO VALORIZADO");
-    incomeOps.add("AJUSTE VALORIZADO");
-  }
+  const incomeOps = stockIncomeOperations(clientName);
   const incomeDateOps = new Set(["COMPRA", "PASAJE"]);
-  const egressOps = new Set(["CANJE", "ROBO/AJUSTE", "PASAJE", "CAMBIO"]);
+  const egressOps = STOCK_EGRESS_OPERATIONS;
   const incomesByClientCode = new Map<string, Array<Record<string, unknown>>>();
   for (const row of incomes) {
     const key = normalizeCode(
