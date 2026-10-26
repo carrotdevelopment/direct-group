@@ -20,7 +20,7 @@ type StockRow = {
   theoreticalStock: number;
   realStock: number;
   pendingDeliveries: number;
-  // Cant. Física disponible según el último reporte de Urbano y su diferencia con el stock real
+  // Cant. Física según el último reporte de Urbano y su diferencia con el stock real
   // (null si no hay cargas de Urbano para el cliente).
   urbanoStock: number | null;
   urbanoDifference: number | null;

@@ -664,7 +664,7 @@ model UrbanoStockItem {
   loadId        String          @map("carga_id") @db.Uuid
   clientCode    String          @map("codigo_cliente") @db.VarChar(255)
   product       String?         @map("producto")
-  // Cant. Física disponible (Stk. Urbano); lo físico en otros estados y lo pendiente de recogida.
+  // Cant. Física de todos los estados (Stk. Urbano); la parte no disponible y lo pendiente de recogida.
   quantity      Decimal         @map("cantidad") @db.Decimal(18, 4)
   unavailable   Decimal         @default(0) @map("no_disponible") @db.Decimal(18, 4)
   pendingPickup Decimal         @default(0) @map("pendiente_recogida") @db.Decimal(18, 4)

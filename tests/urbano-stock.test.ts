@@ -28,10 +28,10 @@ const codes = [
 ];
 
 describe("lectura del reporte Stock en línea de Urbano", () => {
-  it("agrupa por código: física disponible, física en otros estados y pendiente de recogida", () => {
+  it("agrupa por código: física total (como la planilla), la parte no disponible y pendiente de recogida", () => {
     expect(parseUrbanoStockSheet(sheet)).toEqual([
       { row: 3, clientCode: "URB-045", product: "DESTORNILLADOR GY-DI-16000", quantity: 0, unavailable: 0, pendingPickup: 3, company: "310" },
-      { row: 4, clientCode: "URB-080", product: "Cámara de seguridad", quantity: 20, unavailable: 2, pendingPickup: 1, company: "310" },
+      { row: 4, clientCode: "URB-080", product: "Cámara de seguridad", quantity: 22, unavailable: 2, pendingPickup: 1, company: "310" },
     ]);
   });
 

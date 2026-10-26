@@ -6,9 +6,9 @@ export type UrbanoStockRow = {
   row: number;
   clientCode: string;
   product: string;
-  // Cant. Física en estado DISPONIBLE: es la columna "Stk. Urbano" de la pantalla Stock.
+  // Cant. Física de todos los estados, como suma la planilla de Umiles: es la columna "Stk. Urbano".
   quantity: number;
-  // Cant. Física en los demás estados (no disponible, cuarentena, rotura, a verificar).
+  // Parte de quantity que no está disponible (no disponible, cuarentena, rotura, a verificar).
   unavailable: number;
   pendingPickup: number;
   company: string;
@@ -92,8 +92,8 @@ export function parseUrbanoStockSheet(matrix: unknown[][], firstRow = 1): Urbano
     const state = stateColumn >= 0 ? header(row[stateColumn]) : "";
     const available = stateIdColumn >= 0 ? stateId === "DIS" : stateColumn >= 0 ? state === "disponible" : true;
     const physical = urbanoNumber(row[physicalColumn]);
-    if (available) current.quantity += physical;
-    else current.unavailable += physical;
+    current.quantity += physical;
+    if (!available) current.unavailable += physical;
     if (pendingColumn >= 0) current.pendingPickup += urbanoNumber(row[pendingColumn]);
     byCode.set(key, current);
   }

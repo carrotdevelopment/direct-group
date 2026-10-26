@@ -173,7 +173,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
       const data = (await response.json()) as { id?: string; saved?: number; replaced?: number; totalQuantity?: number; withoutClient?: number; message?: string };
       if (!response.ok) throw new Error(data.message || "No se pudo traer el stock del portal de Urbano.");
       setNotice(
-        `Se trajo el stock del portal de Urbano: ${data.saved} códigos, ${fmt(data.totalQuantity ?? 0)} unidades disponibles.` +
+        `Se trajo el stock del portal de Urbano: ${data.saved} códigos, ${fmt(data.totalQuantity ?? 0)} unidades.` +
           (data.withoutClient ? ` ${data.withoutClient} códigos no están en Códigos cliente.` : "") +
           (data.replaced ? " Reemplazó la carga de hoy." : ""),
       );
@@ -223,7 +223,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
       <PageHeader
         eyebrow="Stock"
         title="Carga de stock Urbano"
-        description="Reporte “Stock en línea” del portal de clientes de Urbano: se trae solo todos los días o se sube el Excel exportado (con todas las columnas). La pantalla Stock muestra la cantidad física disponible de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
+        description="Reporte “Stock en línea” del portal de clientes de Urbano: se trae solo todos los días o se sube el Excel exportado (con todas las columnas). La pantalla Stock muestra la cantidad física de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
       />
 
       {canWrite && (
@@ -263,7 +263,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                 <span className="rounded-full bg-[#e7f7eb] px-3 py-1 text-[#23783a]">{counts.ok} correctos</span>
                 {counts.warning > 0 && <span className="rounded-full bg-[#fff0d9] px-3 py-1 text-[#985b00]">{counts.warning} con aviso (se guardan igual)</span>}
                 {counts.error > 0 && <span className="rounded-full bg-[#fce9e8] px-3 py-1 text-[#a43d39]">{counts.error} con error (no se guardan)</span>}
-                <span className="text-[#8a99ad]">Disponible total: {fmt(counts.total)}</span>
+                <span className="text-[#8a99ad]">Física total: {fmt(counts.total)}</span>
               </div>
               {duplicateFile && (
                 <div className="mt-3 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
@@ -284,8 +284,8 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                       <th className="px-3 py-2">Código</th>
                       <th className="px-3 py-2">Producto</th>
                       <th className="px-3 py-2">Cliente</th>
-                      <th className="px-3 py-2 text-right">Disponible</th>
-                      <th className="px-3 py-2 text-right">No disp.</th>
+                      <th className="px-3 py-2 text-right">Física</th>
+                      <th className="px-3 py-2 text-right" title="Incluido en Física">No disp.</th>
                       <th className="px-3 py-2 text-right">Pend. recogida</th>
                       <th className="px-3 py-2">Estado</th>
                     </tr>
@@ -348,7 +348,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                       </div>
                       <div className="truncate text-[10px] text-[#62728a]" title={load.fileName ?? ""}>{load.fileName ?? "sin nombre"}</div>
                       <div className="text-[10px] text-[#8a99ad]">
-                        {load.rowCount} códigos · disponible {fmt(load.totalQuantity)} · {load.createdBy}, {new Date(load.createdAt).toLocaleString("es-AR")}
+                        {load.rowCount} códigos · física {fmt(load.totalQuantity)} · {load.createdBy}, {new Date(load.createdAt).toLocaleString("es-AR")}
                       </div>
                     </button>
                     {canWrite && (
@@ -391,8 +391,8 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                   <th className="px-4 py-2">Código</th>
                   <th className="px-4 py-2">Producto</th>
                   <th className="px-4 py-2">Cliente</th>
-                  <th className="px-4 py-2 text-right">Disponible</th>
-                  <th className="px-4 py-2 text-right">No disp.</th>
+                  <th className="px-4 py-2 text-right">Física</th>
+                  <th className="px-4 py-2 text-right" title="Incluido en Física">No disp.</th>
                   <th className="px-4 py-2 text-right">Pend. recogida</th>
                 </tr>
               </thead>

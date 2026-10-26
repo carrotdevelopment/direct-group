@@ -174,7 +174,7 @@ export async function GET(request: Request) {
         incomes: readIncomeRows({ client: "santander", limit: Number.MAX_SAFE_INTEGER }),
         egresses: readEgressRows({ client: "Santander", limit: Number.MAX_SAFE_INTEGER }),
       };
-  // Stock Urbano: Cant. Física disponible de la última carga del reporte de Urbano que trae cada código.
+  // Stock Urbano: Cant. Física (todos los estados) de la última carga del reporte de Urbano que trae cada código.
   const urbanoStock = postgres ? await latestUrbanoStockByCode() : new Map<string, { quantity: number; reportDate: string }>();
   const incomeRows = operationRows.incomes;
   const egressRows = operationRows.egresses;

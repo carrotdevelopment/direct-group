@@ -6,7 +6,7 @@ import { syncUrbanoStockFromPortal } from "@/lib/urbano-stock-db";
 syncUrbanoStockFromPortal("Sincronización automática")
   .then((result) => {
     console.log(
-      `${new Date().toISOString()} OK. ${result.saved} códigos, disponible total ${result.totalQuantity}` +
+      `${new Date().toISOString()} OK. ${result.saved} códigos, física total ${result.totalQuantity}` +
         `${result.withoutClient ? `, ${result.withoutClient} sin código cliente` : ""}${result.replaced ? ", reemplazó la carga de hoy" : ""}.`,
     );
     process.exit(0);
