@@ -6,7 +6,7 @@ export type UrbanoStockRow = {
   row: number;
   clientCode: string;
   product: string;
-  // Cant. Física en estado DISPONIBLE: es el stock informado que usa la pantalla Stock.
+  // Cant. Física en estado DISPONIBLE: es la columna "Stk. Urbano" de la pantalla Stock.
   quantity: number;
   // Cant. Física en los demás estados (no disponible, cuarentena, rotura, a verificar).
   unavailable: number;

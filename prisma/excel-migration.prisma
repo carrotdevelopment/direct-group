@@ -640,7 +640,7 @@ model UrbanoShipper {
 }
 
 // Cargas del reporte "Stock en línea" del portal de Urbano: lo que Urbano informa que tiene de cada
-// código cliente a la fecha del reporte. La pantalla Stock toma el stock informado de la última carga.
+// código cliente a la fecha del reporte. La pantalla Stock lo muestra como "Stk. Urbano" (última carga).
 // Se cargan subiendo el Excel exportado (origen "excel") o trayéndolo del portal (origen "portal").
 model UrbanoStockLoad {
   id            String            @id @default(uuid()) @db.Uuid
@@ -664,7 +664,7 @@ model UrbanoStockItem {
   loadId        String          @map("carga_id") @db.Uuid
   clientCode    String          @map("codigo_cliente") @db.VarChar(255)
   product       String?         @map("producto")
-  // Cant. Física disponible (el stock informado); lo físico en otros estados y lo pendiente de recogida.
+  // Cant. Física disponible (Stk. Urbano); lo físico en otros estados y lo pendiente de recogida.
   quantity      Decimal         @map("cantidad") @db.Decimal(18, 4)
   unavailable   Decimal         @default(0) @map("no_disponible") @db.Decimal(18, 4)
   pendingPickup Decimal         @default(0) @map("pendiente_recogida") @db.Decimal(18, 4)

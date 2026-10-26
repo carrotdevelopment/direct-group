@@ -20,11 +20,13 @@ type StockRow = {
   theoreticalStock: number;
   realStock: number;
   pendingDeliveries: number;
+  // Cant. Física disponible según el último reporte de Urbano y su diferencia con el stock real
+  // (null si no hay cargas de Urbano para el cliente).
+  urbanoStock: number | null;
+  urbanoDifference: number | null;
   totalTransactions: number;
   firstIncomeDate: string;
   reportedStock: number;
-  // Fecha del reporte de Urbano de donde sale el stock informado (null si no vino en ninguna carga).
-  reportedFromUrbano: string | null;
   validity: number;
   transactionsPerDay: number;
   stockDays: number;
@@ -46,7 +48,7 @@ const MONTHS = [
 ];
 const MONTH_LABEL = MONTHS[today.getMonth()];
 const YEAR = today.getFullYear();
-const TOTAL_COLS = 29; // 3 sticky + 2 info + 6 mov + 3 si + 4 canjes + 6 nec + 5 costos
+const TOTAL_COLS = 31; // 3 sticky + 2 info + 6 mov + 2 urbano + 3 si + 4 canjes + 6 nec + 5 costos
 
 const STOCK_KEY = (c: string) => `stock-informado-v1-${c.toLowerCase()}`;
 
@@ -114,9 +116,8 @@ export function StockWorkspace() {
         const merged = data.rows.map((r) => ({
           ...r,
           vigente: r.vigente ?? true,
-          // Lo cargado a mano solo vale para los códigos que no trae el reporte de Urbano.
           reportedStock:
-            !r.reportedFromUrbano && r.clientCode in saved ? saved[r.clientCode] : r.reportedStock,
+            r.clientCode in saved ? saved[r.clientCode] : r.reportedStock,
         }));
 
         setRows(merged);
@@ -258,23 +259,21 @@ export function StockWorkspace() {
         <td className={`${td} bg-[#edf3ff] font-bold text-[#10233f]`}>{fmt(row.theoreticalStock)}</td>
         <td className={`${td} bg-[#edf3ff] font-bold text-[#10233f]`}>{fmt(row.realStock)}</td>
         <td className={`${td} bg-[#f6f9ff]`}>{fmt(row.pendingDeliveries)}</td>
+        {/* Stock Urbano */}
+        <td className={`${td} bg-[#eef8f7] font-bold text-[#0f5e57]`}>{row.urbanoStock === null ? "—" : fmt(row.urbanoStock)}</td>
+        <td
+          className={`${td} bg-[#eef8f7] font-bold ${row.urbanoDifference === null || row.urbanoDifference === 0 ? "text-[#62728a]" : row.urbanoDifference < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
+        >
+          {row.urbanoDifference === null ? "—" : fmt(row.urbanoDifference)}
+        </td>
         {/* Stock informado */}
         <td className="border-b border-[#e8eef5] bg-[#fffbec] px-1 py-1">
-          {row.reportedFromUrbano ? (
-            <div
-              className="px-1 text-right text-[8px] font-bold tabular-nums text-[#7a5b00]"
-              title={`Reporte de Urbano del ${row.reportedFromUrbano.split("-").reverse().join("/")}`}
-            >
-              {fmt(row.reportedStock)}
-            </div>
-          ) : (
           <input
             type="number"
             value={row.reportedStock}
             onChange={(e) => updateReportedStock(row.clientCode, e.target.value)}
             className="h-6 w-full min-w-[60px] rounded border border-[#e4c878] bg-white px-1 text-right text-[7.5px] tabular-nums outline-none focus:border-[#b88a00] focus:ring-1 focus:ring-[#b88a00]/30"
           />
-          )}
         </td>
         <td className={`${td} bg-[#fffbec]`}>{fmt(webAvailable)}</td>
         <td className={`${td} bg-[#fffbec]`}>{fmt(adjustment)}</td>
@@ -384,7 +383,7 @@ export function StockWorkspace() {
         </div>
 
         <div className="max-h-[calc(100vh-390px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
-          <table className="min-w-[2160px] table-fixed border-separate border-spacing-0 text-left text-[8px]">
+          <table className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[8px]">
             <thead>
               {/* Row 1 – group headers */}
               <tr>
@@ -397,6 +396,10 @@ export function StockWorkspace() {
                 {/* Movimientos */}
                 <th colSpan={6} className={`${grpBase} z-20 bg-[#dceafe] text-[#1e4db7]`}>
                   Movimientos
+                </th>
+                {/* Stock Urbano */}
+                <th colSpan={2} className={`${grpBase} z-20 bg-[#d9f1ee] text-[#0f5e57]`}>
+                  Urbano
                 </th>
                 {/* Stock informado */}
                 <th colSpan={3} className={`${grpBase} z-20 bg-[#fef5d4] text-[#7a5b00]`}>
@@ -467,6 +470,9 @@ export function StockWorkspace() {
                 <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>Stk. teórico</th>
                 <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>Stk. real</th>
                 <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>Entg. pend.</th>
+                {/* Stock Urbano */}
+                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`}>Stk. Urbano</th>
+                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`} title="Stock Urbano menos stock real">Dif. Urbano</th>
                 {/* Stock informado */}
                 <th className={`${colHdr} w-[72px] bg-[#fdf6de]`}>Stk. inf.</th>
                 <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>Disp. WEB</th>

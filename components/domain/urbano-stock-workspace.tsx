@@ -188,7 +188,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
   }
 
   async function remove(load: Load) {
-    if (!window.confirm(`¿Borrar la carga del ${formatDate(load.reportDate)}? El stock informado vuelve a tomar la carga anterior.`)) return;
+    if (!window.confirm(`¿Borrar la carga del ${formatDate(load.reportDate)}? El stock Urbano vuelve a tomar la carga anterior.`)) return;
     setError("");
     const response = await fetch(`/api/stock/urbano?load=${load.id}`, { method: "DELETE" });
     const data = (await response.json()) as { message?: string };
@@ -223,7 +223,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
       <PageHeader
         eyebrow="Stock"
         title="Carga de stock Urbano"
-        description="Reporte “Stock en línea” del portal de clientes de Urbano: se trae solo todos los días o se sube el Excel exportado (con todas las columnas). La pantalla Stock toma como stock informado la cantidad física disponible de la última carga."
+        description="Reporte “Stock en línea” del portal de clientes de Urbano: se trae solo todos los días o se sube el Excel exportado (con todas las columnas). La pantalla Stock muestra la cantidad física disponible de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
       />
 
       {canWrite && (
