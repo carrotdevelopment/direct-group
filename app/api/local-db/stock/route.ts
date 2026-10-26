@@ -19,6 +19,7 @@ import {
   readStockOperationRowsFromPostgres,
 } from "@/lib/postgres-operation-db";
 import { STOCK_EGRESS_OPERATIONS, stockIncomeOperations, stockOperation } from "@/lib/stock-operations";
+import { latestUrbanoStockByCode } from "@/lib/urbano-stock-db";
 
 export const runtime = "nodejs";
 
@@ -173,6 +174,8 @@ export async function GET(request: Request) {
         incomes: readIncomeRows({ client: "santander", limit: Number.MAX_SAFE_INTEGER }),
         egresses: readEgressRows({ client: "Santander", limit: Number.MAX_SAFE_INTEGER }),
       };
+  // Stock informado: el de la última carga del reporte de Urbano que trae cada código.
+  const urbanoStock = postgres ? await latestUrbanoStockByCode() : new Map<string, { quantity: number; reportDate: string }>();
   const incomeRows = operationRows.incomes;
   const egressRows = operationRows.egresses;
 
@@ -261,6 +264,12 @@ export async function GET(request: Request) {
   const byProduct = <T extends { clientCode: string }>(row: T | undefined, clientCode: string) =>
     fromOtherActiveCode(row, clientCode) ? undefined : row;
 
+  const latestUrbanoDate = assignments
+    .map((assignment) => urbanoStock.get(normalizeCode(assignment.clientCode))?.reportDate)
+    .filter((date): date is string => !!date)
+    .sort()
+    .at(-1);
+
   const rows = assignments.map((assignment) => {
     const stock =
       stockByClientCode.get(normalizeCode(assignment.clientCode)) ||
@@ -319,7 +328,9 @@ export async function GET(request: Request) {
       costs.get(normalizeCode(assignment.clientCode)) ||
       byProduct(costs.get(normalizeCode(assignment.uniqueCode)), clientCode);
     const packageSize = stock?.packageSize || cost?.unitsPerPackage || 1;
-    const reportedStock = stock?.reportedStock || realStock;
+    // Si Urbano informa stock de este cliente, un código que no figura en su reporte no tiene stock allá.
+    const urbano = urbanoStock.get(clientCode) ?? (latestUrbanoDate ? { quantity: 0, reportDate: latestUrbanoDate } : undefined);
+    const reportedStock = urbano ? urbano.quantity : stock?.reportedStock || realStock;
     const webAvailable = reportedStock - totalTransactions;
     const adjustment = realStock - webAvailable;
     return {
@@ -341,6 +352,7 @@ export async function GET(request: Request) {
       totalTransactions,
       firstIncomeDate: displayDate(firstIncome),
       reportedStock,
+      reportedFromUrbano: urbano?.reportDate ?? null,
       webAvailable,
       adjustment,
       validity,
@@ -362,9 +374,13 @@ export async function GET(request: Request) {
 
   const vigentes = rows.filter((r) => r.vigente).length;
   const withStockData = rows.filter((r) => r.hasStockData).length;
+  const urbanoDates = rows.map((r) => r.reportedFromUrbano).filter((date): date is string => !!date).sort();
+  const urbanoLabel = urbanoDates.length
+    ? ` · stock informado de Urbano al ${urbanoDates[urbanoDates.length - 1].split("-").reverse().join("/")}`
+    : "";
   return NextResponse.json({
     rows,
-    message: `${vigentes} productos vigentes ${clientName} · ${withStockData} con datos de stock cargados.`,
+    message: `${vigentes} productos vigentes ${clientName} · ${withStockData} con datos de stock cargados${urbanoLabel}.`,
     source: usesPostgres() ? "postgresql" : "excel",
   });
 }

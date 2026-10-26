@@ -23,6 +23,8 @@ type StockRow = {
   totalTransactions: number;
   firstIncomeDate: string;
   reportedStock: number;
+  // Fecha del reporte de Urbano de donde sale el stock informado (null si no vino en ninguna carga).
+  reportedFromUrbano: string | null;
   validity: number;
   transactionsPerDay: number;
   stockDays: number;
@@ -112,8 +114,9 @@ export function StockWorkspace() {
         const merged = data.rows.map((r) => ({
           ...r,
           vigente: r.vigente ?? true,
+          // Lo cargado a mano solo vale para los códigos que no trae el reporte de Urbano.
           reportedStock:
-            r.clientCode in saved ? saved[r.clientCode] : r.reportedStock,
+            !r.reportedFromUrbano && r.clientCode in saved ? saved[r.clientCode] : r.reportedStock,
         }));
 
         setRows(merged);
@@ -257,12 +260,21 @@ export function StockWorkspace() {
         <td className={`${td} bg-[#f6f9ff]`}>{fmt(row.pendingDeliveries)}</td>
         {/* Stock informado */}
         <td className="border-b border-[#e8eef5] bg-[#fffbec] px-1 py-1">
+          {row.reportedFromUrbano ? (
+            <div
+              className="px-1 text-right text-[8px] font-bold tabular-nums text-[#7a5b00]"
+              title={`Reporte de Urbano del ${row.reportedFromUrbano.split("-").reverse().join("/")}`}
+            >
+              {fmt(row.reportedStock)}
+            </div>
+          ) : (
           <input
             type="number"
             value={row.reportedStock}
             onChange={(e) => updateReportedStock(row.clientCode, e.target.value)}
             className="h-6 w-full min-w-[60px] rounded border border-[#e4c878] bg-white px-1 text-right text-[7.5px] tabular-nums outline-none focus:border-[#b88a00] focus:ring-1 focus:ring-[#b88a00]/30"
           />
+          )}
         </td>
         <td className={`${td} bg-[#fffbec]`}>{fmt(webAvailable)}</td>
         <td className={`${td} bg-[#fffbec]`}>{fmt(adjustment)}</td>

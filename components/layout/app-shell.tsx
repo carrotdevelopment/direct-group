@@ -33,6 +33,7 @@ const navigation: NavGroup[] = [
   ]},
   { label: "Stock", items: [
     { label: "Stock", href: "/stock", icon: Warehouse },
+    { label: "Carga Urbano", href: "/stock/urbano", icon: PackageSearch },
   ]},
   { label: "Comunicación", items: [
     { label: "Correos", href: "/correos", icon: Mail },
@@ -70,7 +71,9 @@ function SidebarContent({ close }: { close?: () => void }) {
               <div className="mb-2 px-3 text-[9px] font-extrabold uppercase tracking-[.18em] text-[#8190a4]">{group.label}</div>
               <div className="space-y-1">
                 {visibleItems.map((item) => {
-                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  // Con /stock y /stock/urbano, se marca solo la entrada más específica.
+                  const matches = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+                  const active = matches(item.href) && !visibleItems.some((other) => other.href.length > item.href.length && matches(other.href));
                   return (
                     <Link key={item.href} href={item.href} onClick={close} className={cn(
                       "group flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold transition",

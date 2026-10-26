@@ -639,6 +639,46 @@ model UrbanoShipper {
   @@map("urbano_shippers")
 }
 
+// Cargas del reporte "Stock en línea" del portal de Urbano: lo que Urbano informa que tiene de cada
+// código cliente a la fecha del reporte. La pantalla Stock toma el stock informado de la última carga.
+// Se cargan subiendo el Excel exportado (origen "excel") o trayéndolo del portal (origen "portal").
+model UrbanoStockLoad {
+  id            String            @id @default(uuid()) @db.Uuid
+  reportDate    DateTime          @map("fecha_reporte") @db.Date
+  source        String            @default("excel") @map("origen") @db.VarChar(20)
+  fileName      String?           @map("nombre_archivo") @db.VarChar(255)
+  // SHA-256 del archivo: el mismo reporte no se puede cargar dos veces.
+  fileHash      String?           @unique @map("hash_archivo") @db.VarChar(64)
+  rowCount      Int               @map("filas")
+  totalQuantity Decimal           @map("cantidad_total") @db.Decimal(18, 4)
+  createdBy     String            @map("created_by") @db.VarChar(255)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  items         UrbanoStockItem[]
+
+  @@index([reportDate])
+  @@map("urbano_stock_cargas")
+}
+
+model UrbanoStockItem {
+  id            BigInt          @id @default(autoincrement()) @db.BigInt
+  loadId        String          @map("carga_id") @db.Uuid
+  clientCode    String          @map("codigo_cliente") @db.VarChar(255)
+  product       String?         @map("producto")
+  // Cant. Física disponible (el stock informado); lo físico en otros estados y lo pendiente de recogida.
+  quantity      Decimal         @map("cantidad") @db.Decimal(18, 4)
+  unavailable   Decimal         @default(0) @map("no_disponible") @db.Decimal(18, 4)
+  pendingPickup Decimal         @default(0) @map("pendiente_recogida") @db.Decimal(18, 4)
+  company       String?         @map("compania") @db.VarChar(20)
+  client        String?         @map("cliente") @db.VarChar(255)
+  uniqueCode    String?         @map("codigo_unico") @db.VarChar(255)
+  sourceRow     Int?            @map("fila_origen")
+  load          UrbanoStockLoad @relation(fields: [loadId], references: [id], onDelete: Cascade)
+
+  @@index([loadId])
+  @@index([clientCode])
+  @@map("urbano_stock_items")
+}
+
 // Ajuste de stock (rotura, faltante, sobrante) de un cliente. Cantidad
 // positiva suma stock (queda como ingreso), negativa resta (queda como
 // egreso). También necesita que un segundo usuario lo apruebe antes de
