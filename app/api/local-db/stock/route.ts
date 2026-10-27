@@ -10,6 +10,7 @@ import { readEgressRows, readIncomeRows } from "@/lib/operation-excel-db";
 import { usesPostgres } from "@/lib/data-source";
 import {
   readClientCodesFromPostgres,
+  readClientNamesWithActiveCodes,
   readClientsFromPostgres,
   readProductsFromPostgres,
   readSantanderCostsFromPostgres,
@@ -130,8 +131,8 @@ export async function GET(request: Request) {
 
   // Clientes con productos asignados, para el selector de la pantalla.
   if (url.searchParams.get("clients") && postgres) {
-    const [clients, assignments] = await Promise.all([readClientsFromPostgres(), readClientCodesFromPostgres()]);
-    const withCodes = new Set(assignments.filter((m) => m.active && !m.voidedAt).map((m) => canonicalClient(m.client)));
+    const [clients, withActiveCodes] = await Promise.all([readClientsFromPostgres(), readClientNamesWithActiveCodes()]);
+    const withCodes = new Set(withActiveCodes.map(canonicalClient));
     const names = clients
       .filter((c) => c.active !== false && withCodes.has(canonicalClient(c.name)))
       .map((c) => c.name)
@@ -153,29 +154,32 @@ export async function GET(request: Request) {
   }
   const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 
-  const [mappingRows, productRows, allStockRows, allCostRows] = postgres
+  // En PostgreSQL todo se lee filtrado por cliente y en paralelo.
+  const [mappingRows, productRows, allStockRows, allCostRows, postgresOperations, postgresUrbano] = postgres
     ? await Promise.all([
-        readClientCodesFromPostgres(),
+        readClientCodesFromPostgres(clientName),
         readProductsFromPostgres(),
-        readSantanderStockFromPostgres(),
-        readSantanderCostsFromPostgres(),
+        readSantanderStockFromPostgres(clientName),
+        readSantanderCostsFromPostgres(clientName),
+        readStockOperationRowsFromPostgres(clientName),
+        latestUrbanoStockByCode(),
       ])
     : [
         readClientCodesFromExcel(),
         readProductsFromExcel(),
         readSantanderStockRowsFromExcel(),
         readSantanderCostRowsFromExcel(),
+        null,
+        null,
       ];
   const persistedStockRows = allStockRows.filter((row) => sameClient(row.client));
   const costRows = allCostRows.filter((row) => sameClient(row.client));
-  const operationRows = postgres
-    ? await readStockOperationRowsFromPostgres(clientName)
-    : {
+  const operationRows = postgresOperations ?? {
         incomes: readIncomeRows({ client: "santander", limit: Number.MAX_SAFE_INTEGER }),
         egresses: readEgressRows({ client: "Santander", limit: Number.MAX_SAFE_INTEGER }),
       };
   // Stock Urbano: Cant. Física (todos los estados) de la última carga del reporte de Urbano que trae cada código.
-  const urbanoStock = postgres ? await latestUrbanoStockByCode() : new Map<string, { quantity: number; reportDate: string }>();
+  const urbanoStock = postgresUrbano ?? new Map<string, { quantity: number; reportDate: string }>();
   const incomeRows = operationRows.incomes;
   const egressRows = operationRows.egresses;
 

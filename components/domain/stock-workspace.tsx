@@ -51,6 +51,7 @@ const YEAR = today.getFullYear();
 const TOTAL_COLS = 31; // 3 sticky + 2 info + 6 mov + 2 urbano + 3 si + 4 canjes + 6 nec + 5 costos
 
 const STOCK_KEY = (c: string) => `stock-informado-v1-${c.toLowerCase()}`;
+const LAST_CLIENT_KEY = "stock-ultimo-cliente";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -78,7 +79,8 @@ function packageRound(value: number, size: number) {
 
 export function StockWorkspace() {
   const [clients, setClients] = useState<string[]>(["Santander"]);
-  const [client, setClient] = useState("Santander");
+  // Vacío hasta leer el último cliente elegido, para no cargar Santander de más al entrar.
+  const [client, setClient] = useState("");
   const [rows, setRows] = useState<StockRow[]>([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -88,10 +90,31 @@ export function StockWorkspace() {
   const [planningMonths, setPlanningMonths] = useState("2");
 
   useEffect(() => {
+    let last = "";
+    try {
+      last = localStorage.getItem(LAST_CLIENT_KEY) || "";
+    } catch {}
+    // Restore the client chosen last time in this browser.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setClient(last || "Santander");
+  }, []);
+
+  function chooseClient(next: string) {
+    setClient(next);
+    try {
+      localStorage.setItem(LAST_CLIENT_KEY, next);
+    } catch {}
+  }
+
+  useEffect(() => {
     fetch("/api/local-db/stock?clients=1")
       .then((response) => response.json() as Promise<{ clients?: string[] }>)
       .then((data) => {
-        if (data.clients?.length) setClients(data.clients);
+        const names = data.clients;
+        if (!names?.length) return;
+        setClients(names);
+        // Si el último cliente guardado ya no está en la lista, se usa el primero.
+        setClient((current) => (current && !names.includes(current) ? names[0] : current));
       })
       .catch(() => undefined);
   }, []);
@@ -100,6 +123,7 @@ export function StockWorkspace() {
 
   const loadStock = useCallback(
     async (signal?: AbortSignal) => {
+      if (!client) return;
       setLoading(true);
       setStatus("Cargando...");
       try {
@@ -324,7 +348,7 @@ export function StockWorkspace() {
             Cliente
             <select
               value={client}
-              onChange={(e) => setClient(e.target.value)}
+              onChange={(e) => chooseClient(e.target.value)}
               className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
             >
               {clients.map((n) => (

@@ -60,6 +60,9 @@ function nextPublicCode(prefix: string, codes: string[]) {
   return `${prefix}-${String(max + 1).padStart(6, "0")}`;
 }
 
+const clientFilter = (client?: string) =>
+  client?.trim() ? { client: { equals: client.trim(), mode: "insensitive" as const } } : undefined;
+
 export async function readProductsFromPostgres(): Promise<ExcelProduct[]> {
   const rows = await excelPostgres.excelProduct.findMany({
     include: { brand: true, supplier: true, category: true },
@@ -196,6 +199,16 @@ export async function writeCategoriesToPostgres(categories: ExcelCategory[]) {
   return readCategoriesFromPostgres();
 }
 
+// Nombres de los clientes que tienen al menos un código cliente vigente (sin anular).
+export async function readClientNamesWithActiveCodes() {
+  const rows = await excelPostgres.excelClientCode.findMany({
+    where: { active: true, voidedAt: null },
+    distinct: ["client"],
+    select: { client: true },
+  });
+  return rows.map((row) => text(row.client)).filter(Boolean);
+}
+
 export async function readClientsFromPostgres(): Promise<ExcelClient[]> {
   const rows = await excelPostgres.excelClient.findMany({ orderBy: { id: "asc" } });
   return rows.map((row) => ({
@@ -279,8 +292,9 @@ export async function writeClientRatesToPostgres(items: ExcelClientRateItem[]) {
   });
 }
 
-export async function readClientCodesFromPostgres(): Promise<ExcelClientCodeMapping[]> {
-  const rows = await excelPostgres.excelClientCode.findMany({ orderBy: { id: "asc" } });
+// Con client, trae solo los códigos de ese cliente (sin distinguir mayúsculas).
+export async function readClientCodesFromPostgres(client?: string): Promise<ExcelClientCodeMapping[]> {
+  const rows = await excelPostgres.excelClientCode.findMany({ where: clientFilter(client), orderBy: { id: "asc" } });
   return rows.map((row) => ({
     id: row.id.toString(),
     client: text(row.client),
@@ -384,8 +398,8 @@ export async function deletePricesFromPostgres(ids: string[]) {
   return result.count;
 }
 
-export async function readSantanderCostsFromPostgres(): Promise<ExcelSantanderCostRow[]> {
-  const rows = await excelPostgres.excelSantanderCost.findMany({ orderBy: { id: "asc" } });
+export async function readSantanderCostsFromPostgres(client?: string): Promise<ExcelSantanderCostRow[]> {
+  const rows = await excelPostgres.excelSantanderCost.findMany({ where: clientFilter(client), orderBy: { id: "asc" } });
   return rows.map((row) => ({
     client: text(row.client), period: text(row.period), month: row.month ?? 0, year: row.year ?? 0,
     date: dateOnly(row.date), clientCode: text(row.clientCode), uniqueCode: text(row.uniqueCode),
@@ -491,8 +505,8 @@ export async function upsertFreightCriterionInPostgres(uniqueCode: string, entry
   else await excelPostgres.excelFreightCriterion.create({ data });
 }
 
-export async function readSantanderStockFromPostgres(): Promise<ExcelSantanderStockRow[]> {
-  const rows = await excelPostgres.excelSantanderStock.findMany({ orderBy: { id: "asc" } });
+export async function readSantanderStockFromPostgres(client?: string): Promise<ExcelSantanderStockRow[]> {
+  const rows = await excelPostgres.excelSantanderStock.findMany({ where: clientFilter(client), orderBy: { id: "asc" } });
   return rows.map((row) => ({
     client: text(row.client), group: text(row.group), comments: text(row.comments),
     clientCode: text(row.clientCode), uniqueCode: text(row.uniqueCode), product: text(row.product),

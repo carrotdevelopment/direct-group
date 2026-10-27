@@ -43,51 +43,14 @@ function isoDateFromParts(day: number | null, month: number | null, year: number
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-async function loadTangoClientResolution() {
-  const [mappings, clientCodeMap] = await Promise.all([
-    excelPostgres.excelClientCode.findMany({
-      where: { active: true },
-      orderBy: [{ assignmentYear: "desc" }, { assignmentMonth: "desc" }, { id: "desc" }],
-    }),
-    excelPostgres.tangoClientCodeMap.findMany(),
-  ]);
-  const byClientCode = new Map<string, { client: string; uniqueCode: string }>();
-  for (const mapping of mappings) {
-    const key = normalizeSearch(mapping.clientCode);
-    if (!byClientCode.has(key)) {
-      byClientCode.set(key, {
-        client: text(mapping.client),
-        uniqueCode: text(mapping.uniqueCode),
-      });
-    }
-  }
-  // Referencia histórica (2012-2026) relevada de la planilla que se usaba
-  // antes de esta plataforma: cubre códigos que ya no están "activos" en
-  // Códigos Cliente pero sí tienen historial real de a qué cliente pertenecen.
-  const historicalClientByCode = new Map<string, string>();
-  for (const entry of clientCodeMap) {
-    historicalClientByCode.set(normalizeSearch(entry.clientCode), text(entry.client));
-  }
-  return { byClientCode, historicalClientByCode };
-}
-
 export const UNASSIGNED_CLIENT = "Sin asignar";
 
 // El "Cliente" de Tango (STA22.NOMBRE_SUC) es en realidad el depósito/campaña,
 // no el cliente real de DG (un mismo depósito como "Urbano Express" mezcla
 // códigos de decenas de clientes distintos), así que nunca se usa. El cliente
 // sale del código cliente: 1) Códigos Cliente activos, 2) referencia histórica
-// (2012-2026). Sin match queda "Sin asignar" para corregirlo en Códigos cliente.
-function resolveTangoClient(
-  codeKey: string,
-  resolution: Awaited<ReturnType<typeof loadTangoClientResolution>>,
-) {
-  return (
-    resolution.byClientCode.get(codeKey)?.client ||
-    resolution.historicalClientByCode.get(codeKey) ||
-    UNASSIGNED_CLIENT
-  );
-}
+// (2012-2026, tango_client_code_map). Sin match queda "Sin asignar" para corregirlo
+// en Códigos cliente.
 
 const ACCENTS_FROM = "áàäâéèëêíìïîóòöôúùüûñç";
 const ACCENTS_TO = "aaaaeeeeiiiioooouuuunc";
@@ -97,8 +60,8 @@ function norm(expression: string) {
   return `translate(lower(btrim(coalesce(${expression}, ''))), '${ACCENTS_FROM}', '${ACCENTS_TO}')`;
 }
 
-// Resuelve el cliente real de cada ingreso en la base (misma prioridad que
-// resolveTangoClient: Códigos Cliente activos, referencia histórica, "Sin asignar").
+// Resuelve el cliente real de cada ingreso en la base con esa prioridad: Códigos
+// Cliente activos, referencia histórica, "Sin asignar".
 const RESOLVED_INCOME_CTE = Prisma.raw(`
   act AS (
     SELECT DISTINCT ON (${norm("codigo_cliente")})
@@ -374,23 +337,22 @@ export async function readIncomeRowsFromPostgres(options: {
   }));
 }
 
+type StockIncomeGroup = { codigo_cliente: string; operacion: string; cantidad: number | null; entregado: number | null; primera_entrega: Date | null };
+
+// Ingresos y egresos de un cliente, ya sumados por código y operación en la base. El cliente de cada
+// ingreso se resuelve con la misma prioridad que la página de Ingresos (RESOLVED_INCOME_CTE).
 export async function readStockOperationRowsFromPostgres(client = "Santander") {
-  const wantedClient = client.trim().toLowerCase();
-  // El stock de un cliente se calcula contra el Cliente ya resuelto (no el
-  // depósito crudo de Tango), así que hay que traer todos los ingresos y
-  // filtrar en JS con la misma prioridad que usa la página de Ingresos.
-  const [incomeRows, resolution, egressGroups] = await Promise.all([
-    excelPostgres.tangoIncome.findMany({
-      select: {
-        client: true,
-        operation: true,
-        clientCode: true,
-        quantity: true,
-        deliveredQuantity: true,
-        deliveryDate: true,
-      },
-    }),
-    loadTangoClientResolution(),
+  const wantedClient = normalizeSearch(client);
+  const operationKey = Prisma.raw(`upper(${norm("operacion")})`);
+  const [incomeGroups, egressGroups] = await Promise.all([
+    excelPostgres.$queryRaw<StockIncomeGroup[]>`
+      WITH ${RESOLVED_INCOME_CTE}
+      SELECT min(codigo_cliente) AS codigo_cliente, min(operacion) AS operacion,
+        sum(cantidad)::float8 AS cantidad, sum(entregado)::float8 AS entregado,
+        min(fecha_entrega) FILTER (WHERE ${operationKey} IN ('COMPRA', 'PASAJE')) AS primera_entrega
+      FROM r
+      WHERE ${Prisma.raw(norm("cliente_res"))} = ${wantedClient}
+      GROUP BY ${Prisma.raw(norm("codigo_cliente"))}, ${operationKey}`,
     excelPostgres.egress.groupBy({
       by: ["clientCode", "operation"],
       where: {
@@ -401,40 +363,21 @@ export async function readStockOperationRowsFromPostgres(client = "Santander") {
     }),
   ]);
 
-  const santanderRows = incomeRows.filter((row) => {
-    const codeKey = normalizeSearch(row.clientCode);
-    return resolveTangoClient(codeKey, resolution).toLowerCase() === wantedClient;
-  });
-
-  const groups = new Map<
-    string,
-    { clientCode: string; operation: string; quantity: number; delivered: number }
-  >();
-  for (const row of santanderRows) {
-    const clientCode = text(row.clientCode);
-    const operationValue = text(row.operation);
-    const key = `${normalizeSearch(clientCode)}::${normalizeSearch(operationValue)}`;
-    const current = groups.get(key) ?? { clientCode, operation: operationValue, quantity: 0, delivered: 0 };
-    current.quantity += number(row.quantity);
-    current.delivered += number(row.deliveredQuantity);
-    groups.set(key, current);
-  }
-  const incomes: Array<Record<string, unknown>> = Array.from(groups.values()).map((group) => ({
-    "Código Cliente": group.clientCode,
-    Operación: group.operation,
-    Cantidad: group.quantity,
-    Entregado: group.delivered,
+  const incomes: Array<Record<string, unknown>> = incomeGroups.map((group) => ({
+    "Código Cliente": text(group.codigo_cliente),
+    Operación: text(group.operacion),
+    Cantidad: number(group.cantidad),
+    Entregado: number(group.entregado),
   }));
 
+  // Primera entrega (compra o pasaje) de cada código, para la vigencia y las transacciones por día.
   const earliestByCode = new Map<string, { clientCode: string; deliveryDate: Date }>();
-  for (const row of santanderRows) {
-    const normalizedOperation = normalizeSearch(row.operation).toUpperCase();
-    if (!['COMPRA', 'PASAJE'].includes(normalizedOperation)) continue;
-    if (!row.deliveryDate) continue;
-    const key = normalizeSearch(row.clientCode);
+  for (const group of incomeGroups) {
+    if (!group.primera_entrega) continue;
+    const key = normalizeSearch(group.codigo_cliente);
     const current = earliestByCode.get(key);
-    if (!current || row.deliveryDate < current.deliveryDate) {
-      earliestByCode.set(key, { clientCode: text(row.clientCode), deliveryDate: row.deliveryDate });
+    if (!current || group.primera_entrega < current.deliveryDate) {
+      earliestByCode.set(key, { clientCode: text(group.codigo_cliente), deliveryDate: group.primera_entrega });
     }
   }
   for (const entry of earliestByCode.values()) {
