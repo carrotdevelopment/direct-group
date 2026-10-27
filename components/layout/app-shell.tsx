@@ -33,7 +33,7 @@ const navigation: NavGroup[] = [
   ]},
   { label: "Stock", items: [
     { label: "Stock", href: "/stock", icon: Warehouse },
-    // Carga Urbano (/stock/urbano) queda fuera del menú por ahora: el stock se trae solo todos los días.
+    { label: "Carga Urbano", href: "/stock/urbano", icon: PackageSearch },
   ]},
   { label: "Comunicación", items: [
     { label: "Correos", href: "/correos", icon: Mail },
