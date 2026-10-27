@@ -379,8 +379,14 @@ function rowForUi(row: Awaited<ReturnType<typeof excelPostgres.egress.findFirst>
   const current = { date, dateDay: date.slice(8), dateMonth: date.slice(5, 7), dateYear: date.slice(0, 4), clientCode: row.clientCode, product: row.product, quantity: number(row.quantity), destination: row.destination, comments: row.comments, operation: row.operation };
   if (mapping) {
     for (const field of Object.keys(current) as CanonicalEgressField[]) {
-      for (const alias of mapping[field] ?? []) {
+      const aliases = mapping[field] ?? [];
+      for (const alias of aliases) {
         if (Object.hasOwn(currentPayload, alias)) currentPayload[alias] = current[field] ?? "";
+      }
+      // Egresos sin fila de Excel (cargados a mano, desde Pasajes y Ajustes o por script): se completa
+      // la columna del perfil para que la grilla muestre fecha, código, producto y cantidad.
+      if (aliases.length && !aliases.some((alias) => Object.hasOwn(currentPayload, alias))) {
+        currentPayload[aliases[0]] = current[field] ?? "";
       }
     }
   }
