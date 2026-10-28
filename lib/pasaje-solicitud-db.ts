@@ -4,7 +4,8 @@ import { prisma } from "@/server/lib/prisma";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import type { PasajeActor } from "@/lib/module-access";
-import { markDuplicates, resolveSolicitud, type SolicitudRow } from "@/lib/pasaje-solicitud";
+import { markDuplicates, markStockShortages, resolveSolicitud, type SolicitudRow } from "@/lib/pasaje-solicitud";
+import { availableStockForCodes } from "@/lib/pasaje-stock-db";
 
 const MAX_ROWS = 300;
 const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
@@ -63,15 +64,31 @@ export async function previewSolicitud(input: unknown, fileHash?: unknown) {
   });
   const hash = validHash(fileHash);
   const previousFile = hash ? await excelPostgres.pasajeBatch.findUnique({ where: { fileHash: hash } }) : null;
+  const checked = markDuplicates(resolved, existing.map((pasaje) => ({
+    fromClientCode: pasaje.fromClientCode, toClientCode: pasaje.toClientCode, quantity: Number(pasaje.quantity),
+    requestDate: isoDay(pasaje.requestDate), status: pasaje.status, createdBy: pasaje.createdBy, createdAt: pasaje.createdAt.toISOString(),
+  })));
   return {
-    rows: markDuplicates(resolved, existing.map((pasaje) => ({
-      fromClientCode: pasaje.fromClientCode, toClientCode: pasaje.toClientCode, quantity: Number(pasaje.quantity),
-      requestDate: isoDay(pasaje.requestDate), status: pasaje.status, createdBy: pasaje.createdBy, createdAt: pasaje.createdAt.toISOString(),
-    }))),
+    rows: markStockShortages(checked, await originStock(checked)),
     duplicateFile: previousFile
       ? { fileName: previousFile.fileName, createdBy: previousFile.createdBy, createdAt: previousFile.createdAt.toISOString() }
       : null,
   };
+}
+
+// Stock disponible de cada código origen de la solicitud, por "cliente|código".
+async function originStock(rows: { status: string; fromClient: string | null; fromClientCode: string }[]) {
+  const codesByClient = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if ((row.status !== "ok" && row.status !== "warning") || !row.fromClient) continue;
+    codesByClient.set(row.fromClient, (codesByClient.get(row.fromClient) ?? new Set()).add(row.fromClientCode));
+  }
+  const available = new Map<string, number>();
+  for (const [client, codes] of codesByClient) {
+    const stock = await availableStockForCodes(client, [...codes]);
+    for (const code of codes) available.set(`${normalize(client)}|${normalize(code)}`, stock.get(code.trim().toLowerCase())?.available ?? 0);
+  }
+  return available;
 }
 
 export function listUrbanoShippers() {

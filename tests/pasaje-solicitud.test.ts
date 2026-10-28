@@ -127,3 +127,24 @@ describe("cambios de código del mismo cliente y duplicados", () => {
     expect(loaded.messages[0]).toContain("Ya está cargado: hay un pasaje igual (aprobado)");
   });
 });
+
+describe("stock del código origen", () => {
+  it("avisa cuando las filas del mismo código piden más de lo disponible, sumando en orden", async () => {
+    const { markStockShortages } = await import("@/lib/pasaje-solicitud");
+    const resolved = resolveSolicitud([row({ row: 10 }), row({ row: 11 }), row({ row: 12, fromShipper: "3102", fromClientCode: "URB-294", toClientCode: "76-5018" })], codes, shippers);
+    const [first, second, other] = markStockShortages(resolved, new Map([["amex|dg99-3184", 8], ["umiles|urb-294", 10]]));
+    expect(first.status).toBe("ok");
+    expect(second.status).toBe("warning");
+    expect(second.messages.join(" ")).toContain("tiene 8 disponibles y el archivo ya pide 10");
+    expect(other.status).toBe("ok");
+  });
+});
+
+describe("shipper de Importados", () => {
+  it("con el shipper de Credicoop (1247) un código de Importados sale de Importados sin aviso", () => {
+    const withImportados = shippers.map((s) => (s.code === "1247" ? { ...s, clients: ["Credicoop", "Importados"] } : s));
+    const [result] = resolveSolicitud([row({ fromShipper: "1247", fromClientCode: "imp-2026", toClientCode: "76-5006" })], codes, withImportados);
+    expect(result).toMatchObject({ status: "ok", fromClient: "Importados", messages: [] });
+  });
+});
+

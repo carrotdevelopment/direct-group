@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { SummaryStrip } from "@/components/domain/summary-strip";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
+import { describeSimilarCode, findSimilarProductCodes } from "@/lib/product-code-similarity";
 
 type Product = {
   id: string;
@@ -80,6 +81,8 @@ type BulkRow = {
 type BulkPendingState = {
   toImport: Product[];
   skipped: { code: string; name: string }[];
+  // Avisos de códigos parecidos a otros del catálogo o del mismo borrador.
+  similar: string[];
 };
 
 const seed: Product[] = [
@@ -392,6 +395,11 @@ export function ProductWorkspace() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  // Códigos del catálogo que se parecen al que se está escribiendo (solo al dar de alta).
+  const similarCodes = useMemo(
+    () => (editingId ? [] : findSimilarProductCodes(form.code, products).filter((match) => match.reason !== "same" || normalizeForDuplicateCheck(match.code) !== normalizeForDuplicateCheck(form.code))),
+    [editingId, form.code, products],
+  );
   const [error, setError] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState("");
@@ -588,6 +596,17 @@ export function ProductWorkspace() {
       )
     )
       return setError("Ese código único ya existe.");
+    if (
+      similarCodes.length > 0 &&
+      !window.confirm(
+        [
+          ...similarCodes.slice(0, 5).map((match) => describeSimilarCode(form.code.trim(), match)),
+          "",
+          "¿Dar de alta el código igual?",
+        ].join("\n"),
+      )
+    )
+      return;
     const values = {
       code,
       name: form.name.trim(),
@@ -842,8 +861,15 @@ export function ProductWorkspace() {
       setBulkError("Todos los productos ya existen en el catálogo y serán omitidos.");
       return;
     }
+    const similar: string[] = [];
+    toImport.forEach((product, index) => {
+      const others = [...products, ...toImport.filter((_, otherIndex) => otherIndex !== index)];
+      for (const match of findSimilarProductCodes(product.code, others).slice(0, 3)) {
+        similar.push(describeSimilarCode(product.code, match));
+      }
+    });
     setBulkError("");
-    setBulkPending({ toImport, skipped });
+    setBulkPending({ toImport, skipped, similar });
   }
 
   async function commitBulk() {
@@ -1318,6 +1344,12 @@ export function ProductWorkspace() {
                 </tbody>
               </table>
             </div>
+            {bulkPending.similar.length > 0 && (
+              <div className="mt-3 max-h-40 overflow-y-auto rounded-xl bg-[#fff0d9] px-4 py-2.5 text-[11px] font-semibold text-[#985b00]">
+                <div className="font-black">Códigos parecidos a otros (revisá que no sean el mismo producto):</div>
+                {bulkPending.similar.map((message) => <div key={message}>{message}</div>)}
+              </div>
+            )}
             {bulkPending.skipped.length > 0 && (
               <div className="mt-3 rounded-xl bg-[#fef9ec] px-4 py-2.5 text-[11px] font-semibold text-[#8a6a1a]">
                 Omitidos (ya existen):{" "}
@@ -1413,6 +1445,15 @@ export function ProductWorkspace() {
                 );
               })}
             </div>
+            {similarCodes.length > 0 && (
+              <div className="mt-4 rounded-xl bg-[#fff0d9] px-4 py-3 text-[11px] font-semibold text-[#985b00]">
+                <div className="font-black">Hay códigos parecidos en el catálogo:</div>
+                {similarCodes.slice(0, 5).map((match) => (
+                  <div key={match.code}>{describeSimilarCode(form.code.trim(), match)}</div>
+                ))}
+                {similarCodes.length > 5 && <div>…y {similarCodes.length - 5} más.</div>}
+              </div>
+            )}
             <div className="mt-4">
               <label className="text-[11px] font-extrabold text-[#334b6b]">
                 Imagen del producto

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, Check, FileSpreadsheet, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
@@ -775,6 +775,22 @@ function PasajeModal({
   const [draft, setDraft] = useState<PasajeDraft>(emptyDraft);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Stock disponible del código origen elegido (stock real menos pasajes sin confirmar).
+  const [originStock, setOriginStock] = useState<{ key: string; real: number; reserved: number; available: number } | null>(null);
+  const originKey = draft.fromClient && draft.fromClientCode ? `${draft.fromClient}|${draft.fromClientCode}` : "";
+  useEffect(() => {
+    if (!originKey) return;
+    const controller = new AbortController();
+    const [client, code] = originKey.split("|");
+    fetch(`/api/pasajes/stock?client=${encodeURIComponent(client)}&code=${encodeURIComponent(code)}`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { real: number; reserved: number; available: number } | null) => setOriginStock(data ? { key: originKey, ...data } : null))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [originKey]);
+  const stock = originStock && originStock.key === originKey ? originStock : null;
+  const requested = Number(draft.quantity);
+  const shortage = !!stock && Number.isFinite(requested) && requested > 0 && requested > stock.available;
   const skuOptions = useMemo(() => skuOptionsFrom(mappings, productByCode), [mappings, productByCode]);
   const { forSku, fromPool } = optionsForSku(mappings, draft.sku, allowedClients);
   const fromClients = distinct(fromPool.map((m) => m.client));
@@ -808,6 +824,7 @@ function PasajeModal({
     event.preventDefault();
     const problem = validateDraft(draft, mappings, allowedClients);
     if (problem) return setError(problem);
+    if (shortage && !window.confirm(`${draft.fromClientCode} tiene ${stock.available} disponibles y se piden ${requested}. ¿Generar el pasaje igual?`)) return;
     setError("");
     setSubmitting(true);
     try {
@@ -942,6 +959,12 @@ function PasajeModal({
                 onChange={(event) => setDraft({ ...draft, quantity: event.target.value })}
                 className={selectClass}
               />
+              {stock && (
+                <span className={`mt-1 block text-[10px] font-bold ${shortage ? "text-[#985b00]" : "text-[#62728a]"}`}>
+                  Disponible en {draft.fromClientCode}: {stock.available}
+                  {stock.reserved > 0 ? ` (stock real ${stock.real}, ${stock.reserved} en otros pasajes sin confirmar)` : ""}
+                </span>
+              )}
             </label>
             <label className="text-[11px] font-extrabold text-[#334b6b]">
               Comentario (opcional)
@@ -953,13 +976,22 @@ function PasajeModal({
             </label>
           </div>
         </div>
+        {shortage && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl bg-[#fff0d9] px-4 py-3 text-xs font-bold text-[#985b00]">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+            <span>
+              No alcanza el stock: {draft.fromClient} tiene {stock.available} disponibles en {draft.fromClientCode} y se piden {requested}.
+              Revisá la cantidad antes de generar el pasaje.
+            </span>
+          </div>
+        )}
         {error && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
         <div className="mt-6 flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
           <Button type="submit" disabled={submitting}>
-            Generar pasaje
+            {shortage ? "Generar igual" : "Generar pasaje"}
           </Button>
         </div>
       </form>

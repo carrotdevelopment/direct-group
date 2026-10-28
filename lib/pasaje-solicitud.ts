@@ -225,3 +225,22 @@ export function markDuplicates(rows: ResolvedRow[], existing: ExistingPasaje[]):
     return row;
   });
 }
+
+// Avisa las filas que piden más de lo que tiene el código origen. available es el stock disponible por
+// "cliente|código" (en minúsculas); varias filas del mismo código se van sumando en el orden del archivo.
+export function markStockShortages(rows: ResolvedRow[], available: Map<string, number>): ResolvedRow[] {
+  const used = new Map<string, number>();
+  return rows.map((row) => {
+    if ((row.status !== "ok" && row.status !== "warning") || !row.fromClient || !row.quantity) return row;
+    const key = `${normalize(row.fromClient)}|${normalize(row.fromClientCode)}`;
+    const stock = available.get(key);
+    if (stock === undefined) return row;
+    const total = (used.get(key) ?? 0) + row.quantity;
+    used.set(key, total);
+    if (total <= stock) return row;
+    const message = total === row.quantity
+      ? `Stock insuficiente: ${row.fromClientCode} de ${row.fromClient} tiene ${stock} disponibles y se piden ${row.quantity}.`
+      : `Stock insuficiente: ${row.fromClientCode} de ${row.fromClient} tiene ${stock} disponibles y el archivo ya pide ${total} sumando esta fila.`;
+    return { ...row, status: "warning", messages: [...row.messages, message] };
+  });
+}
