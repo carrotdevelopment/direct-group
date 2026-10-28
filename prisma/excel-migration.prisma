@@ -745,3 +745,14 @@ model ClientCodeMigration {
   @@index([client, createdAt])
   @@map("migraciones_codigo_cliente")
 }
+
+// Configuración de la organización que se edita desde Sistema > Configuración (datos generales,
+// avisos por correo). Una fila por sección, con el valor en JSON.
+model ConfigSetting {
+  key       String   @id @map("clave") @db.VarChar(100)
+  value     Json     @map("valor")
+  updatedBy String?  @map("updated_by") @db.VarChar(255)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("configuracion")
+}
