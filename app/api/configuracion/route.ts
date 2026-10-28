@@ -8,16 +8,17 @@ import { sendSmtpMail } from "@/lib/smtp-mailer";
 export const runtime = "nodejs";
 
 // Guarda una sección de Sistema > Configuración ({ key, value }); con { test: true } manda un correo de
-// prueba a los destinatarios de avisos guardados. Solo administradores.
+// prueba a los destinatarios de avisos guardados. Solo administradores, salvo los correos a proveedores.
 export async function POST(request: Request) {
-  const denied = await checkApiAccess(["admin"], true);
-  if (denied) return denied;
   let body: { key?: unknown; value?: unknown; test?: boolean };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ message: "El pedido no llegó con JSON válido." }, { status: 400 });
   }
+  // Los textos de los correos a proveedores los puede editar también quien tiene el módulo Precios.
+  const denied = await checkApiAccess(body.key === "correoProveedores" && !body.test ? ["admin", "precios"] : ["admin"], true);
+  if (denied) return denied;
   const user = (await auth())?.user;
   const actor = user?.name || user?.email || "desconocido";
 

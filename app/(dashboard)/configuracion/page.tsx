@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { requirePageModule } from "@/server/lib/access";
-import { AlertTriangle, Bell, CheckCircle2, Database, ExternalLink, LockKeyhole, Settings, Users } from "lucide-react";
+import { requireAnyPageModule } from "@/server/lib/access";
+import { AlertTriangle, Bell, CheckCircle2, Database, ExternalLink, LockKeyhole, Mail, Settings, Users } from "lucide-react";
 import { PageHeader } from "@/components/domain/page-header";
 import { Badge } from "@/components/ui/badge";
 import { NotificationsForm, OrganizationForm } from "@/components/domain/settings-forms";
-import { accessModules } from "@/lib/module-access";
+import { SupplierMailForm } from "@/components/domain/supplier-mail-settings-form";
+import { accessModules, hasModule } from "@/lib/module-access";
 import { prisma } from "@/server/lib/prisma";
 import { backupHealth, displayDateTime, listBackups, readSetting, tangoHealth, urbanoHealth, withoutRecentLogin, type HealthCheck } from "@/lib/system-health";
 
@@ -14,6 +15,7 @@ const sections = [
   { key: "seguridad", label: "Seguridad", icon: LockKeyhole },
   { key: "notificaciones", label: "Notificaciones", icon: Bell },
   { key: "datos", label: "Datos y backups", icon: Database },
+  { key: "correos", label: "Correos a proveedores", icon: Mail },
 ] as const;
 type SectionKey = (typeof sections)[number]["key"];
 
@@ -21,9 +23,13 @@ const ROLE_LABELS: Record<string, string> = { ADMIN: "Administrador", VENDEDOR: 
 
 export const metadata = { title: "Configuración" };
 export default async function ConfiguracionPage({ searchParams }: { searchParams: Promise<{ seccion?: string }> }) {
-  await requirePageModule("admin");
+  // Los textos de los correos a proveedores los editan también quienes tienen el módulo Precios;
+  // el resto de Configuración es solo para administradores.
+  const user = await requireAnyPageModule(["admin", "precios"]);
+  const isAdmin = hasModule(user, "admin");
+  const visible = sections.filter((section) => isAdmin || section.key === "correos");
   const requested = (await searchParams).seccion;
-  const current: SectionKey = sections.some((section) => section.key === requested) ? (requested as SectionKey) : "general";
+  const current: SectionKey = visible.find((section) => section.key === requested)?.key ?? visible[0].key;
 
   return (
     <>
@@ -34,7 +40,7 @@ export default async function ConfiguracionPage({ searchParams }: { searchParams
       />
       <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
         <nav className="card h-fit animate-enter p-2">
-          {sections.map((section) => (
+          {visible.map((section) => (
             <Link
               key={section.key}
               href={`/configuracion?seccion=${section.key}`}
@@ -52,6 +58,7 @@ export default async function ConfiguracionPage({ searchParams }: { searchParams
           {current === "seguridad" && <SecuritySection />}
           {current === "notificaciones" && <NotificationsSection />}
           {current === "datos" && <DataSection />}
+          {current === "correos" && <SupplierMailSection />}
         </div>
       </div>
     </>
@@ -215,6 +222,23 @@ async function NotificationsSection() {
         <NotificationsForm initial={value} saved={{ updatedBy, updatedAt }} />
       </Card>
     </>
+  );
+}
+
+async function SupplierMailSection() {
+  const { value, updatedBy, updatedAt } = await readSetting("correoProveedores");
+  return (
+    <Card
+      title="Correos a proveedores"
+      description="Asunto y texto del pedido mensual de catálogo y de la reconsulta (Precios > Proveedores y destinatarios)."
+      aside={
+        <Link href="/precios" className="inline-flex items-center gap-1.5 rounded-xl bg-[#062b5b] px-4 py-2 text-xs font-bold text-white hover:bg-[#0b3d7a]">
+          Ir a Precios <ExternalLink size={13} />
+        </Link>
+      }
+    >
+      <SupplierMailForm initial={value} saved={{ updatedBy, updatedAt }} />
+    </Card>
   );
 }
 

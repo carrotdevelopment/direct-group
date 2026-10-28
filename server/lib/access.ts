@@ -11,6 +11,14 @@ export async function requirePageModule(module: string) {
   return session.user;
 }
 
+// Página a la que se entra con cualquiera de los módulos indicados.
+export async function requireAnyPageModule(modules: string[]) {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+  if (!modules.some((module) => hasModule(session.user, module))) redirect("/sin-acceso");
+  return session.user;
+}
+
 export async function checkApiAccess(modules: string[], write = false) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ message: "Iniciá sesión para continuar." }, { status: 401 });

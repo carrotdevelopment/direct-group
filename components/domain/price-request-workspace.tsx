@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Check,
@@ -629,6 +630,12 @@ export function PriceRequestWorkspace() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link
+              href="/configuracion?seccion=correos"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs font-bold text-[#334b6b] hover:bg-[#f2f6fb]"
+            >
+              <Pencil size={14} /> Textos de los correos
+            </Link>
             <Button size="sm" variant="secondary" onClick={() => void checkReplies()} disabled={checkingReplies}>
               {checkingReplies ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} Revisar respuestas
             </Button>

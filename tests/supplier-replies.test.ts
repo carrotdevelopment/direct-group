@@ -25,7 +25,7 @@ describe("reconsulta y respuesta de proveedores", () => {
   it("busca por correo o asunto desde el día anterior al envío y detecta el adjunto", async () => {
     listInbox.mockResolvedValue({ threads: [thread({ hasAttachments: true })] });
     const reply = await findSupplierReply(contact);
-    expect(listInbox.mock.calls[0][0].query).toBe('{from:ftedin@acegame.com.ar subject:"Solicitud de catálogo de productos - ACEGAME"} after:2026/11/01');
+    expect(listInbox.mock.calls[0][0].query).toBe('{from:ftedin@acegame.com.ar subject:"Solicitud de catálogo de productos - ACEGAME - noviembre de 2026"} after:2026/11/01');
     expect(reply).toEqual({ repliedAt: new Date("2026-11-03T15:00:00.000Z"), hasAttachment: true });
   });
 
@@ -39,3 +39,22 @@ describe("reconsulta y respuesta de proveedores", () => {
     expect(await findSupplierReply(contact)).toBeNull();
   });
 });
+
+describe("plantillas de los correos a proveedores", () => {
+  it("reemplaza contacto, proveedor y mes, y sin contacto no deja la coma suelta", async () => {
+    const { renderMailTemplate } = await import("@/lib/org-settings");
+    const values = { contacto: "", proveedor: "ACEGAME", mes: "noviembre de 2026" };
+    expect(renderMailTemplate(["Hola {contacto}, buenas tardes.", "Pedido de {Proveedor} para {mes}."].join("\n"), values))
+      .toBe(["Hola, buenas tardes.", "Pedido de ACEGAME para noviembre de 2026."].join("\n"));
+  });
+
+  it("los correos salen con la plantilla guardada", () => {
+    const templates = {
+      requestSubject: "Lista de precios {mes} - {proveedor}", requestBody: "Estimado/a {contacto}: necesitamos la lista.",
+      followUpSubject: "Recordatorio {proveedor}", followUpBody: "{contacto}, ¿lo viste?",
+    };
+    const now = new Date("2026-11-02T17:00:00.000Z");
+    expect(buildFollowUpMail("Ana", "ACEGAME", now, templates)).toEqual({ subject: "Recordatorio ACEGAME", text: "Ana, ¿lo viste?" });
+  });
+});
+

@@ -1,6 +1,7 @@
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
 import { listInbox } from "@/lib/mail-inbox";
+import { DEFAULT_SUPPLIER_MAIL, renderMailTemplate, withDefaults, type SupplierMailTemplates } from "@/lib/org-settings";
 
 // Sin "server-only": lo usa también el script que dispara la tarea programada.
 
@@ -45,41 +46,25 @@ export function isOnOrAfterFirstBusinessDay(now: Date) {
 }
 
 const monthLabelOf = (date: Date) => new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric", timeZone: TIME_ZONE }).format(date);
-const requestSubjectPrefix = (supplier: string) => `Solicitud de catálogo de productos - ${supplier}`;
 
-export function buildPriceRequestMail(contactName: string, supplier: string, now = new Date()) {
-  const monthLabel = monthLabelOf(now);
-  const name = contactName.trim();
-  const text = [
-    name ? `Hola ${name}, buenas tardes.` : "Hola, buenas tardes.",
-    "",
-    `Solicito el catálogo de productos y la lista de precios actualizada correspondiente a ${monthLabel}.`,
-    "",
-    "Si es posible, que incluya código de producto, descripción, costo, IVA y precio sugerido de venta.",
-    "",
-    "Muchas gracias.",
-    "",
-    "Saludos,",
-    "Direct Group",
-  ].join("\n");
-  return { subject: `${requestSubjectPrefix(supplier)} - ${monthLabel}`, text };
+// Textos de los correos que se configuran en Sistema > Configuración > Correos a proveedores.
+export async function supplierMailTemplates(): Promise<SupplierMailTemplates> {
+  const row = await excelPostgres.configSetting.findUnique({ where: { key: "correoProveedores" } });
+  return withDefaults("correoProveedores", row?.value);
+}
+
+function renderMail(subject: string, body: string, contactName: string, supplier: string, month: Date) {
+  const values = { contacto: contactName, proveedor: supplier, mes: monthLabelOf(month) };
+  return { subject: renderMailTemplate(subject, values).replace(/\s+/g, " ").trim(), text: renderMailTemplate(body, values) };
+}
+
+export function buildPriceRequestMail(contactName: string, supplier: string, now = new Date(), templates = DEFAULT_SUPPLIER_MAIL) {
+  return renderMail(templates.requestSubject, templates.requestBody, contactName, supplier, now);
 }
 
 // Reconsulta: recordatorio del pedido del mes, para el proveedor que todavía no contestó.
-export function buildFollowUpMail(contactName: string, supplier: string, requestedAt: Date) {
-  const monthLabel = monthLabelOf(requestedAt);
-  const name = contactName.trim();
-  const text = [
-    name ? `Hola ${name}, buenas tardes.` : "Hola, buenas tardes.",
-    "",
-    `¿Pudiste ver nuestro correo en el que te solicitamos el catálogo de productos y la lista de precios actualizada correspondiente a ${monthLabel}?`,
-    "",
-    "Quedamos atentos. Muchas gracias.",
-    "",
-    "Saludos,",
-    "Direct Group",
-  ].join("\n");
-  return { subject: `Re: ${requestSubjectPrefix(supplier)} - ${monthLabel}`, text };
+export function buildFollowUpMail(contactName: string, supplier: string, requestedAt: Date, templates = DEFAULT_SUPPLIER_MAIL) {
+  return renderMail(templates.followUpSubject, templates.followUpBody, contactName, supplier, requestedAt);
 }
 
 export function listSupplierMailContacts() {
@@ -132,7 +117,7 @@ export async function sendPriceRequestToContact(id: string, trigger: Trigger, no
   const contact = await excelPostgres.supplierMailContact.findUnique({ where: { id } });
   if (!contact) throw new SupplierMailError("El contacto no existe.", 404);
   const period = periodOf(now);
-  const mail = buildPriceRequestMail(contact.contactName, contact.supplier, now);
+  const mail = buildPriceRequestMail(contact.contactName, contact.supplier, now, await supplierMailTemplates());
   try {
     const result = await sendSmtpMail({ to: contact.email, subject: mail.subject, text: mail.text });
     await excelPostgres.$transaction([
@@ -183,7 +168,7 @@ export async function sendFollowUpToContact(id: string, now = new Date()) {
   const contact = await excelPostgres.supplierMailContact.findUnique({ where: { id } });
   if (!contact) throw new SupplierMailError("El contacto no existe.", 404);
   if (!contact.lastSentAt) throw new SupplierMailError("A este proveedor todavía no se le mandó el pedido de catálogo.");
-  const mail = buildFollowUpMail(contact.contactName, contact.supplier, contact.lastSentAt);
+  const mail = buildFollowUpMail(contact.contactName, contact.supplier, contact.lastSentAt, await supplierMailTemplates());
   const period = periodOf(contact.lastSentAt);
   try {
     const result = await sendSmtpMail({ to: contact.email, subject: mail.subject, text: mail.text });
@@ -210,9 +195,13 @@ const gmailDay = (date: Date) => {
 
 // Busca en la casilla de proveedores si el contacto contestó el último pedido: un hilo del correo del
 // contacto, o con el asunto del pedido, posterior al envío. Gmail filtra por día; la hora se controla acá.
-export async function findSupplierReply(contact: { email: string; supplier: string; lastSentAt: Date }) {
+export async function findSupplierReply(
+  contact: { email: string; supplier: string; contactName?: string; lastSentAt: Date },
+  templates = DEFAULT_SUPPLIER_MAIL,
+) {
   const email = contact.email.trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, "");
-  const subject = requestSubjectPrefix(contact.supplier).replace(/"/g, "");
+  const sentSubject = buildPriceRequestMail(contact.contactName ?? "", contact.supplier, contact.lastSentAt, templates).subject;
+  const subject = sentSubject.replace(/^(re|rv|fw|fwd):\s*/i, "").replace(/"/g, "").slice(0, 120);
   const { threads } = await listInbox({ query: `{from:${email} subject:"${subject}"} after:${gmailDay(contact.lastSentAt)}` });
   const replies = threads.filter((thread) => {
     if (new Date(thread.date).getTime() < contact.lastSentAt.getTime()) return false;
@@ -232,6 +221,7 @@ export async function checkSupplierReplies(now = new Date()) {
   });
   let replied = 0;
   const errors: string[] = [];
+  const templates = await supplierMailTemplates();
   const queue = [...contacts];
   // De a pocos a la vez: cada búsqueda pasa por el puente de Google Apps Script.
   const worker = async () => {
@@ -241,7 +231,10 @@ export async function checkSupplierReplies(now = new Date()) {
         continue;
       }
       try {
-        const reply = await findSupplierReply({ email: contact.email, supplier: contact.supplier, lastSentAt: contact.lastSentAt! });
+        const reply = await findSupplierReply(
+          { email: contact.email, supplier: contact.supplier, contactName: contact.contactName, lastSentAt: contact.lastSentAt! },
+          templates,
+        );
         await excelPostgres.supplierMailContact.update({
           where: { id: contact.id },
           data: { repliesCheckedAt: now, ...(reply ? { repliedAt: reply.repliedAt, replyHasAttachment: reply.hasAttachment } : {}) },
