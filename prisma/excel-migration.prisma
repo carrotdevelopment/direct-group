@@ -709,6 +709,11 @@ model SupplierMailContact {
   email       String            @db.VarChar(255)
   active      Boolean           @default(true)
   lastSentAt  DateTime?         @map("last_sent_at") @db.Timestamptz(6)
+  // Respuesta del proveedor al último pedido (se busca en la casilla; se borra con cada pedido nuevo).
+  repliedAt          DateTime? @map("respondido_at") @db.Timestamptz(6)
+  replyHasAttachment Boolean   @default(false) @map("respuesta_con_adjunto")
+  repliesCheckedAt   DateTime? @map("respuestas_revisadas_at") @db.Timestamptz(6)
+  lastFollowUpAt     DateTime? @map("ultima_reconsulta_at") @db.Timestamptz(6)
   createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   logs        SupplierMailLog[]

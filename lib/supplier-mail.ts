@@ -1,5 +1,6 @@
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
+import { listInbox } from "@/lib/mail-inbox";
 
 // Sin "server-only": lo usa también el script que dispara la tarea programada.
 
@@ -43,12 +44,11 @@ export function isOnOrAfterFirstBusinessDay(now: Date) {
   return day >= firstBusinessDay(year, month);
 }
 
+const monthLabelOf = (date: Date) => new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric", timeZone: TIME_ZONE }).format(date);
+const requestSubjectPrefix = (supplier: string) => `Solicitud de catálogo de productos - ${supplier}`;
+
 export function buildPriceRequestMail(contactName: string, supplier: string, now = new Date()) {
-  const monthLabel = new Intl.DateTimeFormat("es-AR", {
-    month: "long",
-    year: "numeric",
-    timeZone: TIME_ZONE,
-  }).format(now);
+  const monthLabel = monthLabelOf(now);
   const name = contactName.trim();
   const text = [
     name ? `Hola ${name}, buenas tardes.` : "Hola, buenas tardes.",
@@ -62,7 +62,24 @@ export function buildPriceRequestMail(contactName: string, supplier: string, now
     "Saludos,",
     "Direct Group",
   ].join("\n");
-  return { subject: `Solicitud de catálogo de productos - ${supplier} - ${monthLabel}`, text };
+  return { subject: `${requestSubjectPrefix(supplier)} - ${monthLabel}`, text };
+}
+
+// Reconsulta: recordatorio del pedido del mes, para el proveedor que todavía no contestó.
+export function buildFollowUpMail(contactName: string, supplier: string, requestedAt: Date) {
+  const monthLabel = monthLabelOf(requestedAt);
+  const name = contactName.trim();
+  const text = [
+    name ? `Hola ${name}, buenas tardes.` : "Hola, buenas tardes.",
+    "",
+    `¿Pudiste ver nuestro correo en el que te solicitamos el catálogo de productos y la lista de precios actualizada correspondiente a ${monthLabel}?`,
+    "",
+    "Quedamos atentos. Muchas gracias.",
+    "",
+    "Saludos,",
+    "Direct Group",
+  ].join("\n");
+  return { subject: `Re: ${requestSubjectPrefix(supplier)} - ${monthLabel}`, text };
 }
 
 export function listSupplierMailContacts() {
@@ -109,7 +126,7 @@ export async function deleteSupplierMailContact(id: string) {
   });
 }
 
-type Trigger = "auto" | "test";
+type Trigger = "auto" | "test" | "reconsulta";
 
 export async function sendPriceRequestToContact(id: string, trigger: Trigger, now = new Date()) {
   const contact = await excelPostgres.supplierMailContact.findUnique({ where: { id } });
@@ -120,7 +137,8 @@ export async function sendPriceRequestToContact(id: string, trigger: Trigger, no
     const result = await sendSmtpMail({ to: contact.email, subject: mail.subject, text: mail.text });
     await excelPostgres.$transaction([
       excelPostgres.supplierMailLog.create({ data: { contactId: id, period, status: "sent", trigger } }),
-      excelPostgres.supplierMailContact.update({ where: { id }, data: { lastSentAt: now } }),
+      // Con cada pedido nuevo se vuelve a esperar la respuesta del proveedor.
+      excelPostgres.supplierMailContact.update({ where: { id }, data: { lastSentAt: now, repliedAt: null, replyHasAttachment: false, lastFollowUpAt: null } }),
     ]);
     return { from: result.from, email: contact.email };
   } catch (error) {
@@ -159,4 +177,81 @@ export async function runMonthlyPriceRequests(now = new Date()) {
     }
   }
   return { period, pending: contacts.length, sent, failed, errors };
+}
+
+export async function sendFollowUpToContact(id: string, now = new Date()) {
+  const contact = await excelPostgres.supplierMailContact.findUnique({ where: { id } });
+  if (!contact) throw new SupplierMailError("El contacto no existe.", 404);
+  if (!contact.lastSentAt) throw new SupplierMailError("A este proveedor todavía no se le mandó el pedido de catálogo.");
+  const mail = buildFollowUpMail(contact.contactName, contact.supplier, contact.lastSentAt);
+  const period = periodOf(contact.lastSentAt);
+  try {
+    const result = await sendSmtpMail({ to: contact.email, subject: mail.subject, text: mail.text });
+    await excelPostgres.$transaction([
+      excelPostgres.supplierMailLog.create({ data: { contactId: id, period, status: "sent", trigger: "reconsulta" } }),
+      excelPostgres.supplierMailContact.update({ where: { id }, data: { lastFollowUpAt: now } }),
+    ]);
+    return { from: result.from, email: contact.email };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "No se pudo enviar el correo.";
+    await excelPostgres.supplierMailLog.create({
+      data: { contactId: id, period, status: "failed", trigger: "reconsulta", error: message.slice(0, 2000) },
+    });
+    throw new SupplierMailError(message, 502);
+  }
+}
+
+// Remitente propio: los hilos donde el último mensaje es nuestro no cuentan como respuesta.
+const OWN_DOMAIN = "@directgroup.com.ar";
+const gmailDay = (date: Date) => {
+  const { year, month, day } = dateParts(new Date(date.getTime() - 86_400_000));
+  return `${year}/${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}`;
+};
+
+// Busca en la casilla de proveedores si el contacto contestó el último pedido: un hilo del correo del
+// contacto, o con el asunto del pedido, posterior al envío. Gmail filtra por día; la hora se controla acá.
+export async function findSupplierReply(contact: { email: string; supplier: string; lastSentAt: Date }) {
+  const email = contact.email.trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, "");
+  const subject = requestSubjectPrefix(contact.supplier).replace(/"/g, "");
+  const { threads } = await listInbox({ query: `{from:${email} subject:"${subject}"} after:${gmailDay(contact.lastSentAt)}` });
+  const replies = threads.filter((thread) => {
+    if (new Date(thread.date).getTime() < contact.lastSentAt.getTime()) return false;
+    return !thread.from.toLowerCase().includes(OWN_DOMAIN) || thread.messageCount > 1;
+  });
+  if (replies.length === 0) return null;
+  const first = replies.reduce((earliest, thread) => (thread.date < earliest.date ? thread : earliest));
+  return { repliedAt: new Date(first.date), hasAttachment: replies.some((thread) => thread.hasAttachments) };
+}
+
+// Revisa las respuestas de todos los contactos activos que ya recibieron el pedido. Se corre desde la
+// pantalla (botón "Revisar respuestas") y todos los días con el envío mensual.
+export async function checkSupplierReplies(now = new Date()) {
+  const contacts = await excelPostgres.supplierMailContact.findMany({
+    where: { active: true, lastSentAt: { not: null } },
+    orderBy: { supplier: "asc" },
+  });
+  let replied = 0;
+  const errors: string[] = [];
+  const queue = [...contacts];
+  // De a pocos a la vez: cada búsqueda pasa por el puente de Google Apps Script.
+  const worker = async () => {
+    for (let contact = queue.shift(); contact; contact = queue.shift()) {
+      if (contact.repliedAt && contact.replyHasAttachment) {
+        replied += 1;
+        continue;
+      }
+      try {
+        const reply = await findSupplierReply({ email: contact.email, supplier: contact.supplier, lastSentAt: contact.lastSentAt! });
+        await excelPostgres.supplierMailContact.update({
+          where: { id: contact.id },
+          data: { repliesCheckedAt: now, ...(reply ? { repliedAt: reply.repliedAt, replyHasAttachment: reply.hasAttachment } : {}) },
+        });
+        if (reply) replied += 1;
+      } catch (error) {
+        errors.push(`${contact.supplier}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  return { checked: contacts.length, replied, errors };
 }

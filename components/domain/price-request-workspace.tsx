@@ -6,8 +6,10 @@ import {
   ChevronDown,
   LoaderCircle,
   Mail,
+  Paperclip,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   Save,
   Search,
@@ -27,6 +29,10 @@ type SupplierMailConfig = {
   email: string;
   active: boolean;
   lastSent: string | null;
+  repliedAt: string | null;
+  replyHasAttachment: boolean;
+  repliesCheckedAt: string | null;
+  lastFollowUpAt: string | null;
 };
 
 type ContactApi = {
@@ -36,10 +42,18 @@ type ContactApi = {
   email: string;
   active: boolean;
   lastSentAt: string | null;
+  repliedAt: string | null;
+  replyHasAttachment: boolean;
+  repliesCheckedAt: string | null;
+  lastFollowUpAt: string | null;
 };
 
 function fromApi(contact: ContactApi): SupplierMailConfig {
-  return { id: contact.id, supplier: contact.supplier, contactName: contact.contactName, email: contact.email, active: contact.active, lastSent: contact.lastSentAt };
+  return {
+    id: contact.id, supplier: contact.supplier, contactName: contact.contactName, email: contact.email, active: contact.active,
+    lastSent: contact.lastSentAt, repliedAt: contact.repliedAt, replyHasAttachment: contact.replyHasAttachment,
+    repliesCheckedAt: contact.repliesCheckedAt, lastFollowUpAt: contact.lastFollowUpAt,
+  };
 }
 
 type PriceRecord = {
@@ -133,6 +147,8 @@ export function PriceRequestWorkspace() {
   const [pricesLoaded, setPricesLoaded] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [followUpId, setFollowUpId] = useState<string | null>(null);
+  const [checkingReplies, setCheckingReplies] = useState(false);
   const [mailStatus, setMailStatus] = useState<{
     tone: "success" | "error";
     text: string;
@@ -510,6 +526,41 @@ export function PriceRequestWorkspace() {
     }
   }
 
+  async function checkReplies() {
+    setCheckingReplies(true);
+    setMailStatus(null);
+    try {
+      const response = await fetch("/api/price-requests/replies", { method: "POST" });
+      const data = (await response.json()) as { checked?: number; replied?: number; errors?: string[]; message?: string };
+      if (!response.ok) throw new Error(data.message || "No se pudieron revisar las respuestas.");
+      await loadContacts();
+      setMailStatus({
+        tone: data.errors?.length ? "error" : "success",
+        text: `Se revisaron ${data.checked} proveedores: ${data.replied} contestaron.${data.errors?.length ? ` No se pudo revisar: ${data.errors.join("; ")}.` : ""}`,
+      });
+    } catch (error) {
+      setMailStatus({ tone: "error", text: error instanceof Error ? error.message : "No se pudieron revisar las respuestas." });
+    } finally {
+      setCheckingReplies(false);
+    }
+  }
+
+  async function sendFollowUp(config: SupplierMailConfig) {
+    if (!window.confirm(`¿Mandar la reconsulta a ${config.supplier} (${config.email})?`)) return;
+    setFollowUpId(config.id);
+    setMailStatus(null);
+    try {
+      const response = await fetch(`/api/price-requests/contacts/${config.id}/reconsulta`, { method: "POST" });
+      const data = (await response.json()) as { ok?: boolean; message?: string };
+      setMailStatus({ tone: response.ok && data.ok ? "success" : "error", text: data.message || "No se pudo enviar la reconsulta." });
+      if (response.ok) await loadContacts();
+    } catch (error) {
+      setMailStatus({ tone: "error", text: error instanceof Error ? error.message : "No se pudo enviar la reconsulta." });
+    } finally {
+      setFollowUpId(null);
+    }
+  }
+
   function startPriceEdit(record: PriceRecord) {
     setEditingPriceId(record.id);
     setPriceDraft({ ...record });
@@ -573,12 +624,18 @@ export function PriceRequestWorkspace() {
             <p className="mt-1 text-[11px] text-[#62728a]">
               Los proveedores activos reciben solos el pedido de catálogo el
               primer día hábil de cada mes. El botón de prueba envía ahora mismo
-              a la casilla cargada.
+              a la casilla cargada. Las respuestas se revisan todos los días a
+              las 14:00 o con &quot;Revisar respuestas&quot;.
             </p>
           </div>
-          <Button size="sm" onClick={openNewSupplier}>
-            <Plus size={15} /> Nuevo proveedor
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void checkReplies()} disabled={checkingReplies}>
+              {checkingReplies ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} Revisar respuestas
+            </Button>
+            <Button size="sm" onClick={openNewSupplier}>
+              <Plus size={15} /> Nuevo proveedor
+            </Button>
+          </div>
         </div>
 
         <div className="border-b border-[#dbe4ef] bg-white px-3 py-2 text-[11px] font-semibold text-[#62728a]">
@@ -601,7 +658,7 @@ export function PriceRequestWorkspace() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-[11px]">
+          <table className="w-full min-w-[1160px] text-left text-[11px]">
             <thead>
               <tr className="border-b border-[#dbe4ef] bg-[#f8fafd] font-bold text-[#334b6b]">
                 <th className="px-3 py-2">Proveedor</th>
@@ -609,6 +666,8 @@ export function PriceRequestWorkspace() {
                 <th className="px-2 py-2">Correo</th>
                 <th className="px-2 py-2 text-center">Frecuencia</th>
                 <th className="px-2 py-2 text-center">Último envío</th>
+                <th className="px-2 py-2 text-center">Respuesta</th>
+                <th className="px-2 py-2 text-center">Reconsulta</th>
                 <th className="px-2 py-2 text-center">Estado</th>
                 <th className="px-2 py-2 text-center">Prueba</th>
                 <th className="px-2 py-2 text-center">Acción</th>
@@ -634,6 +693,33 @@ export function PriceRequestWorkspace() {
                   </td>
                   <td className="px-2 py-2 text-center text-[#425979]">
                     {formatDate(config.lastSent)}
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    {config.repliedAt ? (
+                      <span title={`Contestó el ${formatDate(config.repliedAt)}${config.replyHasAttachment ? " con adjunto" : " sin adjunto"}`}>
+                        <Badge tone="success">
+                          Sí {config.replyHasAttachment && <Paperclip size={11} aria-label="con adjunto" />}
+                        </Badge>
+                      </span>
+                    ) : (
+                      <span title={config.repliesCheckedAt ? `Revisado el ${formatDate(config.repliesCheckedAt)}` : "Todavía no se revisó"}>
+                        <Badge tone="neutral">No</Badge>
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void sendFollowUp(config)}
+                      disabled={!config.lastSent || followUpId === config.id}
+                      title={!config.lastSent ? "Todavía no se mandó el pedido del mes" : config.lastFollowUpAt ? `Última reconsulta: ${formatDate(config.lastFollowUpAt)}` : undefined}
+                      className="h-8 px-3 text-[10px]"
+                    >
+                      {followUpId === config.id ? <LoaderCircle size={13} className="animate-spin" /> : <Send size={13} />}
+                      Reconsulta
+                    </Button>
+                    {config.lastFollowUpAt && <div className="mt-0.5 text-[9px] text-[#8a99ad]">{formatDate(config.lastFollowUpAt)}</div>}
                   </td>
                   <td className="px-2 py-2 text-center">
                     <button
