@@ -7,7 +7,7 @@ import { readProductsFromPostgres, readSuppliersFromPostgres, readClientsFromPos
 // Read-only supporting data. This does not grant access to the entity management APIs.
 export async function GET(request: Request) {
   const kind = new URL(request.url).searchParams.get("kind") ?? "";
-  const allowed: Record<string, string[]> = { products: ["precios", "clientes", "pasajes"], suppliers: ["productos"], clients: ["precios"], "client-codes": ["ventas", "pasajes"] };
+  const allowed: Record<string, string[]> = { products: ["precios", "clientes", "pasajes", "ventas"], suppliers: ["productos"], clients: ["precios"], "client-codes": ["ventas", "pasajes"] };
   const denied = await checkApiAccess(allowed[kind] ?? ["admin"]);
   if (denied) return denied;
   if (kind === "products") {

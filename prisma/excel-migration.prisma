@@ -761,3 +761,24 @@ model ConfigSetting {
 
   @@map("configuracion")
 }
+
+// Cambios de producto en un canje ya cargado (Egresos > Cambiar producto): el código original recupera
+// la cantidad y el nuevo la descuenta. Queda el historial de cada cambio.
+model EgressProductChange {
+  id               BigInt   @id @default(autoincrement()) @db.BigInt
+  egressId         BigInt   @map("egreso_id") @db.BigInt
+  client           String   @map("cliente") @db.VarChar(255)
+  fromClientCode   String   @map("codigo_anterior") @db.VarChar(255)
+  fromProduct      String?  @map("producto_anterior")
+  fromQuantity     Decimal  @map("cantidad_anterior") @db.Decimal(18, 4)
+  toClientCode     String   @map("codigo_nuevo") @db.VarChar(255)
+  toProduct        String?  @map("producto_nuevo")
+  toQuantity       Decimal  @map("cantidad_nueva") @db.Decimal(18, 4)
+  reason           String?  @map("motivo")
+  createdBy        String   @map("created_by") @db.VarChar(255)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([egressId])
+  @@map("egresos_cambios_producto")
+}
+

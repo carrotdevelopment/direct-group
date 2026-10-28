@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Columns3, Layers, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronDown, Columns3, Layers, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
 import { locateEgressData } from "@/lib/egress-file-layout";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
+import { EgressProductChangeModal } from "@/components/domain/egress-product-change-modal";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -970,11 +971,12 @@ type FlatRow = {
   fecha: string; codigo: string; desc: string; cant: string; raw: Fila;
 };
 
-function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, onRangeChange }: {
+function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, onRangeChange, onProductChanged }: {
   lotes: Lote[]; configs: ClienteConfig[]; cliente: string;
   onDeleteRows: (targets: { loteId: string; rowIdx: number }[]) => void;
   onUpdateRow: (loteId: string, rowIdx: number, fila: Fila) => void;
   onRangeChange: (from: string, to: string) => void;
+  onProductChanged: (message: string) => void;
 }) {
   const [desde,        setDesde]        = useState(HISTORY_DEFAULT_START);
   const [hasta,        setHasta]        = useState(TODAY);
@@ -990,6 +992,8 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   const colPickerRef = useOutsideClick<HTMLDivElement>(closeColPicker, colPickerOpen);
   const [deleteTarget,  setDeleteTarget]  = useState<FlatRow[] | null>(null);
   const [editTarget,    setEditTarget]    = useState<FlatRow | null>(null);
+  const [changeTarget,  setChangeTarget]  = useState<FlatRow | null>(null);
+  const egressIdOf = (row: FlatRow) => lotes.find((lote) => lote.id === row.loteId)?.excelRowIndex;
 
   // Flatten lotes
   const allFlat = useMemo<FlatRow[]>(() => {
@@ -1250,6 +1254,12 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
                         className="grid h-6 w-6 place-items-center rounded border border-[#dbe4ef] text-[#0b5bbb] hover:bg-[#edf4fc]" title="Editar">
                         <Pencil size={11} />
                       </button>
+                      {row.tipo === "CANJE" && egressIdOf(row) && (
+                        <button type="button" onClick={() => setChangeTarget(row)}
+                          className="grid h-6 w-6 place-items-center rounded border border-[#dbe4ef] text-[#0b5bbb] hover:bg-[#edf4fc]" title="Cambiar producto">
+                          <ArrowRightLeft size={11} />
+                        </button>
+                      )}
                       <button type="button" onClick={() => setDeleteTarget([row])}
                         className="grid h-6 w-6 place-items-center rounded border border-[#f0cfcc] text-[#b7433f] hover:bg-[#fff0ef]" title="Inactivar">
                         <Trash2 size={11} />
@@ -1312,6 +1322,19 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
             </Button>
           </div>
         </Modal>
+      )}
+
+      {/* Cambio de producto de un canje */}
+      {changeTarget !== null && egressIdOf(changeTarget) && (
+        <EgressProductChangeModal
+          egressId={egressIdOf(changeTarget)!}
+          client={changeTarget.cliente}
+          clientCode={changeTarget.codigo}
+          product={changeTarget.desc}
+          quantity={Number(changeTarget.cant) || 0}
+          onClose={() => setChangeTarget(null)}
+          onChanged={(message) => { setChangeTarget(null); onProductChanged(message); }}
+        />
       )}
 
       {/* Edit modal */}
@@ -1669,6 +1692,7 @@ export function EgressWorkspace() {
         lotes={clienteLotes} configs={configs} cliente={cliente}
         onDeleteRows={deleteRows} onUpdateRow={updateRow}
         onRangeChange={onRangeChange}
+        onProductChanged={(message) => { void loadEgresses(cliente).then(() => setStatus(message)); }}
       />
     </>
   );
