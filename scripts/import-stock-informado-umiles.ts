@@ -5,9 +5,11 @@ import { excelPostgres } from "@/lib/excel-postgres-client-core";
 // Uso: tsx scripts/import-stock-informado-umiles.ts "<4- Stock Umiles.xlsm>" [--dry-run]
 // Carga la base de stock de Umiles (hoja "Umiles"): "Stock Informado" por código cliente, bulto,
 // comentarios y valores de costo. Los movimientos (pedido, ingreso, egreso) los calcula la
-// plataforma desde Tango y Egresos. Es repetible: reemplaza lo que ya hubiera de Umiles.
+// plataforma desde Tango y Egresos. Es repetible: actualiza los códigos que ya están, agrega los
+// nuevos y NO borra los que ya no figuran en la hoja (salvo con --reemplazar).
 const filePath = process.argv[2];
 const dryRun = process.argv.includes("--dry-run");
+const replaceAll = process.argv.includes("--reemplazar");
 if (!filePath) {
   console.error('Uso: tsx scripts/import-stock-informado-umiles.ts "<archivo.xlsm>" [--dry-run]');
   process.exit(1);
@@ -95,17 +97,29 @@ async function main() {
   const informedTotal = rows.reduce((sum, row) => sum + row.informedStock, 0);
   console.log(`Filas de producto: ${rows.length} (repetidas descartadas: ${duplicated}). Stock informado total: ${informedTotal}. Con comentario: ${rows.filter((r) => r.comments).length}.`);
 
-  const [{ count }] = await excelPostgres.$queryRaw<{ count: bigint }[]>`SELECT count(*) FROM base_stock_santander WHERE lower(cliente) = 'umiles'`;
-  console.log(`Filas de Umiles que ya hay en la base: ${count}.`);
+  const existing = await excelPostgres.excelSantanderStock.findMany({
+    where: { client: { equals: "Umiles", mode: "insensitive" } },
+    select: { id: true, clientCode: true, informedStock: true },
+  });
+  const existingByCode = new Map(existing.map((row) => [text(row.clientCode).toLowerCase(), row]));
+  const toUpdate = rows.filter((row) => existingByCode.has(row.clientCode.toLowerCase()));
+  const toCreate = rows.filter((row) => !existingByCode.has(row.clientCode.toLowerCase()));
+  const changed = toUpdate.filter((row) => Number(existingByCode.get(row.clientCode.toLowerCase())?.informedStock ?? 0) !== row.informedStock);
+  const notInSheet = existing.filter((row) => !rows.some((r) => r.clientCode.toLowerCase() === text(row.clientCode).toLowerCase()));
+  console.log(`Ya en la base: ${existing.length}. A actualizar: ${toUpdate.length} (con stock informado distinto: ${changed.length}). A agregar: ${toCreate.length}. En la base y no en la hoja: ${notInSheet.length} (${replaceAll ? "se borran" : "se conservan"}).`);
   if (dryRun) {
     console.log("Dry run: no se escribió nada.");
     return;
   }
   await excelPostgres.$transaction(async (tx) => {
-    await tx.excelSantanderStock.deleteMany({ where: { client: { equals: "Umiles", mode: "insensitive" } } });
-    await tx.excelSantanderStock.createMany({ data: rows });
+    if (replaceAll) await tx.excelSantanderStock.deleteMany({ where: { client: { equals: "Umiles", mode: "insensitive" } } });
+    for (const row of replaceAll ? [] : toUpdate) {
+      await tx.excelSantanderStock.update({ where: { id: existingByCode.get(row.clientCode.toLowerCase())!.id }, data: row });
+    }
+    const toInsert = replaceAll ? rows : toCreate;
+    if (toInsert.length) await tx.excelSantanderStock.createMany({ data: toInsert });
   });
-  console.log(`OK. ${rows.length} filas de stock informado de Umiles cargadas.`);
+  console.log(`OK. Actualizadas: ${replaceAll ? 0 : toUpdate.length}. Agregadas: ${replaceAll ? rows.length : toCreate.length}.`);
 }
 
 main()
