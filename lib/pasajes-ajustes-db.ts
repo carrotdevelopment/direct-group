@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
+import { tangoPasajeOperations, tangoWindowStart } from "@/lib/pasaje-tango-match";
 import { canActForClient, canConfirmPasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
 
 export class PasajeAjusteError extends Error {
@@ -162,7 +163,31 @@ async function revertPasajeMovements(tx: Prisma.TransactionClient, pasajeId: str
     where: { pasajeId, deletedAt: null },
     data: { deletedAt: date, deletedBy: actor, modifiedBy: actor },
   });
-  await tx.tangoIncome.deleteMany({ where: { pasajeId } });
+  await tx.tangoIncome.deleteMany({ where: { pasajeId, externalKey: null } });
+}
+
+// Si el pasaje ya se cargó en Tango y la importación lo trajo antes de confirmar, esa fila es el ingreso:
+// queda vinculada al pasaje y se borra el pendiente, para no contarlo dos veces.
+async function linkExistingTangoIncome(
+  tx: Prisma.TransactionClient,
+  pasaje: { id: string; fromClient: string; toClient: string; toClientCode: string; createdAt: Date },
+  quantity: number,
+) {
+  const row = await tx.tangoIncome.findFirst({
+    where: {
+      pasajeId: null,
+      externalKey: { not: null },
+      clientCode: { equals: pasaje.toClientCode, mode: "insensitive" },
+      deliveredQuantity: quantity,
+      operation: { in: tangoPasajeOperations(pasaje.toClient) },
+      deliveryDate: { gte: tangoWindowStart(pasaje.createdAt) },
+    },
+    orderBy: [{ deliveryDate: "asc" }, { id: "asc" }],
+  });
+  if (!row) return false;
+  await tx.tangoIncome.update({ where: { id: row.id }, data: { pasajeId: pasaje.id, transferOrigin: pasaje.fromClient } });
+  await tx.tangoIncome.deleteMany({ where: { pasajeId: pasaje.id, externalKey: null } });
+  return true;
 }
 
 export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
@@ -270,10 +295,12 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
       await revertPasajeMovements(tx, id, actor.name, now);
       return updated;
     }
-    const delivered = { quantity: quantityConfirmed, deliveredQuantity: quantityConfirmed, deliveryDate: now, pendingTangoEntry: true };
-    const income = await tx.tangoIncome.updateMany({ where: { pasajeId: id }, data: delivered });
-    if (income.count === 0) {
-      await tx.tangoIncome.create({ data: { ...incomeForPasaje(id, pasaje, quantityConfirmed, now, actor.name), ...delivered } });
+    if (!(await linkExistingTangoIncome(tx, pasaje, quantityConfirmed))) {
+      const delivered = { quantity: quantityConfirmed, deliveredQuantity: quantityConfirmed, deliveryDate: now, pendingTangoEntry: true };
+      const income = await tx.tangoIncome.updateMany({ where: { pasajeId: id }, data: delivered });
+      if (income.count === 0) {
+        await tx.tangoIncome.create({ data: { ...incomeForPasaje(id, pasaje, quantityConfirmed, now, actor.name), ...delivered } });
+      }
     }
     const egress = await tx.egress.updateMany({
       where: { pasajeId: id, deletedAt: null },

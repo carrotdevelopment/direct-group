@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma, type TangoSyncJob } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
+import { matchPasajeIncomes } from "@/lib/pasaje-tango-match";
 import { TANGO_MAX_ROWS, type TangoAgentRequest } from "@/lib/tango-sync-contract";
 
 type Tx = Prisma.TransactionClient;
@@ -75,6 +76,46 @@ export async function cancelSync(id: string) {
   });
 }
 
+// Un pasaje ya confirmado en la plataforma que ahora llega de Tango no es un ingreso nuevo: su fila toma
+// el ID de Tango y el INSERT de publish() la actualiza en vez de crear otra. Si Tango llega antes de
+// confirmar, el vínculo lo hace confirmPasaje.
+async function adoptPasajeIncomes(tx: Tx) {
+  const incoming = await tx.$queryRaw<{ external_key: string; source_header_id: string; operacion: string; codigo_cliente: string; entregado: number; fecha_entrega: Date }[]>`
+    SELECT i.external_key, i.source_header_id, i.operacion, i.codigo_cliente, i.entregado::float8 AS entregado, i.fecha_entrega
+    FROM tango_sync_incoming i
+    WHERE i.operacion IN ('PASAJE', 'AJUSTE NO VALORIZADO', 'AJUSTE VALORIZADO')
+      AND NOT EXISTS (SELECT 1 FROM tango_ingresos t WHERE t.external_key = i.external_key)`;
+  if (incoming.length === 0) return;
+  const incomes = await tx.tangoIncome.findMany({
+    where: { pasajeId: { not: null }, externalKey: null, deliveredQuantity: { gt: 0 }, deliveryDate: { not: null } },
+    select: { id: true, client: true, clientCode: true, deliveredQuantity: true, orderDate: true, deliveryDate: true },
+  });
+  const matches = matchPasajeIncomes(
+    incomes.map((row) => ({
+      id: row.id,
+      client: row.client ?? "",
+      clientCode: row.clientCode ?? "",
+      delivered: Number(row.deliveredQuantity),
+      orderDate: row.orderDate ?? row.deliveryDate!,
+      deliveryDate: row.deliveryDate!,
+    })),
+    incoming.map((row) => ({
+      externalKey: row.external_key,
+      operation: row.operacion,
+      clientCode: row.codigo_cliente,
+      delivered: row.entregado,
+      deliveryDate: row.fecha_entrega,
+    })),
+  );
+  const headers = new Map(incoming.map((row) => [row.external_key, row.source_header_id]));
+  for (const match of matches) {
+    await tx.tangoIncome.update({
+      where: { id: match.id },
+      data: { externalKey: match.externalKey, sourceHeaderId: headers.get(match.externalKey), pendingTangoEntry: false },
+    });
+  }
+}
+
 async function publish(tx: Tx, job: TangoSyncJob) {
   // A temporary table keeps the entire publication on one connection and makes it atomic.
   await tx.$executeRaw`CREATE TEMP TABLE tango_sync_incoming ON COMMIT DROP AS
@@ -90,6 +131,7 @@ async function publish(tx: Tx, job: TangoSyncJob) {
   const duplicate = await tx.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM
     (SELECT external_key FROM tango_sync_incoming GROUP BY external_key HAVING count(*) > 1) d`;
   if (Number(duplicate[0].count)) throw new TangoSyncError("La consulta devolvió IDs de Tango repetidos. Revisá las uniones de depósitos y órdenes.");
+  await adoptPasajeIncomes(tx);
 
   // Adopt exact legacy Excel rows one-to-one, preserving transfer origins and provenance.
   // JSON tuples avoid hash collisions; ordinal matching preserves legitimate identical lines.
@@ -104,15 +146,16 @@ async function publish(tx: Tx, job: TangoSyncJob) {
       SELECT *, row_number() OVER (PARTITION BY signature ORDER BY external_key) AS ordinal FROM incoming_keys
     ), legacy_keys AS (
       SELECT id, ${signature} AS signature FROM tango_ingresos
-      WHERE external_key IS NULL AND pending_tango_entry = false
+      WHERE external_key IS NULL AND pending_tango_entry = false AND pasaje_id IS NULL
         AND fecha_entrega BETWEEN ${job.dateFrom}::date AND ${job.dateTo}::date
     ), legacy AS (
       SELECT *, row_number() OVER (PARTITION BY signature ORDER BY id) AS ordinal FROM legacy_keys
     ) UPDATE tango_ingresos t SET external_key = i.external_key, source_header_id = i.source_header_id
       FROM incoming i JOIN legacy l ON l.signature = i.signature AND l.ordinal = i.ordinal
       WHERE t.id = l.id`;
+  // Un pasaje marcado a mano como cargado que todavía no se vinculó no frena la importación.
   const remaining = await tx.tangoIncome.count({ where: {
-    externalKey: null, pendingTangoEntry: false, deliveryDate: { gte: job.dateFrom, lte: job.dateTo },
+    externalKey: null, pendingTangoEntry: false, pasajeId: null, deliveryDate: { gte: job.dateFrom, lte: job.dateTo },
   } });
   if (remaining) throw new TangoSyncError(`Hay ${remaining} ingresos anteriores sin ID de Tango que no coinciden con la consulta. Hay que conciliarlos antes de importar este período para evitar duplicados.`);
 

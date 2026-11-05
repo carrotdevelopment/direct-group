@@ -14,7 +14,7 @@ vi.mock("@/lib/postgres-operation-db", () => ({ invalidateIncomeGroups: vi.fn() 
 vi.mock("@/lib/excel-postgres-client", () => {
   const matches = (row: Row, where: Row) => Object.entries(where).every(([key, value]) => row[key] === value);
   const table = (rows: () => Row[]) => ({
-    create: async ({ data }: { data: Row }) => { const row = { id: `id-${rows().length + 1}`, deletedAt: null, ...data }; rows().push(row); return row; },
+    create: async ({ data }: { data: Row }) => { const row = { id: `id-${rows().length + 1}`, createdAt: new Date(), deletedAt: null, externalKey: null, ...data }; rows().push(row); return row; },
     updateMany: async ({ where, data }: { where: Row; data: Row }) => {
       const found = rows().filter((row) => matches(row, where));
       found.forEach((row) => Object.assign(row, data));
@@ -27,7 +27,14 @@ vi.mock("@/lib/excel-postgres-client", () => {
   });
   const tx = {
     egress: table(() => db.egresses),
-    tangoIncome: table(() => db.incomes),
+    tangoIncome: {
+      ...table(() => db.incomes),
+      // Fila ya importada de Tango, sin pasaje, con ese código, cantidad, operación y fecha.
+      findFirst: async ({ where }: { where: { clientCode: { equals: string }; deliveredQuantity: number; operation: { in: string[] }; deliveryDate: { gte: Date } } }) =>
+        db.incomes.find((row) => row.externalKey && !row.pasajeId && row.clientCode === where.clientCode.equals && row.deliveredQuantity === where.deliveredQuantity &&
+          where.operation.in.includes(row.operation as string) && (row.deliveryDate as Date) >= where.deliveryDate.gte) ?? null,
+      update: async ({ where, data }: { where: { id: string }; data: Row }) => Object.assign(db.incomes.find((row) => row.id === where.id)!, data),
+    },
     pasajeRequest: {
       ...table(() => db.pasajes),
       findUnique: async ({ where }: { where: { id: string } }) => db.pasajes.find((row) => row.id === where.id) ?? null,
@@ -114,10 +121,41 @@ describe("movimientos de un pasaje", () => {
   });
 
   it("un pasaje anterior al cambio crea sus movimientos recién al confirmarse", async () => {
-    db.pasajes.push({ id: "viejo", ...input, comments: null, createdBy: "Emilia", status: "approved", egressImpacted: false });
+    db.pasajes.push({ id: "viejo", ...input, comments: null, createdBy: "Emilia", createdAt: new Date(), status: "approved", egressImpacted: false });
     await confirmPasaje("viejo", 4, creator);
     expect(db.egresses).toEqual([expect.objectContaining({ pasajeId: "viejo", client: "Pampa", quantity: 4 })]);
     expect(db.incomes).toEqual([expect.objectContaining({ pasajeId: "viejo", client: "Umiles", quantity: 4, deliveredQuantity: 4 })]);
+  });
+
+  const tangoRow = (overrides: Row = {}) => ({
+    id: "tango-1", externalKey: "Direct_Group:STA20:1", pasajeId: null, clientCode: "DG-1", operation: "PASAJE",
+    quantity: 10, deliveredQuantity: 10, deliveryDate: new Date(), pendingTangoEntry: false, ...overrides,
+  });
+
+  it("si Tango llegó antes, al confirmar se vincula esa fila y no se suma otra", async () => {
+    const pasaje = await createPasaje(input, creator);
+    Object.assign(db.pasajes[0], { status: "approved", createdAt: new Date() });
+    db.incomes.push(tangoRow());
+    await confirmPasaje(pasaje.id, 10, creator);
+    expect(db.incomes).toEqual([expect.objectContaining({ id: "tango-1", pasajeId: pasaje.id, deliveredQuantity: 10, transferOrigin: "Pampa", pendingTangoEntry: false })]);
+    expect(db.egresses).toHaveLength(1);
+  });
+
+  it("una fila de Tango con otra cantidad no se vincula", async () => {
+    const pasaje = await createPasaje(input, creator);
+    Object.assign(db.pasajes[0], { status: "approved", createdAt: new Date() });
+    db.incomes.push(tangoRow({ quantity: 7, deliveredQuantity: 7 }));
+    await confirmPasaje(pasaje.id, 10, creator);
+    expect(db.incomes).toHaveLength(2);
+    expect(db.incomes.find((row) => row.id === "tango-1")).toMatchObject({ pasajeId: null });
+  });
+
+  it("rechazar nunca borra una fila que vino de Tango", async () => {
+    const pasaje = await createPasaje(input, creator);
+    Object.assign(db.pasajes[0], { status: "pending" });
+    db.incomes.push(tangoRow({ pasajeId: pasaje.id }));
+    await respondPasaje(pasaje.id, "reject", receiver);
+    expect(db.incomes).toEqual([expect.objectContaining({ id: "tango-1" })]);
   });
 
   it("si inactivaron el egreso a mano, confirmar lo vuelve a registrar", async () => {
