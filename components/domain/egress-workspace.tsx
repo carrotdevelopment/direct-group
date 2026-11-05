@@ -5,7 +5,7 @@ import { ArrowRightLeft, Check, ChevronDown, Columns3, Download, Layers, Pencil,
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
-import { egressExportFileName, egressExportSheet } from "@/lib/egress-history-export";
+import { EGRESS_EXPORT_MAX_ROWS, egressExportFileName, egressExportSheet } from "@/lib/egress-history-export";
 import { locateEgressData } from "@/lib/egress-file-layout";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
@@ -1119,7 +1119,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
     setExporting(true);
     setExportError("");
     try {
-      const query = new URLSearchParams({ client: cliente, from: desde, to: hasta, limit: "500000", export: "1" });
+      const query = new URLSearchParams({ client: cliente, from: desde, to: hasta, limit: String(EGRESS_EXPORT_MAX_ROWS), export: "1" });
       const response = await fetch(`/api/local-db/egresos?${query}`);
       const data = (await response.json()) as { rows?: Record<string, unknown>[]; message?: string };
       if (!response.ok) throw new Error(data.message || "No se pudo leer el historial de egresos.");

@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const services = vi.hoisted(() => ({
   auth: vi.fn(), appendGenericEgressRecords: vi.fn(), updateGenericEgress: vi.fn(),
   deactivateEgressScope: vi.fn(), softDeleteGenericEgresses: vi.fn(), previewEgressDeactivation: vi.fn(),
+  countGenericEgressRows: vi.fn(), readGenericEgressRows: vi.fn(),
 }));
 vi.mock("@/auth", () => ({ auth: services.auth }));
 vi.mock("@/lib/generic-egress-db", () => ({
   ...services, DuplicateEgressImportError: class extends Error {}, getGenericEgressSummary: vi.fn(),
-  readGenericEgressRows: vi.fn(), readEgressBatches: vi.fn(),
+  readEgressBatches: vi.fn(),
 }));
 import { DELETE, GET, POST, PUT } from "@/app/api/local-db/egresos/route";
 const request = (method: string, body: object) => new Request("http://localhost/api/local-db/egresos", {
@@ -37,6 +38,25 @@ describe("API de egresos", () => {
     const response = await DELETE(request("DELETE", { client: "Santander", scope: { batchId: "42" } }));
     expect(await response.json()).toMatchObject({ ok: true, deletedRows: 6000 });
     expect(services.deactivateEgressScope).toHaveBeenCalledWith("Santander", { batchId: "42" }, "session-user");
+  });
+  it("la exportación frena un rango demasiado grande antes de leer las filas", async () => {
+    const url = "http://localhost/api/local-db/egresos?client=Santander&from=2000-01-01&to=2026-11-05&limit=999999&export=1";
+    services.countGenericEgressRows.mockResolvedValue(270244);
+    const refused = await GET(new Request(url));
+    expect(refused.status).toBe(413);
+    expect((await refused.json()).message).toContain("Acotá las fechas");
+    expect(services.readGenericEgressRows).not.toHaveBeenCalled();
+
+    services.countGenericEgressRows.mockResolvedValue(20000);
+    expect((await GET(new Request(url))).status).toBe(200);
+    expect(services.readGenericEgressRows).toHaveBeenCalledWith(expect.objectContaining({ client: "Santander", limit: 20000 }));
+  });
+  it("la exportación necesita un cliente y sin ella se mantiene el tope de la pantalla", async () => {
+    expect((await GET(new Request("http://localhost/api/local-db/egresos?client=&export=1"))).status).toBe(400);
+    expect(services.readGenericEgressRows).not.toHaveBeenCalled();
+    await GET(new Request("http://localhost/api/local-db/egresos?client=Santander&limit=999999"));
+    expect(services.countGenericEgressRows).not.toHaveBeenCalled();
+    expect(services.readGenericEgressRows).toHaveBeenCalledWith(expect.objectContaining({ limit: 5000 }));
   });
   it("la vista previa no realiza escrituras y valida las fechas", async () => {
     expect((await GET(new Request("http://localhost/api/local-db/egresos?client=Santander&preview=1&from=2026-02-30&to=2026-03-01"))).status).toBe(400);

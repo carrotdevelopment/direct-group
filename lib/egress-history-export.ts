@@ -1,5 +1,13 @@
 // Armado del Excel del historial de egresos: las columnas visibles, en el mismo orden de la pantalla.
 
+// Tope por exportación, medido en producción (2 GB de memoria): 20.000 filas suman unos 320 MB al
+// proceso y 50.000 unos 750 MB; un rango completo de Santander (270.000) tiraría la app para todos.
+export const EGRESS_EXPORT_MAX_ROWS = 20000;
+
+export function egressExportTooLargeMessage(rows: number) {
+  return `El rango elegido tiene ${rows.toLocaleString("es-AR")} egresos y se pueden exportar hasta ${EGRESS_EXPORT_MAX_ROWS.toLocaleString("es-AR")} por vez. Acotá las fechas.`;
+}
+
 export type EgressExportRow = {
   cliente: string;
   tipoLabel: string;

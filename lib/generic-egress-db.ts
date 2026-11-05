@@ -411,16 +411,24 @@ function number(value: { toString(): string } | number | null | undefined) {
   return value == null ? 0 : Number(value.toString());
 }
 
+function egressRowsWhere(options: { client?: EgressClient; from?: string; to?: string }): Prisma.EgressWhereInput {
+  return {
+    client: options.client ? { equals: options.client, mode: "insensitive" } : undefined,
+    deletedAt: null,
+    date: {
+      gte: options.from ? new Date(`${options.from}T00:00:00.000Z`) : undefined,
+      lte: options.to ? new Date(`${options.to}T23:59:59.999Z`) : undefined,
+    },
+  };
+}
+
+export function countGenericEgressRows(options: { client?: EgressClient; from?: string; to?: string }) {
+  return excelPostgres.egress.count({ where: egressRowsWhere(options) });
+}
+
 export async function readGenericEgressRows(options: { client?: EgressClient; from?: string; to?: string; limit?: number } = {}) {
   const rows = await excelPostgres.egress.findMany({
-    where: {
-      client: options.client ? { equals: options.client, mode: "insensitive" } : undefined,
-      deletedAt: null,
-      date: {
-        gte: options.from ? new Date(`${options.from}T00:00:00.000Z`) : undefined,
-        lte: options.to ? new Date(`${options.to}T23:59:59.999Z`) : undefined,
-      },
-    },
+    where: egressRowsWhere(options),
     include: { rawRow: { select: { payload: true } } },
     orderBy: [{ date: "desc" }, { id: "desc" }],
     take: options.limit ?? 1000,
