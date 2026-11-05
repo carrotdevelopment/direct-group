@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRightLeft, Check, ChevronDown, Columns3, Layers, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronDown, Columns3, Download, Layers, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
+import { egressExportFileName, egressExportSheet } from "@/lib/egress-history-export";
 import { locateEgressData } from "@/lib/egress-file-layout";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
@@ -993,18 +994,21 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   const [deleteTarget,  setDeleteTarget]  = useState<FlatRow[] | null>(null);
   const [editTarget,    setEditTarget]    = useState<FlatRow | null>(null);
   const [changeTarget,  setChangeTarget]  = useState<FlatRow | null>(null);
+  const [exporting,     setExporting]     = useState(false);
+  const [exportError,   setExportError]   = useState("");
   const egressIdOf = (row: FlatRow) => lotes.find((lote) => lote.id === row.loteId)?.excelRowIndex;
 
   // Flatten lotes
-  const allFlat = useMemo<FlatRow[]>(() => {
-    return lotes.flatMap((lote) => {
+  const flatten = useCallback((source: Lote[]): FlatRow[] => {
+    return source.flatMap((lote) => {
       const cfg = configs.find((c) => c.nombre === lote.cliente) ?? configs[0];
       return lote.filas.map((fila, ri) => {
         const d = deriveDisplay(fila, cfg);
         return { key: `${lote.id}-${ri}`, loteId: lote.id, rowIdx: ri, cliente: lote.cliente, tipo: lote.tipo, ...d, raw: fila };
       });
     });
-  }, [lotes, configs]);
+  }, [configs]);
+  const allFlat = useMemo(() => flatten(lotes), [flatten, lotes]);
 
   // Keys already shown in canonical columns — exclude to avoid duplicate raw columns.
   // Date parts (Dia/Mes/Año/Fecha) are intentionally NOT excluded: users want them visible.
@@ -1080,10 +1084,9 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
 
   const hasFilter = !!(desde || hasta || tipoFilter.size > 0 || search.trim());
 
-  const filtered = useMemo(() => {
-    if (!hasFilter) return [];
+  const applyFilters = useCallback((source: FlatRow[]) => {
     const q = search.trim().toLowerCase();
-    return allFlat
+    return source
       .filter((r) => {
         if (tipoFilter.size > 0 && !tipoFilter.has(r.tipo)) return false;
         if (desde && r.fecha && r.fecha < desde) return false;
@@ -1107,7 +1110,41 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
         }
         return sortDir === "asc" ? cmp : -cmp;
       });
-  }, [allFlat, hasFilter, tipoFilter, desde, hasta, search, sortCol, sortDir, dateParts]);
+  }, [tipoFilter, desde, hasta, search, sortCol, sortDir, dateParts]);
+
+  const filtered = useMemo(() => (hasFilter ? applyFilters(allFlat) : []), [hasFilter, applyFilters, allFlat]);
+
+  // Se vuelve a pedir el rango al servidor porque la grilla carga como máximo 5.000 filas.
+  async function exportHistory() {
+    setExporting(true);
+    setExportError("");
+    try {
+      const query = new URLSearchParams({ client: cliente, from: desde, to: hasta, limit: "500000", export: "1" });
+      const response = await fetch(`/api/local-db/egresos?${query}`);
+      const data = (await response.json()) as { rows?: Record<string, unknown>[]; message?: string };
+      if (!response.ok) throw new Error(data.message || "No se pudo leer el historial de egresos.");
+      const rows = applyFilters(flatten(excelRowsToLotes(data.rows ?? [], cliente)));
+      if (rows.length === 0) throw new Error("No hay filas para exportar con estos filtros.");
+      const sheetData = egressExportSheet(
+        rows.map((row) => ({ ...row, tipoLabel: TIPO_LABELS[row.tipo] })),
+        visibleCols.map((key) => ({ key, label: colLabel(key) })),
+      );
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(sheetData), "Egresos");
+      const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+      const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = egressExportFileName(cliente, desde, hasta);
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "No se pudo exportar el historial.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const allSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.key));
   function toggleAll() {
@@ -1161,7 +1198,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
       {/* Filters: fechas → tipo → búsqueda */}
       <div className="flex flex-wrap items-end gap-3 border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-4">
         <label className="text-xs">Fechas rápidas
-          <select aria-label="Fechas relativas" defaultValue="month" className="ml-2 h-9 rounded-lg border border-[#dbe4ef] bg-white px-2" onChange={e => {
+          <select aria-label="Fechas relativas" defaultValue="" className="ml-2 h-9 rounded-lg border border-[#dbe4ef] bg-white px-2" onChange={e => {
             if (!e.target.value) return;
             const range = relativeDates(e.target.value as RelativeDateRange); setDesde(range.from); setHasta(range.to);
             e.target.value = "";
@@ -1207,7 +1244,14 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
             <Trash2 size={11} /> Inactivar {selectedRows.length} {selectedRows.length === 1 ? "fila" : "filas"}
           </button>
         )}
-        <div className="relative ml-auto" ref={colPickerRef}>
+        {exportError && <span role="alert" className="ml-auto text-[10px] font-bold text-[#b7433f]">{exportError}</span>}
+        <button type="button" disabled={exporting || !desde || !hasta} onClick={() => void exportHistory()}
+          title="Descarga en Excel las filas de las fechas y filtros elegidos, con las columnas visibles"
+          className={`${exportError ? "" : "ml-auto "}flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#62728a] hover:border-[#0b5bbb] hover:text-[#0b5bbb] disabled:cursor-not-allowed disabled:opacity-50`}>
+          <Download size={12} />
+          {exporting ? "Exportando…" : "Exportar Excel"}
+        </button>
+        <div className="relative" ref={colPickerRef}>
           <button type="button" onClick={() => setColPickerOpen((o) => !o)}
             className="flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#62728a] hover:border-[#0b5bbb] hover:text-[#0b5bbb]">
             <Columns3 size={12} />

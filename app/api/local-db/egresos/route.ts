@@ -34,7 +34,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ count: await previewEgressDeactivation(client, scope) });
   }
   const requested = Number(url.searchParams.get("limit") || "1000");
-  const limit = Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 1), 5000) : 1000;
+  // La pantalla trae hasta 5.000 filas; la exportación necesita todas las del rango elegido.
+  const maxRows = url.searchParams.get("export") === "1" ? 500000 : 5000;
+  const limit = Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 1), maxRows) : 1000;
   return NextResponse.json({
     clients: Object.keys(egressSchemas), summary: await getGenericEgressSummary(),
     rows: await readGenericEgressRows({ client: isClient(client) ? client : undefined, from, to, limit }),

@@ -2,7 +2,8 @@ import "server-only";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { prisma } from "@/server/lib/prisma";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
-import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
+import { createPasajeWithMovements, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
+import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import type { PasajeActor } from "@/lib/module-access";
 import { markDuplicates, markStockShortages, resolveSolicitud, type SolicitudRow } from "@/lib/pasaje-solicitud";
 import { availableStockForCodes } from "@/lib/pasaje-stock-db";
@@ -185,6 +186,7 @@ export async function createSolicitud(input: unknown, fileName: unknown, fileHas
     toClientCode: row.toClientCode,
     uniqueCode: row.uniqueCode as string,
     product: (productName.get(normalize(row.uniqueCode)) || row.fromDescription || row.toDescription || "").slice(0, 255) || null,
+    comments: null,
     quantity: row.quantity as number,
     createdBy: actor.name,
     requestDate: toDate(row.requestDate),
@@ -198,9 +200,10 @@ export async function createSolicitud(input: unknown, fileName: unknown, fileHas
     const created = await tx.pasajeBatch.create({
       data: { fileName: text(fileName) || null, fileHash: validHash(fileHash), requestDate: toDate(requestDate), createdBy: actor.name },
     });
-    await tx.pasajeRequest.createMany({ data: data.map((row) => ({ ...row, batchId: created.id })) });
+    for (const row of data) await createPasajeWithMovements(tx, { ...row, batchId: created.id });
     return created;
-  });
+  }, { timeout: 120_000 }); // Hasta 300 pasajes, con tres inserciones cada uno.
+  invalidateIncomeGroups();
 
   const notifications = await notifyRepresentatives(data, actor, requestDate);
   return {

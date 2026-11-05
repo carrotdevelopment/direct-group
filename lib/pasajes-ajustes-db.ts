@@ -1,4 +1,5 @@
 import "server-only";
+import type { Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { canActForClient, canConfirmPasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
@@ -102,8 +103,73 @@ async function preparePasaje(input: PasajeInput, actor: PasajeActor) {
   };
 }
 
+type PasajeMovement = {
+  fromClient: string;
+  fromClientCode: string;
+  toClient: string;
+  toClientCode: string;
+  uniqueCode: string;
+  product: string | null;
+  comments: string | null;
+};
+
+function egressForPasaje(pasajeId: string, pasaje: PasajeMovement, quantity: number, date: Date, createdBy: string) {
+  return {
+    pasajeId,
+    client: pasaje.fromClient,
+    clientCode: pasaje.fromClientCode,
+    uniqueCode: pasaje.uniqueCode,
+    product: pasaje.product,
+    operation: "PASAJE",
+    date,
+    quantity,
+    destination: pasaje.toClient,
+    comments: `Pasaje a ${pasaje.toClient} (${pasaje.toClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
+    createdBy,
+  };
+}
+
+function incomeForPasaje(pasajeId: string, pasaje: PasajeMovement, quantity: number, date: Date, createdBy: string) {
+  return {
+    pasajeId,
+    client: pasaje.toClient,
+    clientCode: pasaje.toClientCode,
+    operation: "PASAJE",
+    orderDate: date,
+    quantity,
+    transferOrigin: pasaje.fromClient,
+    comments: `Pasaje desde ${pasaje.fromClient} (${pasaje.fromClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
+    pendingTangoEntry: true,
+    createdBy,
+  };
+}
+
+export type NewPasaje = PasajeMovement & Omit<Prisma.PasajeRequestUncheckedCreateInput, keyof PasajeMovement | "egressImpacted"> & { quantity: number; createdBy: string };
+
+// Crea el pasaje con sus dos movimientos: el egreso del origen impacta en el momento y el ingreso al
+// destino queda pendiente (entregado en 0, no suma stock) hasta que se confirme lo que pasó Urbano.
+export async function createPasajeWithMovements(tx: Prisma.TransactionClient, data: NewPasaje, date = new Date()) {
+  const pasaje = await tx.pasajeRequest.create({ data: { ...data, egressImpacted: true } });
+  await tx.egress.create({ data: egressForPasaje(pasaje.id, data, data.quantity, date, data.createdBy) });
+  await tx.tangoIncome.create({ data: { ...incomeForPasaje(pasaje.id, data, data.quantity, date, data.createdBy), deliveredQuantity: 0 } });
+  return pasaje;
+}
+
+// Deshace los movimientos de un pasaje que no se realizó. El egreso se inactiva, como desde el
+// historial, y el ingreso pendiente se borra porque nunca sumó stock.
+async function revertPasajeMovements(tx: Prisma.TransactionClient, pasajeId: string, actor: string, date: Date) {
+  await tx.egress.updateMany({
+    where: { pasajeId, deletedAt: null },
+    data: { deletedAt: date, deletedBy: actor, modifiedBy: actor },
+  });
+  await tx.tangoIncome.deleteMany({ where: { pasajeId } });
+}
+
 export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
-  return excelPostgres.pasajeRequest.create({ data: await preparePasaje(input, actor) });
+  const data = await preparePasaje(input, actor);
+  const pasaje = await excelPostgres.$transaction((tx) => createPasajeWithMovements(tx, data));
+  invalidateIncomeGroups();
+  return pasaje;
 }
 
 export async function listPasajes(actor: PasajeActor, status?: string) {
@@ -115,10 +181,10 @@ export async function listPasajes(actor: PasajeActor, status?: string) {
   return rows.filter((row) => canSeePasaje(actor, row));
 }
 
-// Estados: pending (espera aprobación del receptor) → approved (el receptor aprobó; todavía no se
-// mueve stock: se espera lo que informe Urbano) → confirmed (quien generó el pasaje o tiene el
-// cliente origen carga la cantidad realmente pasada: egresa del origen e ingresa al destino esa
-// cantidad). rejected cierra el pasaje sin mover stock.
+// Estados: pending (ya egresó del origen; espera aprobación del receptor) → approved (el receptor
+// aprobó; el ingreso sigue pendiente de lo que informe Urbano) → confirmed (quien generó el pasaje o
+// tiene el cliente origen carga la cantidad realmente pasada: ingresa al destino y el egreso se ajusta
+// a esa cantidad). rejected cierra el pasaje y revierte el egreso.
 export async function respondPasaje(
   id: string,
   action: "approve" | "reject",
@@ -146,9 +212,11 @@ export async function respondPasaje(
         responseComment: text(comment) || null,
       },
     });
+    if (action === "reject") await revertPasajeMovements(tx, id, respondedBy, new Date());
 
     return updated;
   });
+  if (action === "reject") invalidateIncomeGroups();
   return result;
 }
 
@@ -170,8 +238,10 @@ export async function respondPasajes(ids: string[], action: "approve" | "reject"
   return { done, failed };
 }
 
-// Se confirma cuánto pasó realmente (lo que informa Urbano): egresa del origen e ingresa al destino
-// esa cantidad. Si es menor a la aprobada, la diferencia queda en el origen; con 0 no se mueve nada.
+// Se confirma cuánto pasó realmente (lo que informa Urbano): ingresa al destino esa cantidad y el
+// egreso del origen se ajusta a ella. Si es menor a la aprobada, la diferencia vuelve al origen; con 0
+// se revierte todo. Si un movimiento no existe (pasaje anterior al cambio, o egreso inactivado a mano
+// en el historial), se crea: lo confirmado por Urbano tiene que quedar registrado.
 export async function confirmPasaje(id: string, confirmedQuantity: number, actor: PasajeActor) {
   const quantityConfirmed = Number(confirmedQuantity);
   if (!Number.isFinite(quantityConfirmed) || quantityConfirmed < 0) {
@@ -196,43 +266,25 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
       where: { id },
       data: { status: "confirmed", confirmedQuantity: quantityConfirmed, confirmedBy: actor.name, confirmedAt: now },
     });
-    const base = {
-      client: pasaje.fromClient,
-      clientCode: pasaje.fromClientCode,
-      uniqueCode: pasaje.uniqueCode,
-      product: pasaje.product,
-      date: now,
-      createdBy: actor.name,
-    };
-    if (quantityConfirmed > 0) {
-      await tx.tangoIncome.create({
-        data: {
-          client: pasaje.toClient,
-          clientCode: pasaje.toClientCode,
-          operation: "PASAJE",
-          orderDate: now,
-          quantity: quantityConfirmed,
-          deliveredQuantity: quantityConfirmed,
-          deliveryDate: now,
-          transferOrigin: pasaje.fromClient,
-          comments: `Pasaje desde ${pasaje.fromClient} (${pasaje.fromClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
-          pendingTangoEntry: true,
-          createdBy: actor.name,
-        },
-      });
-      await tx.egress.create({
-        data: {
-          ...base,
-          operation: "PASAJE",
-          quantity: quantityConfirmed,
-          destination: pasaje.toClient,
-          comments: `Pasaje a ${pasaje.toClient} (${pasaje.toClientCode})${pasaje.comments ? ` — ${pasaje.comments}` : ""}`,
-        },
-      });
+    if (quantityConfirmed === 0) {
+      await revertPasajeMovements(tx, id, actor.name, now);
+      return updated;
+    }
+    const delivered = { quantity: quantityConfirmed, deliveredQuantity: quantityConfirmed, deliveryDate: now, pendingTangoEntry: true };
+    const income = await tx.tangoIncome.updateMany({ where: { pasajeId: id }, data: delivered });
+    if (income.count === 0) {
+      await tx.tangoIncome.create({ data: { ...incomeForPasaje(id, pasaje, quantityConfirmed, now, actor.name), ...delivered } });
+    }
+    const egress = await tx.egress.updateMany({
+      where: { pasajeId: id, deletedAt: null },
+      data: { quantity: quantityConfirmed, ...(quantityConfirmed === approved ? {} : { modifiedBy: actor.name }) },
+    });
+    if (egress.count === 0) {
+      await tx.egress.create({ data: egressForPasaje(id, pasaje, quantityConfirmed, now, actor.name) });
     }
     return updated;
   });
-  if (quantityConfirmed > 0) invalidateIncomeGroups();
+  invalidateIncomeGroups();
   return result;
 }
 

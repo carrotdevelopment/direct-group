@@ -8,7 +8,8 @@ export type CodeStock = { real: number; reserved: number; available: number };
 const text = (value: unknown) => String(value ?? "").trim();
 
 // Stock que se puede pasar desde cada código de un cliente: el stock real (misma cuenta que la pantalla
-// Stock) menos lo que ya está comprometido en pasajes pendientes o aprobados que todavía no se confirmaron.
+// Stock) menos lo comprometido en pasajes abiertos que todavía no egresaron. Los pasajes nuevos egresan
+// al crearse, así que ya están descontados del stock real y no se restan de nuevo.
 export async function availableStockForCodes(client: string, codes: string[]) {
   const wanted = [...new Set(codes.map((code) => text(code)).filter(Boolean))];
   const result = new Map<string, CodeStock>();
@@ -20,6 +21,7 @@ export async function availableStockForCodes(client: string, codes: string[]) {
       where: {
         fromClient: { equals: text(client), mode: "insensitive" },
         status: { in: ["pending", "approved"] },
+        egressImpacted: false,
         OR: wanted.map((code) => ({ fromClientCode: { equals: code, mode: "insensitive" as const } })),
       },
       _sum: { quantity: true },

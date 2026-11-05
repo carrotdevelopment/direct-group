@@ -228,8 +228,10 @@ export function PasajesWorkspace({
 
   async function respond(kind: "pasajes" | "ajustes", id: string, action: "accept" | "reject") {
     setError("");
-    const label = kind === "pasajes" ? "el pasaje" : "el ajuste";
-    if (action === "reject" && !window.confirm(`¿Rechazar ${label}? El stock queda sin cambios.`)) return;
+    const rejectQuestion = kind === "pasajes"
+      ? "¿Rechazar el pasaje? Se revierte el egreso y el stock vuelve al origen."
+      : "¿Rechazar el ajuste? El stock queda sin cambios.";
+    if (action === "reject" && !window.confirm(rejectQuestion)) return;
     try {
       const response = await fetch(`/api/${kind}/${id}`, {
         method: "PATCH",
@@ -281,7 +283,7 @@ export function PasajesWorkspace({
     const invalid = items.find((item) => !Number.isFinite(item.quantity) || item.quantity < 0);
     if (invalid) return setError("Revisá las cantidades: tienen que ser números mayores o iguales a cero.");
     const partial = items.filter((item) => item.quantity < Number(list.find((p) => p.id === item.id)?.quantity));
-    if (!window.confirm(`Confirmar ${items.length} ${items.length === 1 ? "pasaje" : "pasajes"}${partial.length ? ` (${partial.length} con menos cantidad que la solicitada; la diferencia queda en el origen)` : ""}? Se mueve el stock por la cantidad real.`)) return;
+    if (!window.confirm(`Confirmar ${items.length} ${items.length === 1 ? "pasaje" : "pasajes"}${partial.length ? ` (${partial.length} con menos cantidad que la solicitada; la diferencia vuelve al origen)` : ""}? Ingresa al destino la cantidad real.`)) return;
     await bulk({ action: "confirm", items }, "pasajes confirmados");
   }
 
@@ -398,8 +400,8 @@ export function PasajesWorkspace({
               <div>
                 <h2 className="text-sm font-black text-[#10233f]">Aprobados · cargar lo que pasó Urbano</h2>
                 <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
-                  Todavía no se movió stock. Cargá la cantidad que realmente pasó Urbano y confirmá: egresa del origen e
-                  ingresa al destino esa cantidad. Si pasó menos, la diferencia queda en el origen; con 0, no se realizó.
+                  El egreso ya está registrado y el ingreso sigue pendiente. Cargá la cantidad que realmente pasó Urbano y
+                  confirmá: ingresa al destino esa cantidad. Si pasó menos, la diferencia vuelve al origen; con 0, se revierte el egreso.
                 </p>
               </div>
               {(() => {
@@ -861,8 +863,8 @@ function PasajeModal({
         <div className="eyebrow">Nuevo pasaje</div>
         <h2 className="mt-2 text-xl font-black">Registrar pasaje entre clientes</h2>
         <p className="mt-1 text-xs text-[#62728a]">
-          Elegí primero el producto: se habilitan los clientes y códigos que lo tienen asignado. El receptor lo aprueba y
-          después el emisor confirma la cantidad enviada.
+          Elegí primero el producto: se habilitan los clientes y códigos que lo tienen asignado. Al generarlo egresa del
+          origen; el receptor lo aprueba y el ingreso queda pendiente hasta confirmar lo que informó Urbano.
         </p>
         <div className="mt-5 space-y-4">
           <SearchSelect
