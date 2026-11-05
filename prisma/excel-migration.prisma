@@ -679,6 +679,34 @@ model UrbanoStockItem {
   @@map("urbano_stock_items")
 }
 
+// Movimientos de depósito que informa la API de Urbano. No se guardan el usuario de Urbano ni la razón
+// social (en los picking es el nombre del destinatario). "saldo" no es el stock total del código.
+model UrbanoMovement {
+  id          BigInt   @id @default(autoincrement()) @db.BigInt
+  key         String   @unique @map("clave") @db.VarChar(64)
+  type        String   @map("tipo") @db.VarChar(30)
+  date        DateTime @map("fecha") @db.Timestamptz(6)
+  voucher     String?  @map("comprobante") @db.VarChar(100)
+  reference   String?  @map("referencia") @db.VarChar(100)
+  company     String?  @map("compania") @db.VarChar(20)
+  urbanoCode  String   @map("codigo_urbano") @db.VarChar(255)
+  clientCode  String   @map("codigo_cliente") @db.VarChar(255)
+  product     String?  @map("producto")
+  lot         String?  @map("lote") @db.VarChar(100)
+  serial      String?  @map("serie") @db.VarChar(100)
+  inQuantity  Decimal  @default(0) @map("entrada") @db.Decimal(18, 4)
+  outQuantity Decimal  @default(0) @map("salida") @db.Decimal(18, 4)
+  balance     Decimal  @default(0) @map("saldo") @db.Decimal(18, 4)
+  client      String?  @map("cliente") @db.VarChar(255)
+  uniqueCode  String?  @map("codigo_unico") @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@index([clientCode])
+  @@index([client, date])
+  @@map("urbano_movimientos")
+}
+
 // Ajuste de stock (rotura, faltante, sobrante) de un cliente. Cantidad
 // positiva suma stock (queda como ingreso), negativa resta (queda como
 // egreso). También necesita que un segundo usuario lo apruebe antes de

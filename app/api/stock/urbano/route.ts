@@ -4,12 +4,14 @@ import { NextResponse } from "next/server";
 import {
   UrbanoStockError,
   deleteUrbanoStockLoad,
+  listUrbanoMovements,
   listUrbanoStockLoads,
   previewUrbanoStock,
   saveUrbanoStock,
-  syncUrbanoStockFromPortal,
+  syncUrbanoStock,
   urbanoStockItems,
 } from "@/lib/urbano-stock-db";
+import { UrbanoApiError, urbanoApiConfig } from "@/lib/urbano-api";
 import { UrbanoPortalError, urbanoPortalConfig } from "@/lib/urbano-portal";
 
 export const runtime = "nodejs";
@@ -18,22 +20,25 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function failure(error: unknown) {
   if (error instanceof UrbanoStockError) return NextResponse.json({ message: error.message }, { status: error.status });
-  if (error instanceof UrbanoPortalError) return NextResponse.json({ message: error.message }, { status: 502 });
+  if (error instanceof UrbanoPortalError || error instanceof UrbanoApiError) return NextResponse.json({ message: error.message }, { status: 502 });
   throw error;
 }
 
-// Cargas del reporte de stock de Urbano; con ?load=<id> devuelve los renglones de esa carga.
+// Cargas del reporte de stock de Urbano; con ?load=<id> devuelve los renglones de esa carga y con
+// ?movements=1 (opcional &type=) los últimos movimientos.
 export async function GET(request: Request) {
   const denied = await checkApiAccess(["stock"], false);
   if (denied) return denied;
-  const loadId = new URL(request.url).searchParams.get("load");
+  const params = new URL(request.url).searchParams;
+  if (params.get("movements")) return NextResponse.json(await listUrbanoMovements(params.get("type")));
+  const loadId = params.get("load");
   if (loadId && !UUID.test(loadId)) return NextResponse.json({ message: "La carga no existe." }, { status: 404 });
   if (loadId) return NextResponse.json({ items: await urbanoStockItems(loadId) });
-  return NextResponse.json({ loads: await listUrbanoStockLoads(), portalConfigured: !!urbanoPortalConfig() });
+  return NextResponse.json({ loads: await listUrbanoStockLoads(), portalConfigured: !!(urbanoApiConfig() || urbanoPortalConfig()) });
 }
 
-// Con preview=true solo cruza las filas con Códigos cliente; con portal=true trae el reporte del portal
-// de Urbano; si no, guarda la carga del Excel.
+// Con preview=true solo cruza las filas con Códigos cliente; con portal=true trae el stock de Urbano
+// (por la API o, si no está configurada, del portal); si no, guarda la carga del Excel.
 export async function POST(request: Request) {
   const denied = await checkApiAccess(["stock"], true);
   if (denied) return denied;
@@ -47,7 +52,7 @@ export async function POST(request: Request) {
     if (body.preview) return NextResponse.json(await previewUrbanoStock(body.rows, body.fileHash, body.reportDate));
     const user = (await auth())?.user;
     const actor = user?.name || user?.email || "desconocido";
-    if (body.portal) return NextResponse.json(await syncUrbanoStockFromPortal(actor));
+    if (body.portal) return NextResponse.json(await syncUrbanoStock(actor));
     return NextResponse.json(await saveUrbanoStock(body.rows, body.fileName, body.fileHash, body.reportDate, actor));
   } catch (error) {
     return failure(error);

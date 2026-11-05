@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, CloudDownload, FileSpreadsheet, Search, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { UrbanoMovementsCard } from "@/components/domain/urbano-movements-card";
 import { parseUrbanoStockSheet, reportDateFromFileName, type ResolvedUrbanoStockRow, type UrbanoStockRow } from "@/lib/urbano-stock";
 
 type Load = { id: string; fileName: string | null; reportDate: string; source: string; createdBy: string; createdAt: string; rowCount: number; totalQuantity: number };
@@ -171,9 +172,9 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
         body: JSON.stringify({ portal: true }),
       });
       const data = (await response.json()) as { id?: string; saved?: number; replaced?: number; totalQuantity?: number; withoutClient?: number; message?: string };
-      if (!response.ok) throw new Error(data.message || "No se pudo traer el stock del portal de Urbano.");
+      if (!response.ok) throw new Error(data.message || "No se pudo traer el stock de Urbano.");
       setNotice(
-        `Se trajo el stock del portal de Urbano: ${data.saved} códigos, ${fmt(data.totalQuantity ?? 0)} unidades.` +
+        `Se trajo el stock de Urbano: ${data.saved} códigos, ${fmt(data.totalQuantity ?? 0)} unidades.` +
           (data.withoutClient ? ` ${data.withoutClient} códigos no están en Códigos cliente.` : "") +
           (data.replaced ? " Reemplazó la carga de hoy." : ""),
       );
@@ -181,7 +182,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
       setSelected(data.id ?? "");
       await loadHistory();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo traer el stock del portal de Urbano.");
+      setError(err instanceof Error ? err.message : "No se pudo traer el stock de Urbano.");
     } finally {
       setBusy(false);
     }
@@ -223,7 +224,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
       <PageHeader
         eyebrow="Stock"
         title="Carga de stock Urbano"
-        description="Reporte “Stock en línea” del portal de clientes de Urbano: se trae solo todos los días o se sube el Excel exportado (con todas las columnas). La pantalla Stock muestra la cantidad física de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
+        description="Stock y movimientos que informa Urbano: se traen solos todos los días o se sube el Excel exportado del portal (con todas las columnas). La pantalla Stock muestra la cantidad física de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
       />
 
       {canWrite && (
@@ -342,8 +343,8 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                     <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelected(load.id)}>
                       <div className="flex items-center gap-2 text-xs font-black text-[#10233f]">
                         Reporte del {formatDate(load.reportDate)}
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${load.source === "portal" ? "bg-[#e7f0fb] text-[#0b5bbb]" : "bg-[#eef1f5] text-[#52647d]"}`}>
-                          {load.source === "portal" ? "Portal" : "Excel"}
+                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${load.source === "excel" ? "bg-[#eef1f5] text-[#52647d]" : "bg-[#e7f0fb] text-[#0b5bbb]"}`}>
+                          {load.source === "api" ? "API" : load.source === "portal" ? "Portal" : "Excel"}
                         </span>
                       </div>
                       <div className="truncate text-[10px] text-[#62728a]" title={load.fileName ?? ""}>{load.fileName ?? "sin nombre"}</div>
@@ -419,6 +420,8 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
           </div>
         </div>
       </section>
+
+      <UrbanoMovementsCard />
     </>
   );
 }

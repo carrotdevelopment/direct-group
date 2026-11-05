@@ -31,6 +31,8 @@ const display = displayDateTime;
 const displayDay = (iso: string) => iso.split("-").reverse().join("/");
 const hoursSince = (date: Date, now: Date) => (now.getTime() - date.getTime()) / 3_600_000;
 
+const MOVEMENTS_MAX_IDLE_HOURS = 5 * 24;
+
 // Stock de Urbano: la carga automática corre a las 7:00 (hora Argentina) y tiene que haber una carga de hoy.
 export async function urbanoHealth(now = new Date()): Promise<HealthCheck> {
   const last = await excelPostgres.urbanoStockLoad.findFirst({ orderBy: [{ reportDate: "desc" }, { createdAt: "desc" }] });
@@ -38,14 +40,20 @@ export async function urbanoHealth(now = new Date()): Promise<HealthCheck> {
   const lastDay = last.reportDate.toISOString().slice(0, 10);
   const today = argentinaDay(now);
   const yesterday = argentinaDay(new Date(now.getTime() - 86_400_000));
-  const ok = lastDay === today || (lastDay === yesterday && argentinaHour(now) < 8);
-  return {
-    ok,
-    summary: ok
-      ? `Última carga: reporte del ${displayDay(lastDay)} (${last.source === "portal" ? "automática" : "Excel"}), ${last.rowCount} códigos.`
-      : `No se trajo el stock de Urbano de hoy. La última carga es del ${displayDay(lastDay)}.`,
-    details: [`Cargada por ${last.createdBy} el ${display(last.createdAt)}.`],
-  };
+  const stockOk = lastDay === today || (lastDay === yesterday && argentinaHour(now) < 8);
+  const details = [`Cargada por ${last.createdBy} el ${display(last.createdAt)}.`];
+  // La API devuelve unos 7 días de movimientos: si pasan varios días sin novedades se pueden empezar a perder.
+  let movementProblem = "";
+  if (last.source === "api") {
+    const lastMovement = await excelPostgres.urbanoMovement.findFirst({ orderBy: { date: "desc" }, select: { date: true } });
+    if (lastMovement) details.push(`Último movimiento: ${display(lastMovement.date)}.`);
+    if (!lastMovement) movementProblem = "Todavía no se trajo ningún movimiento de Urbano.";
+    else if (hoursSince(lastMovement.date, now) > MOVEMENTS_MAX_IDLE_HOURS) movementProblem = `No entran movimientos de Urbano desde el ${display(lastMovement.date)}.`;
+  }
+  const stockSummary = stockOk
+    ? `Última carga: reporte del ${displayDay(lastDay)} (${last.source === "excel" ? "Excel" : "automática"}), ${last.rowCount} códigos.`
+    : `No se trajo el stock de Urbano de hoy. La última carga es del ${displayDay(lastDay)}.`;
+  return { ok: stockOk && !movementProblem, summary: [stockSummary, movementProblem].filter(Boolean).join(" "), details };
 }
 
 // Conector de Tango: se conecta todos los días a las 6:00 y trae los ingresos del día anterior.

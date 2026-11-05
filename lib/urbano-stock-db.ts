@@ -1,5 +1,7 @@
 import "server-only";
 import { excelPostgres } from "@/lib/excel-postgres-client";
+import { fetchUrbanoApiMovements, fetchUrbanoApiProducts, urbanoApiConfig } from "@/lib/urbano-api";
+import { urbanoApiMovementRows, urbanoApiStockRows, urbanoCodeFinder } from "@/lib/urbano-api-rows";
 import { fetchUrbanoPortalStock } from "@/lib/urbano-portal";
 import { parseUrbanoStockSheet, resolveUrbanoStock, type ResolvedUrbanoStockRow, type UrbanoStockRow } from "@/lib/urbano-stock";
 
@@ -69,7 +71,7 @@ export async function previewUrbanoStock(input: unknown, fileHash: unknown, repo
   };
 }
 
-type LoadMeta = { reportDate: Date; source: "excel" | "portal"; fileName: string | null; fileHash: string | null; actor: string };
+type LoadMeta = { reportDate: Date; source: "excel" | "portal" | "api"; fileName: string | null; fileHash: string | null; actor: string };
 
 // Guarda los renglones válidos. Si ya había una carga con la misma fecha de reporte, la reemplaza.
 async function storeLoad(resolved: ResolvedUrbanoStockRow[], meta: LoadMeta) {
@@ -129,6 +131,69 @@ export async function syncUrbanoStockFromPortal(actor: string) {
   return storeLoad(resolved, { reportDate: argentinaToday(), source: "portal", fileName: label, fileHash: null, actor });
 }
 
+// Trae el stock de todas las cuentas desde la API de Urbano y lo guarda como carga del día. Un código que
+// dejó de venir se quedó sin stock: se guarda en 0 para que no siga mostrando la cantidad de una carga vieja.
+export async function syncUrbanoStockFromApi(actor: string) {
+  const rows = urbanoApiStockRows(await fetchUrbanoApiProducts());
+  if (rows.length === 0) throw new UrbanoStockError("La API de Urbano no devolvió productos.");
+  const received = new Set(rows.map((row) => row.clientCode.toLowerCase()));
+  const previous = await latestUrbanoStockByCode();
+  const gone = [...previous].filter(([code, item]) => !received.has(code) && item.quantity !== 0);
+  const withGone: UrbanoStockRow[] = [
+    ...rows,
+    ...gone.map(([, item], index) => ({
+      row: rows.length + index + 1, clientCode: item.clientCode, product: item.product, quantity: 0, unavailable: 0, pendingPickup: 0, company: "",
+    })),
+  ];
+  const resolved = resolveUrbanoStock(withGone, await clientCodes());
+  const load = await storeLoad(resolved, { reportDate: argentinaToday(), source: "api", fileName: "API de Urbano", fileHash: null, actor });
+  return { ...load, withoutStock: gone.length };
+}
+
+// La API si está configurada; si no, el portal de clientes.
+export const syncUrbanoStock = (actor: string) => (urbanoApiConfig() ? syncUrbanoStockFromApi(actor) : syncUrbanoStockFromPortal(actor));
+
+const MOVEMENTS_BATCH = 1000;
+
+// Guarda los movimientos nuevos: los que ya estaban (la API repite los últimos días) se ignoran.
+export async function syncUrbanoMovements() {
+  const movements = await fetchUrbanoApiMovements();
+  const { rows, skipped } = urbanoApiMovementRows(movements);
+  if (movements.length > 0 && rows.length === 0) throw new UrbanoStockError("La API de Urbano devolvió movimientos que no se pudieron leer.");
+  const find = urbanoCodeFinder(await clientCodes());
+  let saved = 0;
+  for (let start = 0; start < rows.length; start += MOVEMENTS_BATCH) {
+    const { count } = await excelPostgres.urbanoMovement.createMany({
+      data: rows.slice(start, start + MOVEMENTS_BATCH).map((row) => {
+        const match = find(row.clientCode);
+        return { ...row, client: match?.client ?? null, uniqueCode: match?.uniqueCode ?? null };
+      }),
+      skipDuplicates: true,
+    });
+    saved += count;
+  }
+  return { received: movements.length, saved, skipped };
+}
+
+const MOVEMENTS_LIMIT = 1000;
+
+export async function listUrbanoMovements(type?: string | null) {
+  const where = type ? { type } : {};
+  const [items, total, types] = await Promise.all([
+    excelPostgres.urbanoMovement.findMany({ where, orderBy: [{ date: "desc" }, { id: "desc" }], take: MOVEMENTS_LIMIT }),
+    excelPostgres.urbanoMovement.count({ where }),
+    excelPostgres.urbanoMovement.findMany({ distinct: ["type"], select: { type: true }, orderBy: { type: "asc" } }),
+  ]);
+  return {
+    total,
+    types: types.map((item) => item.type),
+    items: items.map((item) => ({
+      id: String(item.id), type: item.type, date: item.date.toISOString(), voucher: item.voucher, clientCode: item.clientCode,
+      product: item.product ?? "", client: item.client, inQuantity: Number(item.inQuantity), outQuantity: Number(item.outQuantity),
+    })),
+  };
+}
+
 export async function listUrbanoStockLoads(limit = 30) {
   const loads = await excelPostgres.urbanoStockLoad.findMany({ orderBy: [{ reportDate: "desc" }, { createdAt: "desc" }], take: limit });
   return loads.map((load) => ({
@@ -152,9 +217,9 @@ export async function deleteUrbanoStockLoad(id: string) {
 
 // Stock informado por Urbano para cada código cliente: el de la carga más reciente que lo trae.
 export async function latestUrbanoStockByCode() {
-  const rows = await excelPostgres.$queryRaw<{ codigo: string; cantidad: unknown; fecha: Date }[]>`
-    SELECT DISTINCT ON (lower(i.codigo_cliente)) lower(i.codigo_cliente) AS codigo, i.cantidad, c.fecha_reporte AS fecha
+  const rows = await excelPostgres.$queryRaw<{ codigo: string; original: string; producto: string | null; cantidad: unknown; fecha: Date }[]>`
+    SELECT DISTINCT ON (lower(i.codigo_cliente)) lower(i.codigo_cliente) AS codigo, i.codigo_cliente AS original, i.producto, i.cantidad, c.fecha_reporte AS fecha
     FROM urbano_stock_items i JOIN urbano_stock_cargas c ON c.id = i.carga_id
     ORDER BY lower(i.codigo_cliente), c.fecha_reporte DESC, c.created_at DESC`;
-  return new Map(rows.map((row) => [row.codigo, { quantity: Number(row.cantidad), reportDate: isoDay(row.fecha) }]));
+  return new Map(rows.map((row) => [row.codigo, { clientCode: row.original, product: row.producto ?? "", quantity: Number(row.cantidad), reportDate: isoDay(row.fecha) }]));
 }

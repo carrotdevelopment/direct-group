@@ -46,8 +46,8 @@ export function urbanoNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
-// El portal completa el código con ceros adelante: "00000000URB-021" → "URB-021".
-export const urbanoClientCode = (value: unknown) => text(value).replace(/^0+(?=[A-Za-z])/, "");
+// Urbano completa el código con ceros adelante: "00000000URB-021" → "URB-021", "000000000002339" → "2339".
+export const urbanoClientCode = (value: unknown) => text(value).replace(/^0+(?=.)/, "");
 
 const CODE_TITLE = /^cod(igo)? (de )?producto$/;
 
