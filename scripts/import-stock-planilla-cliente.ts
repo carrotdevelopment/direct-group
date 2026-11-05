@@ -3,8 +3,9 @@ import fs from "node:fs";
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 import { stockIncomeOperations, stockOperation, STOCK_EGRESS_OPERATIONS } from "@/lib/stock-operations";
 
-// Uso: tsx scripts/import-stock-planilla-cliente.ts <pampa|credicoop> "<4- Stock X.xlsm>" [--fecha=AAAA-MM-DD]
-//        [--sin-pasajes-del=AAAA-MM-DD] [--reemplazar-egresos] [--ingresos-por-fila] [--dry-run]
+// Uso: tsx scripts/import-stock-planilla-cliente.ts <pampa|credicoop|amex> "<4- Stock X.xlsm>" [--fecha=AAAA-MM-DD]
+//        [--sin-pasajes-del=AAAA-MM-DD] [--reemplazar-egresos] [--ingresos-por-fila] [--egresos-extra=<archivo.xlsx>]
+//        [--dry-run]
 // Deja el stock de un cliente en la plataforma igual al de su planilla de stock:
 // 1. Egresos: carga las filas de la hoja de egresos que todavía no están en la base (cruce por fecha +
 //    código cliente + operación + cantidad, respetando repeticiones). Las de la base que no están en la
@@ -12,6 +13,8 @@ import { stockIncomeOperations, stockOperation, STOCK_EGRESS_OPERATIONS } from "
 //    todos los egresos del cliente y se carga la hoja entera (para egresos migrados con el código mal).
 //    Con --sin-pasajes-del no se cargan los PASAJE de ese día: son de una solicitud de pasaje que se carga
 //    en la plataforma (Pasajes), que descuenta el origen al confirmarse.
+//    Con --egresos-extra se suman las filas de otra base de egresos del cliente, más nueva que la planilla,
+//    que no estén en la hoja (mismo cruce). Los datos personales de las filas (nombre, dirección, email) no se cargan.
 // 2. Códigos: los códigos del cliente que no tienen asignación vigente ni referencia histórica se agregan
 //    a tango_client_code_map, así los ingresos de códigos viejos (no vigentes) se le asignan al cliente.
 // 3. Ingresos: con --ingresos-por-fila se carga cada fila de la hoja de ingresos (para clientes cuyos
@@ -40,6 +43,12 @@ const PLANILLAS: Record<string, Planilla> = {
     incomeSheet: "ACT- INGRESOS (nv)",
     egress: { code: "IdRecompensa", product: "Descripcion", unique: "DB_Clientes 1.Código Único" },
   },
+  amex: {
+    client: "Amex",
+    egressSheet: "EgresosAmex",
+    incomeSheet: "IngresosAmex",
+    egress: { code: "Codigo cliente", product: "Producto", unique: "Código Único", comments: "Comentarios" },
+  },
 };
 const planilla = PLANILLAS[String(process.argv[2] ?? "").toLowerCase()];
 const filePath = process.argv[3];
@@ -49,6 +58,7 @@ const incomeByRow = process.argv.includes("--ingresos-por-fila");
 const arg = (name: string) => process.argv.find((value) => value.startsWith(`--${name}=`))?.split("=")[1];
 const adjustmentDate = arg("fecha") ?? new Date().toISOString().slice(0, 10);
 const skipPasajesOf = arg("sin-pasajes-del");
+const extraEgressFile = arg("egresos-extra");
 if (!planilla || !filePath) {
   console.error(`Uso: tsx scripts/import-stock-planilla-cliente.ts <${Object.keys(PLANILLAS).join("|")}> "<archivo.xlsm>" [--fecha=AAAA-MM-DD] [--sin-pasajes-del=AAAA-MM-DD] [--reemplazar-egresos] [--ingresos-por-fila] [--dry-run]`);
   process.exit(1);
@@ -62,9 +72,10 @@ const num = (value: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 const pad = (n: number) => String(n).padStart(2, "0");
-// Algunas filas traen el año negativo (-2025) o con dos dígitos (8 = 2008).
+// Algunas filas traen el año negativo (-2025), con dos dígitos (8 = 2008) o sin un dígito (226 = 2026).
 const yearOf = (value: unknown) => {
   const year = Math.abs(num(value));
+  if (year >= 200 && year < 300) return 2000 + (year % 100);
   return year > 0 && year < 100 ? 2000 + year : year;
 };
 const dateOf = (day: unknown, month: unknown, year: unknown) => {
@@ -76,6 +87,8 @@ const toDate = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00.000Z`) :
 // Los egresos importados guardan ROBO_AJUSTE; el resto de los nombres coincide con la planilla.
 const egressOperationOf = (value: unknown) => {
   const raw = text(value).toUpperCase().replace(/\s+/g, "_");
+  // HISTORIA CANJE / HISTORIA OTRO son canjes viejos que la planilla guarda pero no descuenta del stock.
+  if (raw.startsWith("HISTORIA")) return raw.replace(/_/g, " ");
   if (raw.includes("PASAJE")) return "PASAJE";
   if (raw.includes("ROBO") || raw.includes("AJUSTE")) return "ROBO_AJUSTE";
   if (raw.includes("CAMBIO")) return "CAMBIO";
@@ -142,6 +155,47 @@ async function main() {
       sheetRow: egressSheet.firstRow + i,
     });
   });
+  // Filas de la base de egresos más nueva que no están en la hoja de la planilla.
+  if (extraEgressFile) {
+    const extraWorkbook = XLSX.read(fs.readFileSync(extraEgressFile), { type: "buffer" });
+    const extraSheet = readMatrix(extraWorkbook, extraWorkbook.SheetNames[0], "Día");
+    const x = {
+      day: extraSheet.col("Día"), month: extraSheet.col("Mes"), year: extraSheet.col("Año"), code: extraSheet.col(planilla.egress.code),
+      quantity: extraSheet.col("Cantidad"), operation: extraSheet.col("Operación"), destination: extraSheet.col("Destino"),
+      comments: extraSheet.col("Comentarios"), description: extraSheet.col("Descripcion"),
+    };
+    const inSheet = new Map<string, number>();
+    const rowKey = (date: string, code: unknown, operation: string, quantity: number) => `${date}|${norm(code)}|${operation}|${quantity}`;
+    for (const item of egressItems) {
+      const key = rowKey(item.date, item.clientCode, item.operation, item.quantity);
+      inSheet.set(key, (inSheet.get(key) ?? 0) + 1);
+    }
+    const added: Record<string, number> = {};
+    extraSheet.rows.forEach((row, index) => {
+      const clientCode = text(row[x.code]);
+      const date = dateOf(row[x.day], row[x.month], row[x.year]);
+      if (!clientCode || !date) return;
+      const operation = egressOperationOf(row[x.operation]);
+      const quantity = num(row[x.quantity]);
+      const key = rowKey(date, clientCode, operation, quantity);
+      const remaining = inSheet.get(key) ?? 0;
+      if (remaining > 0) {
+        inSheet.set(key, remaining - 1);
+        return;
+      }
+      added[`${date.slice(0, 7)} ${operation}`] = (added[`${date.slice(0, 7)} ${operation}`] ?? 0) + 1;
+      egressItems.push({
+        date, clientCode, operation, quantity,
+        product: text(row[x.description]),
+        destination: text(row[x.destination]),
+        comments: text(row[x.comments]),
+        unique: "",
+        sheetRow: extraSheet.firstRow + index,
+      });
+    });
+    const missing = [...inSheet.values()].reduce((sum, count) => sum + count, 0);
+    console.log(`EGRESOS EXTRA: agregadas ${JSON.stringify(added)} | de la hoja que no están en la base extra: ${missing}`);
+  }
   const existingEgress = await excelPostgres.egress.findMany({
     where: { client: { equals: CLIENT, mode: "insensitive" }, deletedAt: null },
     select: { id: true, date: true, clientCode: true, operation: true, quantity: true },
