@@ -1,7 +1,5 @@
 import "server-only";
 import { excelPostgres } from "@/lib/excel-postgres-client";
-import { prisma } from "@/server/lib/prisma";
-import { sendSmtpMail } from "@/lib/smtp-mailer";
 import { createPasajeWithMovements, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import type { PasajeActor } from "@/lib/module-access";
@@ -96,72 +94,8 @@ export function listUrbanoShippers() {
   return excelPostgres.urbanoShipper.findMany({ orderBy: { code: "asc" } });
 }
 
-type NotificationResult = { sent: { to: string; pasajes: number }[]; failed: { to: string; error: string }[]; withoutRecipient: string[] };
-
-function formatDate(iso: string | null) {
-  if (!iso) return "";
-  const [year, month, day] = iso.split("-");
-  return `${day}/${month}/${year}`;
-}
-
-// Avisa por correo a cada representante del cliente destino (usuarios con el módulo Pasajes y ese
-// cliente asignado) que tiene pasajes para aprobar. Si un cliente no tiene representantes, avisa a
-// los administradores. Quien cargó la solicitud no recibe aviso: no puede aprobar sus propios pasajes.
-async function notifyRepresentatives(
-  pasajes: { toClient: string; fromClient: string; fromClientCode: string; toClientCode: string; product: string | null; uniqueCode: string; quantity: number }[],
-  actor: PasajeActor,
-  requestDate: string | null,
-): Promise<NotificationResult> {
-  const users = await prisma.user.findMany({
-    where: { active: true },
-    select: { name: true, email: true, role: true, moduleAccess: true, pasajeClients: true },
-  });
-  const others = users.filter((user) => normalize(user.name) !== normalize(actor.name) && normalize(user.email) !== normalize(actor.name));
-  const admins = others.filter((user) => user.role === "ADMIN");
-  const byRecipient = new Map<string, { name: string; email: string; items: typeof pasajes }>();
-  const withoutRecipient = new Set<string>();
-
-  for (const pasaje of pasajes) {
-    const representatives = others.filter((user) =>
-      user.role !== "ADMIN" && user.moduleAccess.includes("pasajes") &&
-      user.pasajeClients.some((client) => normalize(client) === normalize(pasaje.toClient)));
-    const recipients = representatives.length ? representatives : admins;
-    if (!recipients.length) withoutRecipient.add(pasaje.toClient);
-    for (const user of recipients) {
-      const entry = byRecipient.get(user.email) ?? { name: user.name, email: user.email, items: [] };
-      entry.items.push(pasaje);
-      byRecipient.set(user.email, entry);
-    }
-  }
-
-  const result: NotificationResult = { sent: [], failed: [], withoutRecipient: [...withoutRecipient] };
-  const baseUrl = (process.env.AUTH_URL ?? "").replace(/\/$/, "");
-  const dateLabel = formatDate(requestDate);
-  for (const { name, email, items } of byRecipient.values()) {
-    const lines = items.map((item) =>
-      `- ${item.quantity} × ${item.product || item.uniqueCode} · ${item.fromClient} ${item.fromClientCode} → ${item.toClient} ${item.toClientCode}`);
-    const body = [
-      `Hola ${name.split(" ")[0] || name},`,
-      "",
-      `${actor.name} cargó la solicitud de pasaje de stock a Urbano${dateLabel ? ` del ${dateLabel}` : ""}. Tenés ${items.length} ${items.length === 1 ? "pasaje" : "pasajes"} para aprobar:`,
-      "",
-      ...lines,
-      "",
-      ...(baseUrl ? ["Podés aprobarlos o rechazarlos en Pasajes y Ajustes:", `${baseUrl}/pasajes`] : ["Podés aprobarlos o rechazarlos en Pasajes y Ajustes de la plataforma."]),
-      "",
-      "Direct Group",
-    ].join("\n");
-    try {
-      await sendSmtpMail({ to: email, subject: `Pasajes de stock para aprobar${dateLabel ? ` · solicitud a Urbano del ${dateLabel}` : ""}`, text: body });
-      result.sent.push({ to: email, pasajes: items.length });
-    } catch (error) {
-      result.failed.push({ to: email, error: error instanceof Error ? error.message : "No se pudo enviar el correo." });
-    }
-  }
-  return result;
-}
-
-// Crea el lote con las filas válidas (las que tienen error no se cargan) y avisa a los representantes.
+// Crea el lote con las filas válidas (las que tienen error no se cargan). Cada pasaje egresa en el momento
+// y se confirma cuando Urbano informa la recepción.
 export async function createSolicitud(input: unknown, fileName: unknown, fileHash: unknown, actor: PasajeActor) {
   const { rows: resolved, duplicateFile } = await previewSolicitud(input, fileHash);
   if (duplicateFile) {
@@ -205,11 +139,9 @@ export async function createSolicitud(input: unknown, fileName: unknown, fileHas
   }, { timeout: 120_000 }); // Hasta 300 pasajes, con tres inserciones cada uno.
   invalidateIncomeGroups();
 
-  const notifications = await notifyRepresentatives(data, actor, requestDate);
   return {
     batchId: batch.id,
     created: data.length,
     skipped: resolved.filter((row) => row.status === "error" || row.status === "excluded").map((row) => ({ row: row.row, messages: row.messages })),
-    notifications,
   };
 }

@@ -37,9 +37,9 @@ export function canActForClient(actor: Pick<PasajeActor, "role" | "clients">, cl
   return actor.clients.some((assigned) => assigned.trim().toLowerCase() === wanted);
 }
 
-// Pasajes: cualquiera con el módulo puede generarlos desde cualquier cliente; el control es que
-// los apruebe quien tiene asignado el cliente destino. Quien lo generó lo sigue viendo y puede
-// confirmar la cantidad enviada, aunque no tenga asignado el cliente origen.
+// Pasajes: cualquiera con el módulo puede generarlos desde cualquier cliente; se confirman con lo que
+// informa Urbano. Quien lo generó lo sigue viendo y, si la cantidad no coincide, puede confirmar a mano
+// aunque no tenga asignado el cliente origen.
 type PasajeParties = { fromClient: string; toClient: string; createdBy: string };
 
 export function isPasajeCreator(actor: Pick<PasajeActor, "name">, pasaje: Pick<PasajeParties, "createdBy">) {

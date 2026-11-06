@@ -4,7 +4,7 @@ import { availableStockForCodes } from "@/lib/pasaje-stock-db";
 
 export const runtime = "nodejs";
 
-// Stock disponible de un código cliente para pasar (stock real menos pasajes pendientes o aprobados).
+// Stock disponible de un código cliente para pasar (stock real menos pasajes abiertos que todavía no egresaron).
 export async function GET(request: Request) {
   const denied = await checkApiAccess(["pasajes"], false);
   if (denied) return denied;

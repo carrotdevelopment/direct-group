@@ -6,7 +6,7 @@ import { createSolicitud, previewSolicitud } from "@/lib/pasaje-solicitud-db";
 export const runtime = "nodejs";
 
 // Solicitud de pasaje de stock a Urbano: con preview=true solo valida y resuelve las filas; si no,
-// crea el lote con las filas válidas y avisa por correo a los representantes de cada destino.
+// crea el lote con las filas válidas.
 export async function POST(request: Request) {
   const denied = await checkApiAccess(["pasajes"], true);
   if (denied) return denied;

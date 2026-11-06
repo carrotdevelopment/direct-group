@@ -7,6 +7,7 @@ const db = vi.hoisted(() => ({
   egresses: [] as Record<string, unknown>[],
   incomes: [] as Record<string, unknown>[],
   clientCodes: [] as Record<string, unknown>[],
+  movements: [] as Record<string, unknown>[],
 }));
 
 vi.mock("server-only", () => ({}));
@@ -39,6 +40,13 @@ vi.mock("@/lib/excel-postgres-client", () => {
       ...table(() => db.pasajes),
       findUnique: async ({ where }: { where: { id: string } }) => db.pasajes.find((row) => row.id === where.id) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: Row }) => Object.assign(db.pasajes.find((row) => row.id === where.id)!, data),
+      findMany: async ({ where }: { where: { status: { in: string[] } } }) => db.pasajes.filter((row) => where.status.in.includes(row.status as string)),
+    },
+    urbanoMovement: {
+      findMany: async () => db.movements.filter((row) => row.pasajeId === null),
+      updateMany: async ({ where, data }: { where: { id: { in: number[] } }; data: Row }) => {
+        db.movements.filter((row) => where.id.in.includes(row.id as number)).forEach((row) => Object.assign(row, data));
+      },
     },
   };
   return {
@@ -50,7 +58,7 @@ vi.mock("@/lib/excel-postgres-client", () => {
   };
 });
 
-import { confirmPasaje, createPasaje, respondPasaje } from "@/lib/pasajes-ajustes-db";
+import { cancelPasaje, confirmPasaje, createPasaje, reconcilePasajesWithUrbano } from "@/lib/pasajes-ajustes-db";
 
 const creator = { name: "Emilia", role: "ADMIN", clients: [] };
 const receiver = { name: "Liz", role: "VENDEDOR", clients: ["Umiles"] };
@@ -64,6 +72,7 @@ beforeEach(() => {
   db.pasajes.length = 0;
   db.egresses.length = 0;
   db.incomes.length = 0;
+  db.movements.length = 0;
 });
 
 describe("movimientos de un pasaje", () => {
@@ -79,25 +88,31 @@ describe("movimientos de un pasaje", () => {
     expect(db.incomes[0].deliveryDate).toBeUndefined();
   });
 
-  it("al rechazarlo se inactiva el egreso y se borra el ingreso pendiente", async () => {
+  it("al cancelarlo se inactiva el egreso y se borra el ingreso pendiente", async () => {
     const pasaje = await createPasaje(input, creator);
     Object.assign(db.pasajes[0], { status: "pending" });
-    await respondPasaje(pasaje.id, "reject", receiver);
+    await cancelPasaje(pasaje.id, receiver);
+    expect(db.pasajes[0]).toMatchObject({ status: "rejected", respondedBy: "Liz" });
     expect(db.egresses[0]).toMatchObject({ deletedBy: "Liz", deletedAt: expect.any(Date) });
     expect(db.incomes).toEqual([]);
   });
 
-  it("al aprobarlo no cambia ningún movimiento", async () => {
+  it("no se puede cancelar un pasaje ya confirmado", async () => {
     const pasaje = await createPasaje(input, creator);
-    Object.assign(db.pasajes[0], { status: "pending" });
-    await respondPasaje(pasaje.id, "approve", receiver);
-    expect(db.egresses[0]).toMatchObject({ quantity: 10, deletedAt: null });
-    expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 0 });
+    Object.assign(db.pasajes[0], { status: "confirmed" });
+    await expect(cancelPasaje(pasaje.id, creator)).rejects.toThrow("ya fue resuelto");
+  });
+
+  it("un pasaje que había quedado aprobado también se confirma", async () => {
+    const pasaje = await createPasaje(input, creator);
+    Object.assign(db.pasajes[0], { status: "approved" });
+    await confirmPasaje(pasaje.id, 10, creator);
+    expect(db.pasajes[0]).toMatchObject({ status: "confirmed", confirmedQuantity: 10 });
   });
 
   it("al confirmar el total, ingresa todo sin duplicar movimientos", async () => {
     const pasaje = await createPasaje(input, creator);
-    Object.assign(db.pasajes[0], { status: "approved" });
+    Object.assign(db.pasajes[0], { status: "pending" });
     await confirmPasaje(pasaje.id, 10, creator);
     expect(db.egresses).toHaveLength(1);
     expect(db.incomes).toHaveLength(1);
@@ -150,12 +165,38 @@ describe("movimientos de un pasaje", () => {
     expect(db.incomes.find((row) => row.id === "tango-1")).toMatchObject({ pasajeId: null });
   });
 
-  it("rechazar nunca borra una fila que vino de Tango", async () => {
+  it("cancelar nunca borra una fila que vino de Tango", async () => {
     const pasaje = await createPasaje(input, creator);
     Object.assign(db.pasajes[0], { status: "pending" });
     db.incomes.push(tangoRow({ pasajeId: pasaje.id }));
-    await respondPasaje(pasaje.id, "reject", receiver);
+    await cancelPasaje(pasaje.id, receiver);
     expect(db.incomes).toEqual([expect.objectContaining({ id: "tango-1" })]);
+  });
+
+  it("con la recepción de Urbano se confirma solo, una sola vez", async () => {
+    const pasaje = await createPasaje(input, creator);
+    Object.assign(db.pasajes[0], { status: "pending", requestDate: null, createdAt: new Date("2026-11-02T12:00:00Z") });
+    db.movements.push({ id: 1, client: "Umiles", clientCode: "dg-1", inQuantity: 10, date: new Date("2026-11-03T12:00:00Z"), voucher: "0955261102", pasajeId: null });
+
+    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 1, toReview: 0, failed: [] });
+    expect(db.pasajes[0]).toMatchObject({ status: "confirmed", confirmedQuantity: 10, confirmedBy: "Urbano (automático)", urbanoVoucher: "0955261102" });
+    expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 10, pasajeId: pasaje.id });
+    expect(db.egresses[0]).toMatchObject({ quantity: 10, deletedAt: null });
+    expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
+
+    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 0, toReview: 0, failed: [] });
+    expect(db.incomes).toHaveLength(1);
+  });
+
+  it("si Urbano informó otra cantidad, no confirma ni usa la recepción", async () => {
+    await createPasaje(input, creator);
+    Object.assign(db.pasajes[0], { status: "pending", requestDate: null, createdAt: new Date("2026-11-02T12:00:00Z") });
+    db.movements.push({ id: 1, client: "Umiles", clientCode: "DG-1", inQuantity: 7, date: new Date("2026-11-03T12:00:00Z"), voucher: "V", pasajeId: null });
+
+    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 0, toReview: 1, failed: [] });
+    expect(db.pasajes[0]).toMatchObject({ status: "pending" });
+    expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 0 });
+    expect(db.movements[0]).toMatchObject({ pasajeId: null });
   });
 
   it("si inactivaron el egreso a mano, confirmar lo vuelve a registrar", async () => {

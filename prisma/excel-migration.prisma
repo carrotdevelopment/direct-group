@@ -609,6 +609,8 @@ model PasajeRequest {
   // true: el egreso se registró al crear el pasaje. false: pasaje anterior a ese cambio, que todavía
   // no descontó stock y por eso sigue reservando el disponible hasta confirmarse.
   egressImpacted  Boolean   @default(false) @map("egreso_impactado")
+  // Comprobante de Urbano con el que se confirmó automáticamente.
+  urbanoVoucher   String?   @map("comprobante_urbano") @db.VarChar(255)
   // Pasajes cargados desde la solicitud de pasaje de stock a Urbano (Excel).
   batchId         String?   @map("lote_id") @db.Uuid
   requestDate     DateTime? @map("fecha_solicitud") @db.Date
@@ -708,11 +710,14 @@ model UrbanoMovement {
   balance     Decimal  @default(0) @map("saldo") @db.Decimal(18, 4)
   client      String?  @map("cliente") @db.VarChar(255)
   uniqueCode  String?  @map("codigo_unico") @db.VarChar(255)
+  // Pasaje que se confirmó con esta recepción: una recepción no se puede usar dos veces.
+  pasajeId    String?  @map("pasaje_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([date])
   @@index([clientCode])
   @@index([client, date])
+  @@index([pasajeId])
   @@map("urbano_movimientos")
 }
 

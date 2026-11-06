@@ -1,8 +1,9 @@
 import "server-only";
-import type { Prisma } from "../node_modules/.prisma/excel-client";
+import type { PasajeRequest, Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { tangoPasajeOperations, tangoWindowStart } from "@/lib/pasaje-tango-match";
+import { matchUrbanoReceptions, urbanoSearchStart } from "@/lib/pasaje-urbano-match";
 import { canActForClient, canConfirmPasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
 
 export class PasajeAjusteError extends Error {
@@ -197,76 +198,93 @@ export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
   return pasaje;
 }
 
+// Estados: pending (ya egresó del origen; el ingreso espera lo que informe Urbano) → confirmed (ingresó al
+// destino lo que recibió Urbano, automáticamente o a mano si la cantidad no coincide). rejected es un pasaje
+// cancelado: se revierte el egreso. approved es de cuando había aprobaciones: se trata igual que pending.
+const OPEN_STATUSES = ["pending", "approved"];
+export const URBANO_ACTOR = "Urbano (automático)";
+
+// Recepciones de Urbano sin usar, cruzadas con los pasajes abiertos.
+async function urbanoMatches(open: PasajeRequest[]) {
+  if (open.length === 0) return { matches: [], review: [] };
+  const from = new Date(Math.min(...open.map((pasaje) => urbanoSearchStart(pasaje).getTime())));
+  const receptions = await excelPostgres.urbanoMovement.findMany({
+    where: { type: "RECEPCION", pasajeId: null, inQuantity: { gt: 0 }, date: { gte: from } },
+    select: { id: true, client: true, clientCode: true, inQuantity: true, date: true, voucher: true },
+  });
+  return matchUrbanoReceptions(
+    open.map((pasaje) => ({ id: pasaje.id, toClient: pasaje.toClient, toClientCode: pasaje.toClientCode, quantity: Number(pasaje.quantity), requestDate: pasaje.requestDate, createdAt: pasaje.createdAt })),
+    receptions.map((item) => ({ id: item.id, client: item.client, clientCode: item.clientCode, quantity: Number(item.inQuantity), date: item.date, voucher: item.voucher })),
+  );
+}
+
 export async function listPasajes(actor: PasajeActor, status?: string) {
   const rows = await excelPostgres.pasajeRequest.findMany({
     where: status ? { status } : undefined,
     orderBy: [{ createdAt: "desc" }, { sourceRow: "asc" }],
     include: { batch: { select: { fileName: true, requestDate: true } } },
   });
-  return rows.filter((row) => canSeePasaje(actor, row));
+  const { matches, review } = await urbanoMatches(rows.filter((row) => OPEN_STATUSES.includes(row.status)));
+  const informed = new Map<string, { received: number; vouchers: string[]; exact: boolean }>();
+  for (const item of review) informed.set(item.pasajeId, { received: item.received, vouchers: item.vouchers, exact: false });
+  for (const item of matches) informed.set(item.pasajeId, { received: item.quantity, vouchers: item.vouchers, exact: true });
+  return rows
+    .filter((row) => canSeePasaje(actor, row))
+    .map((row) => ({ ...row, urbanoInformed: informed.get(row.id) ?? null }));
 }
 
-// Estados: pending (ya egresó del origen; espera aprobación del receptor) → approved (el receptor
-// aprobó; el ingreso sigue pendiente de lo que informe Urbano) → confirmed (quien generó el pasaje o
-// tiene el cliente origen carga la cantidad realmente pasada: ingresa al destino y el egreso se ajusta
-// a esa cantidad). rejected cierra el pasaje y revierte el egreso.
-export async function respondPasaje(
-  id: string,
-  action: "approve" | "reject",
-  actor: PasajeActor,
-  comment?: string,
-) {
-  const respondedBy = actor.name;
+// Cancela un pasaje mal cargado: el stock vuelve al origen. Puede hacerlo cualquiera que lo vea.
+export async function cancelPasaje(id: string, actor: PasajeActor, comment?: string) {
   const result = await excelPostgres.$transaction(async (tx) => {
     const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
     if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
-    if (pasaje.status !== "pending") throw new PasajeAjusteError("Ese pasaje ya fue resuelto.", 409);
-    if (!canActForClient(actor, pasaje.toClient)) {
-      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${pasaje.toClient} puede aprobar o rechazar este pasaje.`, 403);
-    }
-    if (isSelf(actor, pasaje.createdBy)) {
-      throw new PasajeAjusteError("No podés resolver un pasaje que generaste vos: lo tiene que aprobar la otra parte.", 403);
-    }
-
+    if (!OPEN_STATUSES.includes(pasaje.status)) throw new PasajeAjusteError("Ese pasaje ya fue resuelto.", 409);
+    if (!canSeePasaje(actor, pasaje)) throw new PasajeAjusteError("No tenés asignado ninguno de los clientes de este pasaje.", 403);
+    const now = new Date();
     const updated = await tx.pasajeRequest.update({
       where: { id },
-      data: {
-        status: action === "approve" ? "approved" : "rejected",
-        respondedBy,
-        respondedAt: new Date(),
-        responseComment: text(comment) || null,
-      },
+      data: { status: "rejected", respondedBy: actor.name, respondedAt: now, responseComment: text(comment) || null },
     });
-    if (action === "reject") await revertPasajeMovements(tx, id, respondedBy, new Date());
-
+    await revertPasajeMovements(tx, id, actor.name, now);
     return updated;
   });
-  if (action === "reject") invalidateIncomeGroups();
+  invalidateIncomeGroups();
   return result;
-}
-
-// Aprueba o rechaza varios pasajes de una vez (por ejemplo, todos los de una solicitud a Urbano).
-// Cada uno se resuelve por separado: los que no se pueden quedan informados con su motivo.
-export async function respondPasajes(ids: string[], action: "approve" | "reject", actor: PasajeActor, comment?: string) {
-  if (!Array.isArray(ids) || ids.length === 0) throw new PasajeAjusteError("No hay pasajes para resolver.");
-  if (ids.length > 300) throw new PasajeAjusteError("Se pueden resolver hasta 300 pasajes por vez.");
-  const done: string[] = [];
-  const failed: { id: string; message: string }[] = [];
-  for (const id of ids) {
-    try {
-      await respondPasaje(String(id), action, actor, comment);
-      done.push(String(id));
-    } catch (error) {
-      failed.push({ id: String(id), message: error instanceof Error ? error.message : "No se pudo resolver." });
-    }
-  }
-  return { done, failed };
 }
 
 // Se confirma cuánto pasó realmente (lo que informa Urbano): ingresa al destino esa cantidad y el
 // egreso del origen se ajusta a ella. Si es menor a la aprobada, la diferencia vuelve al origen; con 0
 // se revierte todo. Si un movimiento no existe (pasaje anterior al cambio, o egreso inactivado a mano
 // en el historial), se crea: lo confirmado por Urbano tiene que quedar registrado.
+async function applyConfirmation(tx: Prisma.TransactionClient, pasaje: PasajeRequest, quantityConfirmed: number, actorName: string, urbanoVoucher?: string) {
+  const id = pasaje.id;
+  const now = new Date();
+  const updated = await tx.pasajeRequest.update({
+    where: { id },
+    data: { status: "confirmed", confirmedQuantity: quantityConfirmed, confirmedBy: actorName, confirmedAt: now, urbanoVoucher: urbanoVoucher ?? null },
+  });
+  if (quantityConfirmed === 0) {
+    await revertPasajeMovements(tx, id, actorName, now);
+    return updated;
+  }
+  if (!(await linkExistingTangoIncome(tx, pasaje, quantityConfirmed))) {
+    const delivered = { quantity: quantityConfirmed, deliveredQuantity: quantityConfirmed, deliveryDate: now, pendingTangoEntry: true };
+    const income = await tx.tangoIncome.updateMany({ where: { pasajeId: id }, data: delivered });
+    if (income.count === 0) {
+      await tx.tangoIncome.create({ data: { ...incomeForPasaje(id, pasaje, quantityConfirmed, now, actorName), ...delivered } });
+    }
+  }
+  const egress = await tx.egress.updateMany({
+    where: { pasajeId: id, deletedAt: null },
+    data: { quantity: quantityConfirmed, ...(quantityConfirmed === Number(pasaje.quantity) ? {} : { modifiedBy: actorName }) },
+  });
+  if (egress.count === 0) {
+    await tx.egress.create({ data: egressForPasaje(id, pasaje, quantityConfirmed, now, actorName) });
+  }
+  return updated;
+}
+
+// Confirmación a mano: para cuando lo que informó Urbano no coincide con lo pedido.
 export async function confirmPasaje(id: string, confirmedQuantity: number, actor: PasajeActor) {
   const quantityConfirmed = Number(confirmedQuantity);
   if (!Number.isFinite(quantityConfirmed) || quantityConfirmed < 0) {
@@ -275,47 +293,46 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
   const result = await excelPostgres.$transaction(async (tx) => {
     const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
     if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
-    if (pasaje.status !== "approved") {
-      throw new PasajeAjusteError("Solo se pueden confirmar pasajes aprobados que todavía no se confirmaron.", 409);
+    if (!OPEN_STATUSES.includes(pasaje.status)) {
+      throw new PasajeAjusteError("Ese pasaje ya fue resuelto.", 409);
     }
     if (!canConfirmPasaje(actor, pasaje)) {
       throw new PasajeAjusteError(`Solo quien generó el pasaje o tiene asignado el cliente ${pasaje.fromClient} puede confirmarlo.`, 403);
     }
-    const approved = Number(pasaje.quantity);
-    if (quantityConfirmed > approved) {
-      throw new PasajeAjusteError(`No se puede confirmar más de lo aprobado (${approved}).`);
+    if (quantityConfirmed > Number(pasaje.quantity)) {
+      throw new PasajeAjusteError(`No se puede confirmar más de lo pedido (${Number(pasaje.quantity)}).`);
     }
-
-    const now = new Date();
-    const updated = await tx.pasajeRequest.update({
-      where: { id },
-      data: { status: "confirmed", confirmedQuantity: quantityConfirmed, confirmedBy: actor.name, confirmedAt: now },
-    });
-    if (quantityConfirmed === 0) {
-      await revertPasajeMovements(tx, id, actor.name, now);
-      return updated;
-    }
-    if (!(await linkExistingTangoIncome(tx, pasaje, quantityConfirmed))) {
-      const delivered = { quantity: quantityConfirmed, deliveredQuantity: quantityConfirmed, deliveryDate: now, pendingTangoEntry: true };
-      const income = await tx.tangoIncome.updateMany({ where: { pasajeId: id }, data: delivered });
-      if (income.count === 0) {
-        await tx.tangoIncome.create({ data: { ...incomeForPasaje(id, pasaje, quantityConfirmed, now, actor.name), ...delivered } });
-      }
-    }
-    const egress = await tx.egress.updateMany({
-      where: { pasajeId: id, deletedAt: null },
-      data: { quantity: quantityConfirmed, ...(quantityConfirmed === approved ? {} : { modifiedBy: actor.name }) },
-    });
-    if (egress.count === 0) {
-      await tx.egress.create({ data: egressForPasaje(id, pasaje, quantityConfirmed, now, actor.name) });
-    }
-    return updated;
+    return applyConfirmation(tx, pasaje, quantityConfirmed, actor.name);
   });
   invalidateIncomeGroups();
   return result;
 }
 
-// Confirma varios pasajes con su cantidad real (la segunda aprobación de una solicitud a Urbano).
+// Confirma los pasajes cuya recepción ya informó Urbano. Corre después de cada carga de movimientos.
+// Cada pasaje va en su propia transacción: si uno falla, los demás se confirman igual.
+export async function reconcilePasajesWithUrbano() {
+  const open = await excelPostgres.pasajeRequest.findMany({ where: { status: { in: OPEN_STATUSES } } });
+  const { matches, review } = await urbanoMatches(open);
+  const failed: { id: string; message: string }[] = [];
+  let confirmed = 0;
+  for (const match of matches) {
+    try {
+      await excelPostgres.$transaction(async (tx) => {
+        const pasaje = await tx.pasajeRequest.findUnique({ where: { id: match.pasajeId } });
+        if (!pasaje || !OPEN_STATUSES.includes(pasaje.status)) return;
+        await applyConfirmation(tx, pasaje, match.quantity, URBANO_ACTOR, match.vouchers.join(", ").slice(0, 255));
+        await tx.urbanoMovement.updateMany({ where: { id: { in: match.receptionIds } }, data: { pasajeId: pasaje.id } });
+        confirmed += 1;
+      });
+    } catch (error) {
+      failed.push({ id: match.pasajeId, message: error instanceof Error ? error.message : "No se pudo confirmar." });
+    }
+  }
+  if (confirmed > 0) invalidateIncomeGroups();
+  return { confirmed, toReview: review.length, failed };
+}
+
+// Confirma varios pasajes con su cantidad real.
 export async function confirmPasajes(items: { id: string; quantity: number }[], actor: PasajeActor) {
   if (!Array.isArray(items) || items.length === 0) throw new PasajeAjusteError("No hay pasajes para confirmar.");
   if (items.length > 300) throw new PasajeAjusteError("Se pueden confirmar hasta 300 pasajes por vez.");

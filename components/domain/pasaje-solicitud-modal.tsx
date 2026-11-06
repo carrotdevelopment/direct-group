@@ -8,7 +8,6 @@ import { parseSolicitudSheet, type ResolvedRow, type SolicitudRow } from "@/lib/
 type CreateResult = {
   created: number;
   skipped: { row: number; messages: string[] }[];
-  notifications: { sent: { to: string; pasajes: number }[]; failed: { to: string; error: string }[]; withoutRecipient: string[] };
 };
 
 function formatDate(iso: string | null) {
@@ -105,8 +104,8 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
         <h2 className="mt-2 text-xl font-black">Cargar solicitud de pasaje de stock a Urbano</h2>
         <p className="mt-2 max-w-3xl text-xs text-[#62728a]">
           Subí el Excel de la solicitud. El cliente sale del shipper (SH) y del código: si el código es de otro cliente
-          que el del shipper, se usa el del código y la fila queda con aviso. Cada pasaje lo aprueba quien tiene asignado
-          el cliente destino (le llega un correo), y después se confirma la cantidad que realmente pasó Urbano.
+          que el del shipper, se usa el del código y la fila queda con aviso. Cada pasaje egresa del origen al cargarlo y
+          el ingreso se confirma cuando Urbano informa la recepción.
         </p>
 
         {!result && (
@@ -123,21 +122,8 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
         {result ? (
           <div className="mt-4 space-y-3 overflow-y-auto text-xs">
             <p className="rounded-xl bg-[#e7f7eb] px-4 py-3 font-bold text-[#23783a]">
-              Se cargaron {result.created} pasajes. Quedaron pendientes de aprobación del cliente destino.
+              Se cargaron {result.created} pasajes. Ya egresaron del origen y el ingreso se confirma cuando Urbano informe la recepción.
             </p>
-            {result.notifications.sent.length > 0 && (
-              <p className="text-[#334b6b]">
-                Avisos enviados por correo: {result.notifications.sent.map((item) => `${item.to} (${item.pasajes})`).join(", ")}.
-              </p>
-            )}
-            {result.notifications.failed.length > 0 && (
-              <p className="rounded-xl bg-[#fff0d9] px-4 py-3 font-bold text-[#985b00]">
-                No se pudo avisar a: {result.notifications.failed.map((item) => `${item.to} (${item.error})`).join("; ")}. Los pasajes igual quedaron cargados.
-              </p>
-            )}
-            {result.notifications.withoutRecipient.length > 0 && (
-              <p className="text-[#985b00]">Sin nadie a quien avisar para: {result.notifications.withoutRecipient.join(", ")}.</p>
-            )}
             {result.skipped.length > 0 && (
               <div className="rounded-xl bg-[#fce9e8] px-4 py-3 text-[#a43d39]">
                 <div className="font-bold">No se cargaron {result.skipped.length} filas (con error o cambios de código del mismo cliente):</div>
@@ -211,7 +197,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
             <div className="mt-4 flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
               <Button type="button" disabled={loading || valid.length === 0 || !!duplicateFile} onClick={() => void submit()}>
-                Cargar {valid.length} {valid.length === 1 ? "pasaje" : "pasajes"} y avisar a los destinos
+                Cargar {valid.length} {valid.length === 1 ? "pasaje" : "pasajes"}
               </Button>
             </div>
           </>
