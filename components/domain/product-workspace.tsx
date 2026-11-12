@@ -14,6 +14,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
+  FileSpreadsheet,
   Image as ImageIcon,
   Layers3,
   PackageCheck,
@@ -22,12 +24,14 @@ import {
   Search,
   Trash2,
   Truck,
+  Upload,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { SummaryStrip } from "@/components/domain/summary-strip";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
+import { PRODUCT_BULK_HEADERS, productBulkRowsFromSheet } from "@/lib/product-bulk-file";
 import { describeSimilarCode, findSimilarProductCodes } from "@/lib/product-code-similarity";
 
 type Product = {
@@ -414,6 +418,9 @@ export function ProductWorkspace() {
   const [visibleLimit, setVisibleLimit] = useState(visibleBatchSize);
   const [bulkRows, setBulkRows] = useState<BulkRow[]>(() => blankBulkRows());
   const [bulkError, setBulkError] = useState("");
+  const [bulkNotice, setBulkNotice] = useState("");
+  const bulkSectionRef = useRef<HTMLElement>(null);
+  const bulkFileRef = useRef<HTMLInputElement>(null);
   const [bulkPending, setBulkPending] = useState<BulkPendingState | null>(null);
   const [selectedBulkCells, setSelectedBulkCells] = useState<Set<string>>(
     new Set(),
@@ -800,6 +807,47 @@ export function ProductWorkspace() {
     setBulkError("");
   }
 
+  function openBulk() {
+    bulkSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Lee un Excel o CSV y lo vuelca en la tabla de carga masiva, para revisarlo antes de importar.
+  async function loadBulkFile(file: File) {
+    setBulkError("");
+    setBulkNotice("");
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = productBulkRowsFromSheet(
+        sheet ? XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "" }) : [],
+      );
+      if (rows.length === 0) {
+        setBulkError(`${file.name} no tiene filas con productos.`);
+        return;
+      }
+      setBulkRows((current) => [
+        ...current.filter((row) => BULK_COLUMNS.some((col) => row[col].trim())),
+        ...rows,
+      ]);
+      setSelectedBulkCells(new Set());
+      setBulkNotice(`${rows.length} ${rows.length === 1 ? "fila cargada" : "filas cargadas"} de ${file.name}. Revisalas y tocá "Revisar e importar".`);
+    } catch {
+      setBulkError(`No pude leer ${file.name}. Subí un Excel (.xlsx o .xls) o un CSV.`);
+    }
+  }
+
+  async function downloadBulkTemplate() {
+    const XLSX = await import("xlsx");
+    const sheet = XLSX.utils.aoa_to_sheet([
+      PRODUCT_BULK_HEADERS,
+      ["Freidora Air 5 AF2050", "Smart Tek", "421000005", "ACEGAME", "ELECTRODOMESTICOS", 1, "AF2050"],
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Productos");
+    XLSX.writeFile(workbook, "plantilla-productos.xlsx");
+  }
+
   function reviewBulk() {
     const filled = bulkRows.filter((r) => r.name.trim() || r.code.trim());
     if (filled.length === 0) {
@@ -820,6 +868,13 @@ export function ProductWorkspace() {
     if (dupInBatch.length > 0) {
       setBulkError(
         `Código único repetido en el borrador: ${dupInBatch.join(", ")}. Corregí antes de importar.`,
+      );
+      return;
+    }
+    const badPackage = filled.filter((row) => row.unitsPerPackage.trim() && !(Number(row.unitsPerPackage) > 0));
+    if (badPackage.length > 0) {
+      setBulkError(
+        `Bulto inválido en ${badPackage.map((row) => row.code.trim() || row.name.trim()).slice(0, 5).join(", ")}: tiene que ser un número mayor a cero o quedar vacío.`,
       );
       return;
     }
@@ -883,6 +938,7 @@ export function ProductWorkspace() {
     setBulkPending(null);
     setBulkRows(blankBulkRows());
     setSelectedBulkCells(new Set());
+    setBulkNotice("");
   }
 
   return (
@@ -958,6 +1014,9 @@ export function ProductWorkspace() {
               }
             >
               <Power size={14} /> Desactivar seleccionados ({selected.size})
+            </Button>
+            <Button variant="secondary" size="sm" onClick={openBulk}>
+              <FileSpreadsheet size={14} /> Carga masiva
             </Button>
             <Button size="sm" onClick={openCreate}>
               <Plus size={15} /> Nuevo producto
@@ -1137,16 +1196,38 @@ export function ProductWorkspace() {
         </div>
       </section>
 
-      <section className="card mt-4 animate-enter overflow-hidden">
-        <div className="border-b border-[#e1e8f1] bg-white p-4">
+      <section ref={bulkSectionRef} id="carga-masiva" className="card mt-4 scroll-mt-4 animate-enter overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e1e8f1] bg-white p-4">
+          <div>
           <div className="eyebrow">Importación</div>
           <h2 className="mt-1 text-base font-black text-[#10233f]">Carga masiva de productos</h2>
           <p className="mt-1 text-[11px] font-medium text-[#62728a]">
-            Completá la tabla o pegá desde Excel. Orden de columnas: Producto · Marca · Código único · Proveedor · Categoría · Bulto · Cód. Único Prov.
+            Subí un Excel, completá la tabla o pegá desde Excel. Orden de columnas: Producto · Marca · Código único · Proveedor · Categoría · Bulto · Cód. Único Prov.
+            Los códigos únicos que ya existen se omiten.
           </p>
           <p className="mt-1 text-[10px] font-bold text-[#8a99ad]">
             Tip: mantené click y arrastrá para seleccionar celdas. Un nuevo click inicia una selección nueva.
           </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => void downloadBulkTemplate()}>
+              <Download size={14} /> Plantilla
+            </Button>
+            <Button type="button" size="sm" onClick={() => bulkFileRef.current?.click()}>
+              <Upload size={14} /> Subir Excel
+            </Button>
+            <input
+              ref={bulkFileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void loadBulkFile(file);
+              }}
+            />
+          </div>
         </div>
         <div className="overflow-auto">
           <table className="w-full min-w-[880px] table-fixed text-left text-[10.5px]">
@@ -1238,6 +1319,11 @@ export function ProductWorkspace() {
             <option key={category.id} value={category.name} />
           ))}
         </datalist>
+        {bulkNotice && !bulkError && (
+          <div className="mx-4 mt-3 rounded-xl bg-[#e8f4ec] px-4 py-2.5 text-[11px] font-bold text-[#2f6b45]">
+            {bulkNotice}
+          </div>
+        )}
         {bulkError && (
           <div className="mx-4 mt-3 rounded-xl bg-[#fce9e8] px-4 py-2.5 text-[11px] font-bold text-[#a43d39]">
             {bulkError}

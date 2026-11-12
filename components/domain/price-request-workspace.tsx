@@ -121,6 +121,9 @@ function withCalculatedMarkup(record: PriceRecord): PriceRecord {
 
 export function PriceRequestWorkspace() {
   const [suppliers, setSuppliers] = useState<SupplierMailConfig[]>([]);
+  // La lista de proveedores del envío mensual arranca cerrada para no ocupar la página.
+  const [suppliersOpen, setSuppliersOpen] = useState(false);
+  const [supplierQuery, setSupplierQuery] = useState("");
   const [prices, setPrices] = useState<PriceRecord[]>([]);
   const [pricesLoading, setPricesLoading] = useState(true);
   const [pricesFetching, setPricesFetching] = useState(false);
@@ -607,6 +610,15 @@ export function PriceRequestWorkspace() {
     setPriceDraft(null);
   }
 
+  const activeSupplierCount = suppliers.filter((config) => config.active).length;
+  const repliedSupplierCount = suppliers.filter((config) => config.repliedAt).length;
+  const supplierNeedle = supplierQuery.trim().toLowerCase();
+  const visibleSuppliers = supplierNeedle
+    ? suppliers.filter((config) =>
+        [config.supplier, config.contactName, config.email].some((value) => value.toLowerCase().includes(supplierNeedle)),
+      )
+    : suppliers;
+
   return (
     <>
       <PageHeader
@@ -616,19 +628,28 @@ export function PriceRequestWorkspace() {
       />
 
       <section className="card mb-5 overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-[#dbe4ef] bg-[#edf4fc] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="eyebrow">Envío mensual</div>
-            <h2 className="mt-1 text-base font-black text-[#10233f]">
-              Proveedores y destinatarios
-            </h2>
-            <p className="mt-1 text-[11px] text-[#62728a]">
-              Los proveedores activos reciben solos el pedido de catálogo el
-              primer día hábil de cada mes. El botón de prueba envía ahora mismo
-              a la casilla cargada. Las respuestas se revisan todos los días a
-              las 14:00 o con &quot;Revisar respuestas&quot;.
-            </p>
-          </div>
+        <div className="flex flex-col gap-3 bg-[#edf4fc] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={() => setSuppliersOpen((open) => !open)}
+            aria-expanded={suppliersOpen}
+            className="flex min-w-0 items-center gap-3 text-left"
+          >
+            <ChevronDown size={18} className={`shrink-0 text-[#0b5bbb] transition ${suppliersOpen ? "" : "-rotate-90"}`} />
+            <div className="min-w-0">
+              <div className="eyebrow">Envío mensual</div>
+              <h2 className="mt-0.5 text-sm font-black text-[#10233f]">
+                Proveedores y destinatarios
+              </h2>
+              <p
+                className="mt-0.5 text-[11px] font-semibold text-[#62728a]"
+                title={'Los proveedores activos reciben solos el pedido de catálogo el primer día hábil de cada mes. El botón de prueba envía ahora mismo a la casilla cargada. Las respuestas se revisan todos los días a las 14:00 o con "Revisar respuestas".'}
+              >
+                {activeSupplierCount} activos · {repliedSupplierCount} contestaron · pedido el 1.er día hábil del mes
+                {!suppliersOpen && suppliers.length > 0 && " · tocá para ver la lista"}
+              </p>
+            </div>
+          </button>
           <div className="flex flex-wrap gap-2">
             <Link
               href="/configuracion?seccion=correos"
@@ -645,16 +666,9 @@ export function PriceRequestWorkspace() {
           </div>
         </div>
 
-        <div className="border-b border-[#dbe4ef] bg-white px-3 py-2 text-[11px] font-semibold text-[#62728a]">
-          Casilla de salida: se toma del servidor con{" "}
-          <span className="font-mono text-[#10233f]">SMTP_FROM</span>. Si no
-          está definido, usa{" "}
-          <span className="font-mono text-[#10233f]">SMTP_USER</span>.
-        </div>
-
         {mailStatus && (
           <div
-            className={`mx-5 mt-4 rounded-xl px-2 py-2 text-xs font-bold ${
+            className={`mx-5 my-3 rounded-xl px-3 py-2 text-xs font-bold ${
               mailStatus.tone === "success"
                 ? "bg-[#e7f6ec] text-[#297a45]"
                 : "bg-[#fce9e8] text-[#a43d39]"
@@ -664,14 +678,28 @@ export function PriceRequestWorkspace() {
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1160px] text-left text-[11px]">
-            <thead>
+        {suppliersOpen && (
+        <>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-y border-[#dbe4ef] bg-white px-4 py-2">
+          <div className="relative w-full max-w-[280px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8a99ad]" />
+            <input
+              value={supplierQuery}
+              onChange={(event) => setSupplierQuery(event.target.value)}
+              placeholder="Buscar proveedor, contacto o correo"
+              className="h-8 w-full rounded-lg border border-[#dbe4ef] bg-[#f8fafd] pl-8 pr-3 text-[11px] outline-none focus:border-[#7da4d3]"
+            />
+          </div>
+          <span className="text-[10px] font-semibold text-[#8a99ad]">
+            Casilla de salida: <span className="font-mono">SMTP_FROM</span> del servidor (o <span className="font-mono">SMTP_USER</span>).
+          </span>
+        </div>
+        <div className="max-h-[340px] overflow-auto">
+          <table className="w-full min-w-[980px] text-left text-[11px]">
+            <thead className="sticky top-0 z-[1]">
               <tr className="border-b border-[#dbe4ef] bg-[#f8fafd] font-bold text-[#334b6b]">
                 <th className="px-3 py-2">Proveedor</th>
-                <th className="px-2 py-2">Persona de contacto</th>
-                <th className="px-2 py-2">Correo</th>
-                <th className="px-2 py-2 text-center">Frecuencia</th>
+                <th className="px-2 py-2">Contacto</th>
                 <th className="px-2 py-2 text-center">Último envío</th>
                 <th className="px-2 py-2 text-center">Respuesta</th>
                 <th className="px-2 py-2 text-center">Reconsulta</th>
@@ -681,27 +709,22 @@ export function PriceRequestWorkspace() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e7edf4]">
-              {suppliers.map((config) => (
+              {visibleSuppliers.map((config) => (
                 <tr key={config.id} className="hover:bg-[#f8fafd]">
-                  <td className="px-3 py-2 font-bold text-[#10233f]">
+                  <td className="px-3 py-1.5 font-bold text-[#10233f]">
                     {config.supplier}
                   </td>
-                  <td className="px-2 py-2 text-[#425979]">
-                    {config.contactName}
-                  </td>
-                  <td className="px-2 py-2 text-[#425979]">
-                    <span className="inline-flex items-center gap-2">
-                      <Mail size={13} className="text-[#0b5bbb]" />
+                  <td className="px-2 py-1.5 text-[#425979]">
+                    <div className="font-semibold">{config.contactName}</div>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[#62728a]">
+                      <Mail size={11} className="text-[#0b5bbb]" />
                       {config.email}
                     </span>
                   </td>
-                  <td className="px-2 py-2 text-center text-[#425979]">
-                    1.er día hábil
-                  </td>
-                  <td className="px-2 py-2 text-center text-[#425979]">
+                  <td className="px-2 py-1.5 text-center text-[#425979]">
                     {formatDate(config.lastSent)}
                   </td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     {config.repliedAt ? (
                       <span title={`Contestó el ${formatDate(config.repliedAt)}${config.replyHasAttachment ? " con adjunto" : " sin adjunto"}`}>
                         <Badge tone="success">
@@ -714,21 +737,21 @@ export function PriceRequestWorkspace() {
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <Button
                       size="sm"
                       variant="secondary"
                       onClick={() => void sendFollowUp(config)}
                       disabled={!config.lastSent || followUpId === config.id}
                       title={!config.lastSent ? "Todavía no se mandó el pedido del mes" : config.lastFollowUpAt ? `Última reconsulta: ${formatDate(config.lastFollowUpAt)}` : undefined}
-                      className="h-8 px-3 text-[10px]"
+                      className="h-7 px-2.5 text-[10px]"
                     >
                       {followUpId === config.id ? <LoaderCircle size={13} className="animate-spin" /> : <Send size={13} />}
                       Reconsulta
                     </Button>
                     {config.lastFollowUpAt && <div className="mt-0.5 text-[9px] text-[#8a99ad]">{formatDate(config.lastFollowUpAt)}</div>}
                   </td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <button
                       type="button"
                       onClick={() => toggleSupplier(config.id)}
@@ -738,12 +761,12 @@ export function PriceRequestWorkspace() {
                       </Badge>
                     </button>
                   </td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <Button
                       size="sm"
                       onClick={() => sendTestRequest(config)}
                       disabled={sendingId === config.id}
-                      className="h-8 px-3 text-[10px]"
+                      className="h-7 px-2.5 text-[10px]"
                     >
                       {sendingId === config.id ? (
                         <LoaderCircle size={13} className="animate-spin" />
@@ -753,12 +776,12 @@ export function PriceRequestWorkspace() {
                       Enviar prueba
                     </Button>
                   </td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-1.5 text-center">
                     <Button
                       size="sm"
                       variant="secondary"
                       onClick={() => openSupplierEdit(config)}
-                      className="h-8 px-3 text-[10px]"
+                      className="h-7 px-2.5 text-[10px]"
                     >
                       <Pencil size={13} /> Editar
                     </Button>
@@ -766,7 +789,7 @@ export function PriceRequestWorkspace() {
                       size="sm"
                       variant="ghost"
                       onClick={() => deleteSupplier(config)}
-                      className="ml-1 h-8 px-2 text-[10px]"
+                      className="ml-1 h-7 px-2 text-[10px]"
                       aria-label={`Quitar ${config.supplier}`}
                     >
                       <Trash2 size={13} />
@@ -776,11 +799,16 @@ export function PriceRequestWorkspace() {
               ))}
             </tbody>
           </table>
+          {suppliers.length > 0 && visibleSuppliers.length === 0 && (
+            <div className="px-5 py-6 text-center text-xs text-[#74849a]">Ningún proveedor coincide con la búsqueda.</div>
+          )}
         </div>
         {suppliers.length === 0 && (
-          <div className="px-5 py-12 text-center text-xs text-[#74849a]">
+          <div className="px-5 py-6 text-center text-xs text-[#74849a]">
             Todavía no hay proveedores configurados.
           </div>
+        )}
+        </>
         )}
       </section>
 

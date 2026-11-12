@@ -33,7 +33,7 @@ async function main() {
     // Aunque falle la carga de hoy, los movimientos ya guardados pueden crear y confirmar pasajes.
     try {
       const result = await createPasajesFromUrbano();
-      console.log(`${stamp()} Pasajes nuevos desde Urbano: ${result.created}${result.withoutCode.length ? `, ${result.withoutCode.length} salidas sin código cliente` : ""}${result.failed.length ? `, ${result.failed.length} con error` : ""}.`);
+      console.log(`${stamp()} Pasajes nuevos desde Urbano: ${result.created}${result.matched ? `, ${result.matched} vinculados a pasajes cargados a mano` : ""}${result.withoutCode.length ? `, ${result.withoutCode.length} salidas sin código cliente` : ""}${result.failed.length ? `, ${result.failed.length} con error` : ""}.`);
       if (result.withoutCode.length) console.log(`${stamp()} Salidas de pasaje sin código cliente (se reintentan): ${result.withoutCode.join(", ")}`);
       if (result.failed.length) {
         failed = true;

@@ -12,6 +12,12 @@ const db = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/postgres-operation-db", () => ({ invalidateIncomeGroups: vi.fn() }));
+// Stock disponible del origen para los pasajes cargados a mano.
+const stock = vi.hoisted(() => ({ available: 100 }));
+vi.mock("@/lib/pasaje-stock-db", () => ({
+  availableStockForCodes: async (_client: string, codes: string[]) =>
+    new Map(codes.map((code) => [code.toLowerCase(), { real: stock.available, reserved: 0, available: stock.available }])),
+}));
 vi.mock("@/lib/excel-postgres-client", () => {
   const matches = (row: Row, where: Row) => Object.entries(where).every(([key, value]) => row[key] === value);
   const table = (rows: () => Row[]) => ({
@@ -40,11 +46,17 @@ vi.mock("@/lib/excel-postgres-client", () => {
       ...table(() => db.pasajes),
       findUnique: async ({ where }: { where: { id: string } }) => db.pasajes.find((row) => row.id === where.id) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: Row }) => Object.assign(db.pasajes.find((row) => row.id === where.id)!, data),
-      findMany: async ({ where }: { where: { status: { in: string[] } } }) => db.pasajes.filter((row) => where.status.in.includes(row.status as string)),
+      findMany: async ({ where }: { where: { status: { in: string[] }; createdBy?: { not: string }; fromClientCode?: { equals: string }; quantity?: number } }) =>
+        db.pasajes.filter((row) => where.status.in.includes(row.status as string) &&
+          (!where.createdBy || row.createdBy !== where.createdBy.not) &&
+          (!where.fromClientCode || String(row.fromClientCode).toLowerCase() === where.fromClientCode.equals.toLowerCase()) &&
+          (where.quantity === undefined || Number(row.quantity) === where.quantity)),
+      findFirst: async ({ where }: { where: { status: string; fromClientCode: { equals: string } } }) =>
+        db.pasajes.find((row) => row.status === where.status && String(row.fromClientCode).toLowerCase() === where.fromClientCode.equals.toLowerCase()) ?? null,
     },
     urbanoMovement: {
-      findMany: async ({ where }: { where: { type?: string; pasajeOutgoing?: boolean } }) =>
-        db.movements.filter((row) => row.pasajeId === null && (!where.type || row.type === where.type) &&
+      findMany: async ({ where }: { where: { type?: string; pasajeOutgoing?: boolean; pasajeId?: null | { not: null } } }) =>
+        db.movements.filter((row) => (where.pasajeId ? row.pasajeId !== null : row.pasajeId === null) && (!where.type || row.type === where.type) &&
           (where.pasajeOutgoing === undefined || row.pasajeOutgoing === where.pasajeOutgoing)),
       updateMany: async ({ where, data }: { where: { id: number | { in: number[] }; pasajeId?: null }; data: Row }) => {
         const ids = typeof where.id === "number" ? [where.id] : where.id.in;
@@ -55,8 +67,8 @@ vi.mock("@/lib/excel-postgres-client", () => {
     },
     excelClientCode: {
       findMany: async () => db.clientCodes,
-      findFirst: async ({ where }: { where: { client: { equals: string }; clientCode: { equals: string } } }) =>
-        db.clientCodes.find((row) => String(row.client).toLowerCase() === where.client.equals.toLowerCase() &&
+      findFirst: async ({ where }: { where: { client?: { equals: string }; clientCode: { equals: string } } }) =>
+        db.clientCodes.find((row) => (!where.client || String(row.client).toLowerCase() === where.client.equals.toLowerCase()) &&
           String(row.clientCode).toLowerCase() === where.clientCode.equals.toLowerCase() && row.active && !row.voidedAt) ?? null,
     },
   };
@@ -70,7 +82,7 @@ vi.mock("@/lib/excel-postgres-client", () => {
 
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import {
-  cancelPasaje, confirmPasaje, createPasajesFromUrbano, createPasajeWithMovements, reconcilePasajesWithUrbano, setPasajeDestination,
+  cancelPasaje, confirmPasaje, createPasaje as createManualPasaje, createPasajesFromUrbano, createPasajeWithMovements, reconcilePasajesWithUrbano, setPasajeDestination,
 } from "@/lib/pasajes-ajustes-db";
 
 const creator = { name: "Emilia", role: "ADMIN", clients: [] };
@@ -88,6 +100,7 @@ const createPasaje = (data: typeof input, actor: { name: string }) =>
 const code = (client: string, clientCode: string, uniqueCode: string, active = true) => ({ client, clientCode, uniqueCode, active, voidedAt: null });
 
 beforeEach(() => {
+  stock.available = 100;
   db.pasajes.length = 0;
   db.egresses.length = 0;
   db.incomes.length = 0;
@@ -236,7 +249,7 @@ describe("pasajes creados desde las salidas de Urbano", () => {
 
   it("crea el pasaje sin destino, egresa del origen con la fecha de la salida y no la vuelve a usar", async () => {
     db.movements.push(salida());
-    expect(await createPasajesFromUrbano()).toEqual({ created: 1, withoutCode: [], failed: [] });
+    expect(await createPasajesFromUrbano()).toEqual({ created: 1, matched: 0, withoutCode: [], failed: [] });
     expect(db.pasajes[0]).toMatchObject({
       status: "no_destination", fromClient: "Pampa", fromClientCode: "76-5030", toClient: "", uniqueCode: "30433", quantity: 10,
       createdBy: "Urbano (automático)", comments: "Salida de Urbano E10010061768692", requestDate: new Date("2026-11-10T00:00:00Z"),
@@ -247,13 +260,13 @@ describe("pasajes creados desde las salidas de Urbano", () => {
     expect(db.incomes).toEqual([]);
     expect(db.movements[0]).toMatchObject({ pasajeId: db.pasajes[0].id });
 
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, withoutCode: [], failed: [] });
+    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 0, withoutCode: [], failed: [] });
     expect(db.pasajes).toHaveLength(1);
   });
 
   it("ignora los picking que no son pasaje y saltea los códigos que no están en Códigos Cliente", async () => {
     db.movements.push(salida({ id: 51, pasajeOutgoing: false }), salida({ id: 52, clientCode: "NO-EXISTE", voucher: "X1" }));
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, withoutCode: ["NO-EXISTE (X1)"], failed: [] });
+    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 0, withoutCode: ["NO-EXISTE (X1)"], failed: [] });
     expect(db.pasajes).toEqual([]);
     expect(db.movements.every((row) => row.pasajeId === null)).toBe(true);
   });
@@ -297,6 +310,40 @@ describe("pasajes creados desde las salidas de Urbano", () => {
     await cancelPasaje(db.pasajes[0].id as string, receiver);
     expect(db.pasajes[0]).toMatchObject({ status: "rejected" });
     expect(db.egresses[0].deletedAt).toBeInstanceOf(Date);
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, withoutCode: [], failed: [] });
+    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 0, withoutCode: [], failed: [] });
+  });
+});
+
+describe("pasajes cargados a mano", () => {
+  it("egresa del origen, deja el ingreso pendiente y guarda el aviso si no alcanzaba el stock", async () => {
+    stock.available = 4;
+    const pasaje = await createManualPasaje(input, creator);
+    expect(pasaje).toMatchObject({ status: "pending", createdBy: "Emilia", warning: "Se egresaron 10 con 4 disponibles en stock." });
+    expect(db.egresses).toEqual([expect.objectContaining({ client: "Pampa", quantity: 10, destination: "Umiles" })]);
+    expect(db.incomes).toEqual([expect.objectContaining({ client: "Umiles", clientCode: "DG-1", quantity: 10, deliveredQuantity: 0 })]);
+  });
+
+  it("sin faltante no guarda aviso", async () => {
+    expect(await createManualPasaje(input, creator)).toMatchObject({ warning: null });
+  });
+
+  it("no lo carga si Urbano ya informó esa salida y espera destino", async () => {
+    db.movements.push({ id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", outQuantity: 10, date: new Date(), voucher: "E1" });
+    await createPasajesFromUrbano();
+    await expect(createManualPasaje(input, creator)).rejects.toThrow("Sin destino");
+    expect(db.egresses).toHaveLength(1);
+  });
+
+  it("la salida de Urbano se vincula al pasaje cargado a mano en lugar de crear otro", async () => {
+    const pasaje = await createManualPasaje(input, creator);
+    db.movements.push({ id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", outQuantity: 10, date: new Date(), voucher: "E1" });
+    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 1, withoutCode: [], failed: [] });
+    expect(db.pasajes).toHaveLength(1);
+    expect(db.egresses).toHaveLength(1);
+    expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
+
+    // Una segunda salida igual ya no tiene pasaje manual libre: crea uno nuevo.
+    db.movements.push({ id: 51, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", outQuantity: 10, date: new Date(), voucher: "E2" });
+    expect(await createPasajesFromUrbano()).toEqual({ created: 1, matched: 0, withoutCode: [], failed: [] });
   });
 });

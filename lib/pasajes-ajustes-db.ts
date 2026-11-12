@@ -4,6 +4,7 @@ import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { tangoPasajeOperations, tangoWindowStart } from "@/lib/pasaje-tango-match";
 import { matchUrbanoReceptions, urbanoSearchStart } from "@/lib/pasaje-urbano-match";
+import { availableStockForCodes } from "@/lib/pasaje-stock-db";
 import { urbanoCodeFinder } from "@/lib/urbano-api-rows";
 import { canActForClient, canConfirmPasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
 
@@ -26,7 +27,7 @@ function isSelf(actor: PasajeActor, createdBy: string) {
 }
 
 // Un operador solo puede generar ajustes de los clientes que se le asignaron en Permisos; el
-// administrador no tiene restricción. Los pasajes no se cargan a mano: los crea la salida de Urbano.
+// administrador no tiene restricción. Los pasajes se pueden cargar desde cualquier cliente.
 function assertCanCreateFor(actor: PasajeActor, client: string) {
   if (!canActForClient(actor, client)) {
     throw new PasajeAjusteError(`No tenés asignado el cliente ${client} para generar este movimiento.`, 403);
@@ -35,6 +36,59 @@ function assertCanCreateFor(actor: PasajeActor, client: string) {
 
 export function visibleToActor(actor: PasajeActor, clients: string[]) {
   return actor.role === "ADMIN" || clients.some((client) => canActForClient(actor, client));
+}
+
+// El código único identifica el producto: un pasaje solo tiene sentido si el código cliente origen y el
+// destino tienen ese mismo producto asignado en Códigos Cliente. La pantalla ya filtra por esto.
+async function assertSharedUniqueCode(fromClientCode: string, toClientCode: string, uniqueCode: string) {
+  const [fromMapping, toMapping] = await Promise.all([
+    excelPostgres.excelClientCode.findFirst({ where: { clientCode: { equals: fromClientCode, mode: "insensitive" }, active: true } }),
+    excelPostgres.excelClientCode.findFirst({ where: { clientCode: { equals: toClientCode, mode: "insensitive" }, active: true } }),
+  ]);
+  if (!fromMapping || normalizeCode(text(fromMapping.uniqueCode)) !== normalizeCode(uniqueCode)) {
+    throw new PasajeAjusteError("El código cliente origen no tiene asignado ese código único.");
+  }
+  if (!toMapping || normalizeCode(text(toMapping.uniqueCode)) !== normalizeCode(uniqueCode)) {
+    throw new PasajeAjusteError("El código cliente destino no tiene asignado ese código único.");
+  }
+}
+
+export type PasajeInput = {
+  fromClient: string;
+  fromClientCode: string;
+  toClient: string;
+  toClientCode: string;
+  uniqueCode: string;
+  product?: string;
+  quantity: number;
+  comments?: string;
+};
+
+// Valida un pasaje cargado a mano y devuelve los datos listos para guardar.
+async function preparePasaje(input: PasajeInput, actor: PasajeActor) {
+  const quantity = Number(input.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new PasajeAjusteError("La cantidad tiene que ser mayor a cero.");
+  if (!text(input.fromClient) || !text(input.fromClientCode)) throw new PasajeAjusteError("Completá el cliente origen y su código cliente.");
+  if (!text(input.toClient) || !text(input.toClientCode)) throw new PasajeAjusteError("Completá el cliente destino y su código cliente.");
+  if (
+    text(input.fromClient).toLowerCase() === text(input.toClient).toLowerCase() &&
+    text(input.fromClientCode).toLowerCase() === text(input.toClientCode).toLowerCase()
+  ) {
+    throw new PasajeAjusteError("El origen y el destino no pueden ser el mismo código cliente.");
+  }
+  if (!text(input.uniqueCode)) throw new PasajeAjusteError("Falta el código único del producto.");
+  await assertSharedUniqueCode(input.fromClientCode, input.toClientCode, input.uniqueCode);
+  return {
+    fromClient: text(input.fromClient),
+    fromClientCode: text(input.fromClientCode),
+    toClient: text(input.toClient),
+    toClientCode: text(input.toClientCode),
+    uniqueCode: text(input.uniqueCode),
+    product: text(input.product) || null,
+    quantity,
+    comments: text(input.comments) || null,
+    createdBy: actor.name,
+  };
 }
 
 type PasajeMovement = {
@@ -135,6 +189,32 @@ async function linkExistingTangoIncome(
   await tx.tangoIncome.update({ where: { id: row.id }, data: { pasajeId: pasaje.id, transferOrigin: pasaje.fromClient } });
   await tx.tangoIncome.deleteMany({ where: { pasajeId: pasaje.id, externalKey: null } });
   return true;
+}
+
+// Pasaje cargado a mano: egresa del origen en el momento y deja el ingreso al destino pendiente hasta la
+// recepción de Urbano. Si se egresa más de lo que hay en stock se carga igual (la pantalla ya avisó) y queda
+// el aviso guardado en el pasaje. Si Urbano ya informó esa salida y espera destino, no se carga de nuevo:
+// se elige el destino de ese pasaje, porque si no egresaría dos veces.
+export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
+  const data = await preparePasaje(input, actor);
+  const informed = await excelPostgres.pasajeRequest.findFirst({
+    where: {
+      status: NO_DESTINATION,
+      fromClientCode: { equals: data.fromClientCode, mode: "insensitive" },
+      uniqueCode: { equals: data.uniqueCode, mode: "insensitive" },
+    },
+  });
+  if (informed) {
+    throw new PasajeAjusteError(
+      `Urbano ya informó una salida de ${Number(informed.quantity)} de ${informed.fromClientCode} que espera destino: elegí el destino en "Sin destino" en lugar de cargar otro pasaje.`,
+      409,
+    );
+  }
+  const available = (await availableStockForCodes(data.fromClient, [data.fromClientCode])).get(normalizeCode(data.fromClientCode))?.available ?? 0;
+  const warning = data.quantity > available ? `Se egresaron ${data.quantity} con ${available} disponibles en stock.` : null;
+  const pasaje = await excelPostgres.$transaction((tx) => createPasajeWithMovements(tx, { ...data, warning }));
+  invalidateIncomeGroups();
+  return pasaje;
 }
 
 // Estados: no_destination (Urbano informó la salida y ya egresó del origen; falta elegir el destino) →
@@ -287,6 +367,9 @@ async function activeClientCodes() {
     }));
 }
 
+// Un pasaje cargado a mano hasta estos días antes de la salida de Urbano se toma como el de esa salida.
+const MANUAL_MATCH_DAYS = 20;
+
 // Día de Argentina de un momento, como fecha sin hora.
 const argentinaDay = (date: Date) => new Date(`${new Date(date.getTime() - 3 * 3_600_000).toISOString().slice(0, 10)}T00:00:00.000Z`);
 
@@ -298,9 +381,14 @@ export async function createPasajesFromUrbano() {
     where: { type: "PICKING", pasajeOutgoing: true, pasajeId: null, outQuantity: { gt: 0 } },
     orderBy: [{ date: "asc" }, { id: "asc" }],
   });
-  const result = { created: 0, withoutCode: [] as string[], failed: [] as { voucher: string; message: string }[] };
+  const result = { created: 0, matched: 0, withoutCode: [] as string[], failed: [] as { voucher: string; message: string }[] };
   if (outgoing.length === 0) return result;
   const find = urbanoCodeFinder(await activeClientCodes());
+  // Pasajes que ya tienen su salida de Urbano: no se vuelven a usar.
+  const used = new Set(
+    (await excelPostgres.urbanoMovement.findMany({ where: { type: "PICKING", pasajeOutgoing: true, pasajeId: { not: null } }, select: { pasajeId: true } }))
+      .map((row) => row.pasajeId as string),
+  );
   for (const movement of outgoing) {
     const voucher = movement.voucher ?? String(movement.id);
     const origin = find(movement.clientCode);
@@ -309,8 +397,22 @@ export async function createPasajesFromUrbano() {
       continue;
     }
     try {
-      await excelPostgres.$transaction(async (tx) => {
-        const pasaje = await createPasajeWithMovements(tx, {
+      const matched = await excelPostgres.$transaction(async (tx) => {
+        // Si alguien ya lo cargó a mano (mismo origen, producto y cantidad), esa salida es la de ese pasaje:
+        // ya egresó, así que solo se vincula.
+        const manual = (await tx.pasajeRequest.findMany({
+          where: {
+            createdBy: { not: URBANO_ACTOR },
+            status: { in: [...OPEN_STATUSES, "confirmed"] },
+            egressImpacted: true,
+            fromClientCode: { equals: origin.clientCode, mode: "insensitive" },
+            uniqueCode: { equals: origin.uniqueCode, mode: "insensitive" },
+            quantity: Number(movement.outQuantity),
+            createdAt: { gte: new Date(movement.date.getTime() - MANUAL_MATCH_DAYS * 86_400_000) },
+          },
+          orderBy: { createdAt: "asc" },
+        })).find((pasaje) => !used.has(pasaje.id));
+        const pasaje = manual ?? await createPasajeWithMovements(tx, {
           fromClient: origin.client,
           fromClientCode: origin.clientCode,
           toClient: "",
@@ -326,8 +428,11 @@ export async function createPasajesFromUrbano() {
         // Si otra carga ya la usó, se deshace todo: una salida crea un solo pasaje.
         const linked = await tx.urbanoMovement.updateMany({ where: { id: movement.id, pasajeId: null }, data: { pasajeId: pasaje.id } });
         if (linked.count !== 1) throw new PasajeAjusteError("La salida ya tiene un pasaje.", 409);
+        used.add(pasaje.id);
+        return !!manual;
       });
-      result.created += 1;
+      if (matched) result.matched += 1;
+      else result.created += 1;
     } catch (error) {
       result.failed.push({ voucher, message: error instanceof Error ? error.message : "No se pudo crear." });
     }
