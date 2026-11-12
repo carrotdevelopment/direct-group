@@ -1,10 +1,10 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { NextResponse } from "next/server";
-import { cancelPasaje, confirmPasaje, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
+import { cancelPasaje, confirmPasaje, PasajeAjusteError, setPasajeDestination } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
 
-type Body = { action?: "cancel" | "confirm"; comment?: string; quantity?: number };
+type Body = { action?: "cancel" | "confirm" | "destination"; comment?: string; quantity?: number; toClient?: string; toClientCode?: string };
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await checkApiAccess(["pasajes"], true);
@@ -18,6 +18,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (body.action === "cancel") {
       return NextResponse.json({ pasaje: await cancelPasaje(id, actor, body.comment) });
+    }
+    if (body.action === "destination") {
+      return NextResponse.json({ pasaje: await setPasajeDestination(id, String(body.toClient ?? ""), String(body.toClientCode ?? ""), actor) });
     }
     return NextResponse.json({ message: "Acción inválida." }, { status: 400 });
   } catch (error) {

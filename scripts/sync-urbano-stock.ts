@@ -1,4 +1,4 @@
-import { reconcilePasajesWithUrbano } from "@/lib/pasajes-ajustes-db";
+import { createPasajesFromUrbano, reconcilePasajesWithUrbano } from "@/lib/pasajes-ajustes-db";
 import { urbanoApiConfig } from "@/lib/urbano-api";
 import { syncUrbanoMovements, syncUrbanoStock } from "@/lib/urbano-stock-db";
 
@@ -30,7 +30,19 @@ async function main() {
       failed = true;
       console.error(`${stamp()} ERROR en movimientos`, message(error));
     }
-    // Aunque falle la carga de hoy, los movimientos ya guardados pueden confirmar pasajes.
+    // Aunque falle la carga de hoy, los movimientos ya guardados pueden crear y confirmar pasajes.
+    try {
+      const result = await createPasajesFromUrbano();
+      console.log(`${stamp()} Pasajes nuevos desde Urbano: ${result.created}${result.withoutCode.length ? `, ${result.withoutCode.length} salidas sin código cliente` : ""}${result.failed.length ? `, ${result.failed.length} con error` : ""}.`);
+      if (result.withoutCode.length) console.log(`${stamp()} Salidas de pasaje sin código cliente (se reintentan): ${result.withoutCode.join(", ")}`);
+      if (result.failed.length) {
+        failed = true;
+        console.error(`${stamp()} ERROR al crear pasajes`, result.failed);
+      }
+    } catch (error) {
+      failed = true;
+      console.error(`${stamp()} ERROR al crear pasajes`, message(error));
+    }
     try {
       const result = await reconcilePasajesWithUrbano();
       console.log(`${stamp()} Pasajes OK. ${result.confirmed} confirmados con Urbano, ${result.toReview} para revisar${result.failed.length ? `, ${result.failed.length} con error` : ""}.`);

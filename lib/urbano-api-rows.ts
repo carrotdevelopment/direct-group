@@ -7,6 +7,7 @@ export type UrbanoApiProduct = { shipper?: unknown; codigo?: unknown; nombre?: u
 export type UrbanoApiMovement = {
   tipo?: unknown; fecha?: unknown; numerocomprobante?: unknown; proveedor?: unknown; comp_id?: unknown; prod_id?: unknown;
   prod_descripcion?: unknown; lote?: unknown; serie?: unknown; entrada?: unknown; salida?: unknown; saldo?: unknown;
+  razonsocial?: unknown;
 };
 
 export type UrbanoMovementRow = {
@@ -24,6 +25,7 @@ export type UrbanoMovementRow = {
   inQuantity: number;
   outQuantity: number;
   balance: number;
+  pasajeOutgoing: boolean;
 };
 
 const text = (value: unknown) => (typeof value === "string" || typeof value === "number" ? String(value).trim() : "");
@@ -77,7 +79,12 @@ export function urbanoApiDate(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-// No se guardan el usuario de Urbano ni la razón social, que en los picking es el nombre del destinatario.
+// Urbano marca las salidas por pasaje de stock con ese destinatario: "PASAJE DE STOCK", a veces seguido del
+// nombre de la cuenta origen. No dice a qué cliente va.
+export const isPasajeOutgoing = (type: string, recipient: unknown) => type === "PICKING" && /^PASAJE DE STOCK(\s|$)/i.test(text(recipient));
+
+// No se guardan el usuario de Urbano ni la razón social, que en los picking es el nombre del destinatario
+// (una persona): solo si la salida es un pasaje.
 // Como la API repite los últimos días en cada consulta, la clave evita cargar dos veces el mismo movimiento.
 export function urbanoApiMovementRows(movements: UrbanoApiMovement[]) {
   const rows: UrbanoMovementRow[] = [];
@@ -108,6 +115,7 @@ export function urbanoApiMovementRows(movements: UrbanoApiMovement[]) {
       lot: fields.lot || null, serial: fields.serial || null,
       // La API informa la salida en negativo; se guarda como cantidad positiva.
       inQuantity, outQuantity: Math.abs(outQuantity), balance,
+      pasajeOutgoing: isPasajeOutgoing(type, movement.razonsocial),
     });
   }
   return { rows, skipped };

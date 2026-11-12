@@ -172,6 +172,11 @@ export async function syncUrbanoMovements() {
     });
     saved += count;
   }
+  // Las salidas ya guardadas antes de saber que eran un pasaje se marcan ahora (la API repite unos días).
+  const pasajeKeys = rows.filter((row) => row.pasajeOutgoing).map((row) => row.key);
+  if (pasajeKeys.length) {
+    await excelPostgres.urbanoMovement.updateMany({ where: { key: { in: pasajeKeys }, pasajeOutgoing: false }, data: { pasajeOutgoing: true } });
+  }
   return { received: movements.length, saved, skipped };
 }
 

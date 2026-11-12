@@ -710,8 +710,10 @@ model UrbanoMovement {
   balance     Decimal  @default(0) @map("saldo") @db.Decimal(18, 4)
   client      String?  @map("cliente") @db.VarChar(255)
   uniqueCode  String?  @map("codigo_unico") @db.VarChar(255)
-  // Pasaje que se confirmó con esta recepción: una recepción no se puede usar dos veces.
+  // Pasaje de esta recepción (la que lo confirmó) o de esta salida (la que lo creó): no se usan dos veces.
   pasajeId    String?  @map("pasaje_id") @db.Uuid
+  // PICKING cuyo destinatario es "PASAJE DE STOCK": la plataforma crea el pasaje desde esta salida.
+  pasajeOutgoing Boolean @default(false) @map("salida_pasaje")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([date])

@@ -52,6 +52,18 @@ describe("movimientos de la API de Urbano", () => {
     expect(rows[0]).toMatchObject({ type: "PICKING", clientCode: "URB-385", urbanoCode: "00000000URB-385", product: "Masajeador de mano", reference: "0151733863", company: "310", inQuantity: 0, outQuantity: 1, balance: 0, lot: null });
     expect(JSON.stringify(rows[0])).not.toContain("Persona Destinataria");
     expect(JSON.stringify(rows[0])).not.toContain("Operario");
+    expect(rows[0].pasajeOutgoing).toBe(false);
+  });
+
+  it("marca las salidas por pasaje de stock, con o sin el nombre de la cuenta", () => {
+    const { rows } = urbanoApiMovementRows([
+      movement({ razonsocial: "PASAJE DE STOCK" }),
+      movement({ razonsocial: "pasaje de stock pampa", numerocomprobante: "E1" }),
+      movement({ tipo: "RECEPCION", razonsocial: "PASAJE DE STOCK", numerocomprobante: "R1" }),
+      movement({ razonsocial: "PASAJES DE STOCKS", numerocomprobante: "X1" }),
+      movement({ razonsocial: false, numerocomprobante: "X2" }),
+    ]);
+    expect(rows.map((row) => row.pasajeOutgoing)).toEqual([true, true, false, false, false]);
   });
 
   it("da la misma clave al mismo movimiento y distinta a las dos filas de una transferencia", () => {
