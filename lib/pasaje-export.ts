@@ -43,17 +43,42 @@ export function certificate(requestDate: string, client: string, number: number)
 export const REQUEST_HEADER = ["FECHA", "SH", "SKU VIEJO", "DESCRIPCION", "CANT", "SH", "SKU NUEVO", "DESCRIPCION", "CANT"];
 
 // Solicitud para mandar a Urbano por correo: la misma planilla que se puede volver a subir en la plataforma.
+const sheetDate = (iso: string | null) => {
+  if (!iso) return "";
+  const { year, month, day } = parts(iso);
+  return `${day}/${month}/${year}`;
+};
+
 export function requestSheet(pasajes: ExportPasaje[]) {
-  const date = (iso: string | null) => {
-    if (!iso) return "";
-    const { year, month, day } = parts(iso);
-    return `${day}/${month}/${year}`;
-  };
   return [
     REQUEST_HEADER,
     ...pasajes.map((p) => [
-      date(p.requestDate), p.fromShipper, p.fromClientCode, p.fromDescription, p.quantity,
+      sheetDate(p.requestDate), p.fromShipper, p.fromClientCode, p.fromDescription, p.quantity,
       p.toShipper, p.toClientCode, p.toDescription, p.quantity,
+    ]),
+  ];
+}
+
+// Solicitud armada desde la grilla de carga, antes de cargar los pasajes: cada lado con su propia cantidad
+// (si una falta se usa la otra), como se completó.
+export type DraftRequestRow = {
+  requestDate: string | null;
+  fromShipper: string;
+  fromClientCode: string;
+  fromDescription: string;
+  fromQuantity: number | null;
+  toShipper: string;
+  toClientCode: string;
+  toDescription: string;
+  toQuantity: number | null;
+};
+
+export function draftRequestSheet(rows: DraftRequestRow[]) {
+  return [
+    REQUEST_HEADER,
+    ...rows.map((row) => [
+      sheetDate(row.requestDate), row.fromShipper, row.fromClientCode, row.fromDescription, row.fromQuantity ?? row.toQuantity ?? "",
+      row.toShipper, row.toClientCode, row.toDescription, row.toQuantity ?? row.fromQuantity ?? "",
     ]),
   ];
 }

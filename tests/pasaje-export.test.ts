@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { certificate, excelSerial, requestSheet, urbanoIdSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje } from "@/lib/pasaje-export";
+import { certificate, draftRequestSheet, excelSerial, requestSheet, urbanoIdSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje } from "@/lib/pasaje-export";
 import { parseSolicitudSheet } from "@/lib/pasaje-solicitud";
 
 const pasaje: ExportPasaje = {
@@ -49,5 +49,15 @@ describe("Excel de pasajes para Urbano", () => {
       requestDate: "2026-11-12", fromShipper: "1258", fromClientCode: "DG99-3026", fromQuantity: 14,
       toShipper: "1955", toClientCode: "PROD-3026", toQuantity: 14, toDescription: "Pava eléctrica Peabody",
     });
+  });
+
+  it("la solicitud de la grilla se exporta antes de cargar y se vuelve a leer igual", () => {
+    const draft = {
+      requestDate: "2026-11-12", fromShipper: "1258", fromClientCode: "DG99-3026", fromDescription: "Pava", fromQuantity: 14,
+      toShipper: "1955", toClientCode: "PROD-3026", toDescription: "Pava eléctrica", toQuantity: null,
+    };
+    const sheet = draftRequestSheet([draft]);
+    expect(sheet[1]).toEqual(["12/11/2026", "1258", "DG99-3026", "Pava", 14, "1955", "PROD-3026", "Pava eléctrica", 14]);
+    expect(parseSolicitudSheet(sheet)[0]).toMatchObject({ ...draft, toQuantity: 14 });
   });
 });

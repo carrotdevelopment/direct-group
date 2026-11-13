@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ArrowLeftRight, CheckCircle2, FileSpreadsheet, Plus, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CheckCircle2, Download, FileSpreadsheet, Plus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BatchDownloads, type PasajeBatch } from "@/components/domain/pasaje-batches";
-import { REQUEST_HEADER } from "@/lib/pasaje-export";
+import { draftRequestSheet, REQUEST_HEADER, requestFileName } from "@/lib/pasaje-export";
 import { parseSolicitudSheet, type ResolvedRow, type SolicitudRow } from "@/lib/pasaje-solicitud";
 
 type CreateResult = {
@@ -106,12 +106,29 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
     }
   }
 
+  // Filas completas de la grilla leídas igual que el Excel de la solicitud, con su fila de títulos. Sin fecha
+  // se toma la de hoy.
+  function gridRows() {
+    const used = grid.filter(filled).map((row) => (row[0].trim() ? row : [today(), ...row.slice(1)]));
+    return used.length ? parseSolicitudSheet([REQUEST_HEADER, ...used], 0) : [];
+  }
+
+  // Baja la solicitud tal como está en la grilla, sin cargar los pasajes: el Excel para mandarle a Urbano.
+  async function exportRequest() {
+    setError("");
+    const parsed = gridRows();
+    if (parsed.length === 0) return setError("Completá al menos una fila para exportar la solicitud.");
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(draftRequestSheet(parsed)), "Solicitud");
+    const date = parsed.find((row) => row.requestDate)?.requestDate ?? null;
+    XLSX.writeFile(workbook, date ? requestFileName(date) : "SOLICITUD PASAJE DE STOCK.xlsx");
+  }
+
   async function validate() {
     setError("");
-    const used = grid.filter(filled).map((row) => (row[0].trim() ? row : [today(), ...row.slice(1)]));
-    if (used.length === 0) return setError("Completá al menos una fila: shipper, SKU y cantidad del origen y del destino.");
-    // La grilla se lee igual que el Excel de la solicitud, con su fila de títulos.
-    const parsed = parseSolicitudSheet([REQUEST_HEADER, ...used], 0);
+    const parsed = gridRows();
+    if (parsed.length === 0) return setError("Completá al menos una fila: shipper, SKU y cantidad del origen y del destino.");
     setLoading(true);
     try {
       const response = await fetch("/api/pasajes/solicitud", {
@@ -169,7 +186,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
         <div className="eyebrow">Pasajes</div>
         <h2 className="mt-2 text-xl font-black">Cargar pasajes</h2>
         <p className="mt-2 max-w-4xl text-xs text-[#62728a]">
-          Completá la grilla, pegá desde Excel o subí la solicitud. El cliente sale del shipper (SH) y del código. Al cargarlos,
+          Completá la grilla, pegá desde Excel o subí la solicitud; con &quot;Exportar solicitud&quot; la bajás en Excel sin cargarla. El cliente sale del shipper (SH) y del código. Al cargarlos,
           cada pasaje espera que lo apruebe la encargada del cliente origen: ahí egresa del origen y queda el ingreso pendiente en
           el destino. Después vas a poder bajar el Excel para mandarle a Urbano y la planilla para subir en Urbano.
         </p>
@@ -234,6 +251,9 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
               </div>
               <div className="flex gap-2">
                 <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+                <Button type="button" variant="secondary" onClick={() => void exportRequest()} title="Baja la solicitud de la grilla para mandarle a Urbano, sin cargar los pasajes">
+                  <Download size={13} /> Exportar solicitud
+                </Button>
                 <Button type="button" disabled={loading} onClick={() => void validate()}>
                   {loading ? "Revisando…" : "Revisar"}
                 </Button>
@@ -328,6 +348,9 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={() => setPreview([])}>Volver a editar</Button>
+              <Button type="button" variant="secondary" onClick={() => void exportRequest()}>
+                <Download size={13} /> Exportar solicitud
+              </Button>
               <Button type="button" disabled={loading || valid.length === 0 || !!duplicateFile} onClick={() => void submit()}>
                 Cargar {valid.length} {valid.length === 1 ? "pasaje" : "pasajes"}
               </Button>
