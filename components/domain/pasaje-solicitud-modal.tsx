@@ -59,8 +59,8 @@ function pasteInto(grid: GridRow[], text: string, startRow: number, startCol: nu
 }
 
 // Carga de pasajes: se completa la grilla (o se sube el Excel de la solicitud), el servidor resuelve cada fila
-// (shipper + código → cliente) y, al confirmar, crea el lote: cada pasaje egresa del origen, deja el ingreso
-// pendiente en el destino y espera la aprobación de la encargada del origen.
+// (shipper + código → cliente) y, al confirmar, crea el lote: cada pasaje espera la aprobación de la encargada
+// del origen, que es cuando egresa y queda el ingreso pendiente en el destino.
 export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [grid, setGrid] = useState<GridRow[]>(() => blankGrid());
   const [fileName, setFileName] = useState("");
@@ -170,8 +170,8 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
         <h2 className="mt-2 text-xl font-black">Cargar pasajes</h2>
         <p className="mt-2 max-w-4xl text-xs text-[#62728a]">
           Completá la grilla, pegá desde Excel o subí la solicitud. El cliente sale del shipper (SH) y del código. Al cargarlos,
-          cada pasaje egresa del origen, deja el ingreso pendiente en el destino y espera que lo apruebe la encargada del cliente
-          origen. Después vas a poder bajar el Excel para mandarle a Urbano y la planilla para subir en Urbano.
+          cada pasaje espera que lo apruebe la encargada del cliente origen: ahí egresa del origen y queda el ingreso pendiente en
+          el destino. Después vas a poder bajar el Excel para mandarle a Urbano y la planilla para subir en Urbano.
         </p>
 
         {editing && (
@@ -247,8 +247,8 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
         {result ? (
           <div className="mt-4 space-y-3 overflow-y-auto text-xs">
             <p className="rounded-xl bg-[#e7f7eb] px-4 py-3 font-bold text-[#23783a]">
-              Se cargaron {result.created} pasajes. Ya egresaron del origen, el ingreso quedó pendiente en el destino y esperan la
-              aprobación de la encargada del cliente origen.
+              Se cargaron {result.created} pasajes. Esperan la aprobación de la encargada del cliente origen: al aprobarlos
+              egresan del origen y queda el ingreso pendiente en el destino.
             </p>
             {batch && (
               <div className="rounded-xl border border-[#e1e8f1] px-4 py-3">

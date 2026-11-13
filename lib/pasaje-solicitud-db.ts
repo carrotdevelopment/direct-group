@@ -94,8 +94,8 @@ export function listUrbanoShippers() {
   return excelPostgres.urbanoShipper.findMany({ orderBy: { code: "asc" } });
 }
 
-// Crea el lote con las filas válidas (las que tienen error no se cargan). Cada pasaje egresa del origen en el
-// momento, deja el ingreso pendiente en el destino y espera la aprobación de la encargada del origen.
+// Crea el lote con las filas válidas (las que tienen error no se cargan). Cada pasaje espera la aprobación de
+// la encargada del origen, que es cuando egresa y queda el ingreso pendiente en el destino.
 export async function createSolicitud(input: unknown, fileName: unknown, fileHash: unknown, actor: PasajeActor) {
   const { rows: resolved, duplicateFile } = await previewSolicitud(input, fileHash);
   if (duplicateFile) {

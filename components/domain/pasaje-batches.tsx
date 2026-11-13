@@ -22,8 +22,8 @@ function displayDate(iso: string) {
   return `${day}/${month}/${year}`;
 }
 
-// Los dos Excel de un lote: la solicitud para mandar a Urbano por correo y, por cada shipper origen, la
-// planilla de egresos para subir en Urbano.
+// Los Excel de un lote: la solicitud para mandar a Urbano por correo y, por cada shipper origen, la planilla
+// de egresos para subir en Urbano, en los dos formatos que usan.
 export function BatchDownloads({ batch }: { batch: PasajeBatch }) {
   const base = `/api/pasajes/lotes/${batch.id}/excel`;
   return (
@@ -33,14 +33,25 @@ export function BatchDownloads({ batch }: { batch: PasajeBatch }) {
       </a>
       {batch.origins.map((origin) =>
         origin.shipper ? (
-          <a
-            key={`${origin.shipper}|${origin.client}`}
-            href={`${base}?${new URLSearchParams({ formato: "urbano", shipper: origin.shipper, cliente: origin.client })}`}
-            className={linkClass}
-            title="Planilla de egresos para subir en Urbano"
-          >
-            <Download size={13} /> Carga Urbano · {origin.client} {origin.shipper} ({origin.count})
-          </a>
+          <span key={`${origin.shipper}|${origin.client}`} className="inline-flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold text-[#52647d]">
+              Carga Urbano · {origin.client} {origin.shipper} ({origin.count}):
+            </span>
+            <a
+              href={`${base}?${new URLSearchParams({ formato: "urbano", shipper: origin.shipper, cliente: origin.client })}`}
+              className={linkClass}
+              title="Planilla de egresos para subir en Urbano: Descripcion, N° Certificado, Nombre y Apellido…"
+            >
+              <Download size={13} /> Formato Descripción
+            </a>
+            <a
+              href={`${base}?${new URLSearchParams({ formato: "urbano-id", shipper: origin.shipper, cliente: origin.client })}`}
+              className={linkClass}
+              title="Planilla de egresos para subir en Urbano: ID, Nombre y Apellido, Dirección, Código, Cantidad, Fecha…"
+            >
+              <Download size={13} /> Formato ID
+            </a>
+          </span>
         ) : (
           <span key={`|${origin.client}`} className="text-[10px] font-bold text-[#a43d39]">
             {origin.client} no tiene shipper en la tabla de shippers: cargalo para exportar la planilla de Urbano.

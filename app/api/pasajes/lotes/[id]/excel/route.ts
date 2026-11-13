@@ -7,8 +7,8 @@ import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ?formato=correo → solicitud para mandar a Urbano. ?formato=urbano&shipper=1258&cliente=Amex → planilla de
-// egresos de ese shipper para subir en Urbano.
+// ?formato=correo → solicitud para mandar a Urbano. ?formato=urbano (o urbano-id)&shipper=1258&cliente=Amex →
+// planilla de egresos de ese shipper para subir en Urbano, en cada uno de los dos formatos.
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await checkApiAccess(["pasajes"], false);
   if (denied) return denied;

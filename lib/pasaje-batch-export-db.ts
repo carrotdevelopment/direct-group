@@ -5,7 +5,7 @@ import { excelPostgres } from "@/lib/excel-postgres-client";
 import { canSeePasaje, type PasajeActor } from "@/lib/module-access";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import {
-  requestFileName, requestSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
+  requestFileName, requestSheet, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
 
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
@@ -71,14 +71,22 @@ export async function listPasajeBatches(actor: PasajeActor) {
     .filter((batch) => batch.count > 0);
 }
 
-function workbookFile(rows: unknown[][], sheetName: string) {
+function workbookFile(rows: unknown[][], sheetName: string, dateColumn?: number) {
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), sheetName);
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  if (dateColumn !== undefined) {
+    for (let row = 1; row < rows.length; row += 1) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: row, c: dateColumn })];
+      if (cell) cell.z = "d-mmm";
+    }
+  }
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
-// Arma uno de los dos Excel de un lote. "correo": la solicitud completa para mandarle a Urbano.
-// "urbano": la planilla de egresos de un shipper origen (y cliente), para subir en Urbano.
+// Arma uno de los Excel de un lote. "correo": la solicitud completa para mandarle a Urbano.
+// "urbano" y "urbano-id": la planilla de egresos de un shipper origen (y cliente) para subir en Urbano, en
+// cada uno de los dos formatos que usan.
 export async function pasajeBatchExcel(batchId: string, format: string, shipper: string, client: string, actor: PasajeActor) {
   const batch = await excelPostgres.pasajeBatch.findUnique({
     where: { id: batchId },
@@ -94,7 +102,7 @@ export async function pasajeBatchExcel(batchId: string, format: string, shipper:
   if (format === "correo") {
     return { fileName: requestFileName(requestDate), bytes: workbookFile(requestSheet(rows), "Solicitud") };
   }
-  if (format !== "urbano") throw new PasajeAjusteError("Formato inválido.");
+  if (format !== "urbano" && format !== "urbano-id") throw new PasajeAjusteError("Formato inválido.");
   const selected = rows.filter((row) => row.fromShipper === shipper && same(row.fromClient, client));
   if (selected.length === 0) throw new PasajeAjusteError("Ese lote no tiene pasajes de ese shipper y cliente.", 404);
 
@@ -108,8 +116,9 @@ export async function pasajeBatchExcel(batchId: string, format: string, shipper:
       batch: { createdAt: { lt: batch.createdAt } },
     },
   });
-  return {
-    fileName: urbanoUploadFileName(requestDate, client, shipper),
-    bytes: workbookFile(urbanoUploadSheet(selected, requestDate, earlier + 1), "Hoja1"),
-  };
+  const fileName = urbanoUploadFileName(requestDate, client, shipper);
+  if (format === "urbano-id") {
+    return { fileName, bytes: workbookFile(urbanoIdSheet(selected, requestDate, earlier + 1), "Hoja1", URBANO_ID_DATE_COLUMN) };
+  }
+  return { fileName, bytes: workbookFile(urbanoUploadSheet(selected, requestDate, earlier + 1), "Hoja1") };
 }

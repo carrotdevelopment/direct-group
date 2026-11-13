@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { certificate, requestSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje } from "@/lib/pasaje-export";
+import { certificate, excelSerial, requestSheet, urbanoIdSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje } from "@/lib/pasaje-export";
 import { parseSolicitudSheet } from "@/lib/pasaje-solicitud";
 
 const pasaje: ExportPasaje = {
@@ -25,6 +25,22 @@ describe("Excel de pasajes para Urbano", () => {
   it("el certificado sigue la numeración del día y saca acentos y espacios del cliente", () => {
     expect(urbanoUploadSheet([pasaje], "2026-11-12", 5)[1][3]).toBe("PAS1211AMEX5");
     expect(certificate("2026-03-05", "Banco Nación", 1)).toBe("PAS0503BANCONACION1");
+  });
+
+  it("el formato con ID sale como la planilla de Credicoop", () => {
+    const credicoop = { ...pasaje, fromShipper: "1247", fromClient: "Credicoop", fromClientCode: "4158", fromDescription: "Licuadora 600W", quantity: 1 };
+    const sheet = urbanoIdSheet([credicoop], "2026-11-10");
+    expect(sheet[0]).toEqual([
+      "ID", "NOMBRE Y APELLIDO", "DIRECCIÓN", "CP", "PROVINCIA", "LOCALIDAD", "Código", "Cantidad", "Puntaje", "Fecha",
+      "Producto", "Servicio", "Tel", "Celular",
+    ]);
+    expect(sheet[1]).toEqual([
+      "PAS1011CREDI1", "PASAJE DE STOCK", "ASCASUBI 3380", 9996, "CABA", "BARRACAS", 4158, 1, "", excelSerial("2026-11-10"),
+      "Licuadora 600W", "E", "", "",
+    ]);
+    expect(excelSerial("2026-11-10")).toBe(46336);
+    expect(urbanoIdSheet([{ ...credicoop, fromClientCode: "DG99-3026" }], "2026-11-10")[1][6]).toBe("DG99-3026");
+    expect(urbanoUploadFileName("2026-11-10", "Credicoop", "1247")).toBe("PASAJE 10 NOVIEMBRE CREDICOOP 1247.xlsx");
   });
 
   it("la solicitud para el correo se puede volver a leer como solicitud", () => {

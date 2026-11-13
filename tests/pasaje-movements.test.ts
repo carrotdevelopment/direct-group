@@ -39,8 +39,8 @@ vi.mock("@/lib/excel-postgres-client", () => {
     tangoIncome: {
       ...table(() => db.incomes),
       // Fila ya importada de Tango, sin pasaje, con ese código, cantidad, operación y fecha.
-      findFirst: async ({ where }: { where: { clientCode: { equals: string }; deliveredQuantity: number; operation: { in: string[] }; deliveryDate: { gte: Date } } }) =>
-        db.incomes.find((row) => row.externalKey && !row.pasajeId && row.clientCode === where.clientCode.equals && row.deliveredQuantity === where.deliveredQuantity &&
+      findFirst: async ({ where }: { where: { pasajeId?: string; clientCode: { equals: string }; deliveredQuantity: number; operation: { in: string[] }; deliveryDate: { gte: Date } } }) =>
+        typeof where.pasajeId === "string" ? db.incomes.find((row) => row.pasajeId === where.pasajeId) ?? null : db.incomes.find((row) => row.externalKey && !row.pasajeId && row.clientCode === where.clientCode.equals && row.deliveredQuantity === where.deliveredQuantity &&
           where.operation.in.includes(row.operation as string) && (row.deliveryDate as Date) >= where.deliveryDate.gte) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: Row }) => Object.assign(db.incomes.find((row) => row.id === where.id)!, data),
     },
@@ -98,9 +98,11 @@ const input = {
   uniqueCode: "30433", product: "Mochila", quantity: 10,
 };
 
-// Un pasaje con destino, como los que se cargaban antes a mano.
-const createPasaje = (data: typeof input, actor: { name: string }) =>
-  createPasajeWithMovements(excelPostgres as never, { ...data, comments: null, createdBy: actor.name });
+// Un pasaje con destino ya aprobado por el origen, que es cuando egresa y queda el ingreso pendiente.
+const createPasaje = async (data: typeof input, actor: { name: string }) => {
+  const created = await createPasajeWithMovements(excelPostgres as never, { ...data, comments: null, createdBy: actor.name });
+  return (await approvePasaje(created.id, creator))!;
+};
 
 const code = (client: string, clientCode: string, uniqueCode: string, active = true) => ({ client, clientCode, uniqueCode, active, voidedAt: null });
 
@@ -116,8 +118,19 @@ beforeEach(() => {
 });
 
 describe("movimientos de un pasaje", () => {
-  it("al crearlo egresa del origen y deja el ingreso pendiente, sin entregado", async () => {
+  it("al cargarlo no mueve stock: espera la aprobación del origen", async () => {
+    const pasaje = await createPasajeWithMovements(excelPostgres as never, { ...input, comments: null, createdBy: "Emilia" });
+    expect(pasaje).toMatchObject({ status: "pending", egressImpacted: false });
+    expect(db.egresses).toEqual([]);
+    expect(db.incomes).toEqual([]);
+    await cancelPasaje(pasaje.id, creator);
+    expect(db.pasajes[0]).toMatchObject({ status: "rejected" });
+    expect(db.egresses).toEqual([]);
+  });
+
+  it("al aprobarlo egresa del origen y deja el ingreso pendiente, sin entregado", async () => {
     const pasaje = await createPasaje(input, creator);
+    expect(pasaje).toMatchObject({ status: "approved" });
     expect(pasaje).toMatchObject({ egressImpacted: true });
     expect(db.egresses).toEqual([expect.objectContaining({
       pasajeId: pasaje.id, client: "Pampa", clientCode: "76-5030", operation: "PASAJE", quantity: 10, destination: "Umiles", deletedAt: null,
@@ -258,12 +271,15 @@ describe("pasajes sin destino que ya existían", () => {
     return db.pasajes[0].id as string;
   };
 
-  it("al elegir el destino crea el ingreso pendiente y pasa a esperar la aprobación del origen", async () => {
+  it("al elegir el destino pasa a esperar la aprobación, que crea el ingreso pendiente sin volver a egresar", async () => {
     const id = await sinDestino();
     expect(db.incomes).toEqual([]);
     await setPasajeDestination(id, "umiles", "dg-1", receiver);
     expect(db.pasajes[0]).toMatchObject({ status: "pending", toClient: "Umiles", toClientCode: "DG-1" });
     expect(db.egresses[0]).toMatchObject({ destination: "Umiles", comments: expect.stringContaining("Pasaje a Umiles (DG-1)") });
+    expect(db.incomes).toEqual([]);
+    await approvePasaje(id, creator);
+    expect(db.egresses).toHaveLength(1);
     expect(db.incomes).toEqual([expect.objectContaining({ client: "Umiles", clientCode: "DG-1", quantity: 10, deliveredQuantity: 0, transferOrigin: "Pampa" })]);
   });
 
@@ -285,14 +301,18 @@ describe("pasajes sin destino que ya existían", () => {
 describe("pasajes cargados en la plataforma", () => {
   const ana = { name: "Ana", role: "VENDEDOR", clients: ["Pampa"] };
 
-  it("egresa del origen, deja el ingreso pendiente, espera aprobación y guarda el aviso si no alcanzaba el stock", async () => {
+  it("espera aprobación sin mover stock, guarda el aviso si no alcanzaba y al aprobarlo egresa", async () => {
     stock.available = 4;
     const pasaje = await createManualPasaje(input, receiver);
     expect(pasaje).toMatchObject({
-      status: "pending", createdBy: "Liz", warning: "Se egresaron 10 con 4 disponibles en stock.",
+      status: "pending", createdBy: "Liz", warning: "Se pidieron 10 con 4 disponibles en stock.", egressImpacted: false,
       fromShipper: "1315", toShipper: "3102", fromDescription: "Mochila", batchId: db.batches[0].id,
     });
-    expect(db.egresses).toEqual([expect.objectContaining({ client: "Pampa", quantity: 10, destination: "Umiles" })]);
+    expect(db.egresses).toEqual([]);
+    expect(db.incomes).toEqual([]);
+    await approvePasaje(pasaje.id, ana);
+    expect(db.pasajes[0]).toMatchObject({ egressImpacted: true });
+    expect(db.egresses).toEqual([expect.objectContaining({ client: "Pampa", quantity: 10, destination: "Umiles", createdBy: "Ana" })]);
     expect(db.incomes).toEqual([expect.objectContaining({ client: "Umiles", clientCode: "DG-1", quantity: 10, deliveredQuantity: 0 })]);
   });
 
@@ -312,10 +332,18 @@ describe("pasajes cargados en la plataforma", () => {
     expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 10 });
   });
 
-  it("si la encargada del origen lo rechaza, el stock vuelve al origen", async () => {
+  it("si la encargada del origen lo rechaza, no se mueve stock", async () => {
     const pasaje = await createManualPasaje(input, receiver);
     await cancelPasaje(pasaje.id, ana);
     expect(db.pasajes[0]).toMatchObject({ status: "rejected", respondedBy: "Ana" });
+    expect(db.egresses).toEqual([]);
+    expect(db.incomes).toEqual([]);
+  });
+
+  it("si se rechaza después de aprobado, el stock vuelve al origen", async () => {
+    const pasaje = await createManualPasaje(input, receiver);
+    await approvePasaje(pasaje.id, ana);
+    await cancelPasaje(pasaje.id, receiver);
     expect(db.egresses[0].deletedAt).toBeInstanceOf(Date);
     expect(db.incomes).toEqual([]);
   });
@@ -346,7 +374,7 @@ describe("salidas de pasaje de Urbano como control", () => {
     db.movements.push(salida());
     expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 1, unmatched: [], withoutCode: [] });
     expect(db.pasajes).toHaveLength(1);
-    expect(db.egresses).toHaveLength(1);
+    expect(db.egresses).toEqual([]);
     expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
   });
 

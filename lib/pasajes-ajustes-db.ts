@@ -147,14 +147,28 @@ const pendingIncome = (pasajeId: string, pasaje: PasajeMovement, quantity: numbe
   ...incomeForPasaje(pasajeId, pasaje, quantity, date, createdBy), deliveredQuantity: 0,
 });
 
-// Crea el pasaje con sus movimientos: el egreso del origen impacta en el momento y, si ya tiene destino,
-// el ingreso queda pendiente. Sin destino queda en no_destination, sin ingreso, hasta que alguien lo elija.
+// Crea el pasaje. Con destino queda pendiente de aprobación, sin movimientos: el egreso del origen y el
+// ingreso pendiente del destino se hacen cuando lo aprueba la encargada del origen (mientras tanto la
+// cantidad queda comprometida en el stock disponible para otros pasajes). Sin destino (salida que ya hizo
+// Urbano) egresa en el momento y queda en no_destination hasta que alguien elija el destino.
 export async function createPasajeWithMovements(tx: Prisma.TransactionClient, data: NewPasaje, date = new Date()) {
-  const status = hasDestination(data) ? "pending" : NO_DESTINATION;
-  const pasaje = await tx.pasajeRequest.create({ data: { ...data, status, egressImpacted: true } });
+  if (hasDestination(data)) {
+    return tx.pasajeRequest.create({ data: { ...data, status: "pending", egressImpacted: false } });
+  }
+  const pasaje = await tx.pasajeRequest.create({ data: { ...data, status: NO_DESTINATION, egressImpacted: true } });
   await tx.egress.create({ data: egressForPasaje(pasaje.id, data, data.quantity, date, data.createdBy) });
-  if (hasDestination(data)) await tx.tangoIncome.create({ data: pendingIncome(pasaje.id, data, data.quantity, date, data.createdBy) });
   return pasaje;
+}
+
+// Movimientos de un pasaje aprobado: el egreso del origen (si todavía no egresó) y el ingreso pendiente del
+// destino (si no lo tiene).
+async function applyApprovalMovements(tx: Prisma.TransactionClient, pasaje: PasajeRequest, alreadyEgressed: boolean, actorName: string, date: Date) {
+  const quantity = Number(pasaje.quantity);
+  if (!alreadyEgressed) {
+    await tx.egress.create({ data: egressForPasaje(pasaje.id, pasaje, quantity, date, actorName) });
+  }
+  const income = await tx.tangoIncome.findFirst({ where: { pasajeId: pasaje.id }, select: { id: true } });
+  if (!income) await tx.tangoIncome.create({ data: pendingIncome(pasaje.id, pasaje, quantity, date, actorName) });
 }
 
 // Deshace los movimientos de un pasaje que no se realizó. El egreso se inactiva, como desde el
@@ -199,9 +213,9 @@ export async function shipperForClient(client: string) {
   return found.length === 1 ? found[0].code : null;
 }
 
-// Pasaje cargado de a uno: egresa del origen en el momento, deja el ingreso al destino pendiente y espera la
-// aprobación de la encargada del origen. Si se egresa más de lo que hay en stock se carga igual (la pantalla
-// ya avisó) y queda el aviso guardado. Va en un lote propio, para poder exportar los Excel para Urbano.
+// Pasaje cargado de a uno: espera la aprobación de la encargada del origen, que es cuando egresa y queda el
+// ingreso pendiente en el destino. Si se pide más de lo que hay en stock se carga igual (la pantalla ya
+// avisó) y queda el aviso guardado. Va en un lote propio, para poder exportar los Excel para Urbano.
 export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
   const data = await preparePasaje(input, actor);
   const informed = await excelPostgres.pasajeRequest.findFirst({
@@ -218,7 +232,7 @@ export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
     );
   }
   const available = (await availableStockForCodes(data.fromClient, [data.fromClientCode])).get(normalizeCode(data.fromClientCode))?.available ?? 0;
-  const warning = data.quantity > available ? `Se egresaron ${data.quantity} con ${available} disponibles en stock.` : null;
+  const warning = data.quantity > available ? `Se pidieron ${data.quantity} con ${available} disponibles en stock.` : null;
   const [fromShipper, toShipper] = await Promise.all([shipperForClient(data.fromClient), shipperForClient(data.toClient)]);
   const today = argentinaDay(new Date());
   const pasaje = await excelPostgres.$transaction(async (tx) => {
@@ -233,10 +247,11 @@ export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
   return pasaje;
 }
 
-// Estados: pending (cargado: ya egresó del origen y el ingreso al destino está pendiente; espera que lo
-// apruebe la encargada del cliente origen) → approved (aprobado: espera que la encargada del destino
+// Estados: pending (cargado, sin movimientos: la cantidad queda comprometida; espera que lo apruebe la
+// encargada del cliente origen) → approved (aprobado: egresó del origen, el ingreso al destino está
+// pendiente y espera que la encargada del destino
 // confirme lo que llegó cuando Urbano le avisa) → confirmed (ingresó al destino lo confirmado; si llegó
-// menos, la diferencia vuelve al origen). rejected: rechazado o cancelado, se revierte el egreso.
+// menos, la diferencia vuelve al origen). rejected: rechazado o cancelado; si ya había egresado, se revierte.
 // no_destination: pasajes que se crearon solos desde las salidas de Urbano (ya no se crean así); hay que
 // elegirles el destino y siguen el mismo camino.
 const OPEN_STATUSES = ["pending", "approved"];
@@ -424,7 +439,6 @@ export async function linkUrbanoPasajeOutgoings() {
       where: {
         createdBy: { not: URBANO_ACTOR },
         status: { in: [...OPEN_STATUSES, "confirmed"] },
-        egressImpacted: true,
         fromClientCode: { equals: origin.clientCode, mode: "insensitive" },
         uniqueCode: { equals: origin.uniqueCode, mode: "insensitive" },
         quantity: Number(movement.outQuantity),
@@ -456,18 +470,26 @@ export async function urbanoOutgoingsWithoutPasaje() {
   return rows.map((row) => ({ ...row, outQuantity: Number(row.outQuantity) }));
 }
 
-// La encargada del cliente origen aprueba el pasaje. El egreso ya está hecho desde la carga.
+// La encargada del cliente origen aprueba el pasaje: recién ahí egresa del origen y queda el ingreso
+// pendiente en el destino.
 export async function approvePasaje(id: string, actor: PasajeActor) {
-  const pasaje = await excelPostgres.pasajeRequest.findUnique({ where: { id } });
-  if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
-  if (pasaje.status !== "pending") throw new PasajeAjusteError("Ese pasaje no está esperando aprobación.", 409);
-  if (!canApprovePasaje(actor, pasaje)) throw new PasajeAjusteError(`Lo aprueba la encargada de ${pasaje.fromClient}, el cliente origen.`, 403);
-  const updated = await excelPostgres.pasajeRequest.updateMany({
-    where: { id, status: "pending" },
-    data: { status: "approved", respondedBy: actor.name, respondedAt: new Date() },
+  const result = await excelPostgres.$transaction(async (tx) => {
+    const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
+    if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
+    if (pasaje.status !== "pending") throw new PasajeAjusteError("Ese pasaje no está esperando aprobación.", 409);
+    if (!canApprovePasaje(actor, pasaje)) throw new PasajeAjusteError(`Lo aprueba la encargada de ${pasaje.fromClient}, el cliente origen.`, 403);
+    const now = new Date();
+    const alreadyEgressed = pasaje.egressImpacted;
+    const updated = await tx.pasajeRequest.updateMany({
+      where: { id, status: "pending" },
+      data: { status: "approved", respondedBy: actor.name, respondedAt: now, egressImpacted: true },
+    });
+    if (updated.count !== 1) throw new PasajeAjusteError("Ese pasaje no está esperando aprobación.", 409);
+    await applyApprovalMovements(tx, pasaje, alreadyEgressed, actor.name, now);
+    return tx.pasajeRequest.findUnique({ where: { id } });
   });
-  if (updated.count !== 1) throw new PasajeAjusteError("Ese pasaje no está esperando aprobación.", 409);
-  return excelPostgres.pasajeRequest.findUnique({ where: { id } });
+  invalidateIncomeGroups();
+  return result;
 }
 
 export async function approvePasajes(ids: string[], actor: PasajeActor) {
@@ -514,8 +536,8 @@ export async function setPasajeDestination(id: string, toClient: string, toClien
       where: { pasajeId: id, deletedAt: null },
       data: { destination: updated.toClient, comments: egressComments(updated), modifiedBy: actor.name },
     });
+    // El ingreso pendiente se arma de nuevo con el destino elegido cuando la encargada del origen lo aprueba.
     await tx.tangoIncome.deleteMany({ where: { pasajeId: id, externalKey: null } });
-    await tx.tangoIncome.create({ data: pendingIncome(id, updated, Number(pasaje.quantity), pasaje.requestDate ?? pasaje.createdAt, actor.name) });
     return updated;
   });
   invalidateIncomeGroups();

@@ -260,7 +260,7 @@ export function PasajesWorkspace({
 
   async function respond(kind: "pasajes" | "ajustes", id: string, action: "accept" | "reject" | "cancel" | "approve") {
     setError("");
-    if (action === "cancel" && !window.confirm("¿Rechazar el pasaje? Se revierte el egreso, el stock vuelve al origen y se borra el ingreso pendiente.")) return;
+    if (action === "cancel" && !window.confirm("¿Rechazar el pasaje? Si ya egresó, el stock vuelve al origen y se borra el ingreso pendiente.")) return;
     if (action === "reject" && !window.confirm("¿Rechazar el ajuste? El stock queda sin cambios.")) return;
     try {
       const response = await fetch(`/api/${kind}/${id}`, {
@@ -432,8 +432,8 @@ export function PasajesWorkspace({
       {tab === "pasajes" ? (
         <div className="space-y-4">
           <div className="rounded-xl bg-[#eef3fb] px-4 py-3 text-xs font-bold text-[#52647d]">
-            Los pasajes se cargan acá (&quot;Cargar pasajes&quot;): egresan del origen en el momento y dejan el ingreso pendiente en
-            el destino. Los aprueba la encargada del cliente origen y, cuando Urbano avisa por correo que llegaron, los confirma la
+            Los pasajes se cargan acá (&quot;Cargar pasajes&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
+            origen y queda el ingreso pendiente en el destino; cuando Urbano avisa por correo que llegaron, los confirma la
             encargada del cliente destino. De cada carga se bajan el Excel para mandarle a Urbano y la planilla para subir en Urbano.
           </div>
 
@@ -510,8 +510,8 @@ export function PasajesWorkspace({
               <div>
                 <h2 className="text-sm font-black text-[#10233f]">1 · Esperando aprobación del origen ({awaitingApproval.length})</h2>
                 <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
-                  El egreso del origen ya está hecho y el ingreso al destino quedó pendiente. Lo aprueba la encargada del cliente
-                  origen; si lo rechaza, el stock vuelve al origen y se borra el ingreso pendiente.
+                  Todavía no movieron stock: la cantidad queda comprometida. Al aprobarlo la encargada del cliente origen, egresa
+                  del origen y queda el ingreso pendiente en el destino; si lo rechaza, no se mueve nada.
                 </p>
               </div>
               {(() => {
@@ -1073,8 +1073,8 @@ function PasajeModal({
         <div className="eyebrow">Nuevo pasaje</div>
         <h2 className="mt-2 text-xl font-black">Registrar pasaje entre clientes</h2>
         <p className="mt-1 text-xs text-[#62728a]">
-          Elegí primero el producto: se habilitan los clientes y códigos que lo tienen asignado. Al generarlo egresa del
-          origen y deja creado el ingreso pendiente en el destino, que se confirma cuando Urbano informa la recepción.
+          Elegí primero el producto: se habilitan los clientes y códigos que lo tienen asignado. Queda esperando la
+          aprobación de la encargada del origen: ahí egresa y se crea el ingreso pendiente en el destino, que se confirma cuando Urbano informa la recepción.
         </p>
         <div className="mt-5 space-y-4">
           <SearchSelect
@@ -1193,7 +1193,7 @@ function PasajeModal({
             <AlertTriangle size={15} className="mt-0.5 shrink-0" />
             <span>
               No alcanza el stock: {draft.fromClient} tiene {stock.available} disponibles en {draft.fromClientCode} y se piden {requested}.
-              Si lo generás igual, egresa {requested} y el stock del origen queda en negativo.
+              Si lo generás igual, al aprobarlo egresa {requested} y el stock del origen queda en negativo.
             </span>
           </div>
         )}
