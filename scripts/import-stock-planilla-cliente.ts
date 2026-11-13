@@ -102,8 +102,9 @@ function readMatrix(workbook: XLSX.WorkBook, sheet: string, firstHeader: string)
   const headerIndex = matrix.findIndex((row) => norm(row[0]) === firstHeader.toLowerCase());
   if (headerIndex < 0) throw new Error(`No encontré el encabezado de ${sheet}.`);
   const headers = matrix[headerIndex].map((header) => norm(header));
+  // Acepta nombres alternativos ("Código Cliente|SKU"): el primero que esté.
   const col = (name: string) => {
-    const index = headers.indexOf(name.toLowerCase());
+    const index = name.split("|").map((option) => headers.indexOf(option.toLowerCase())).find((found) => found >= 0) ?? -1;
     if (index < 0) throw new Error(`Falta la columna "${name}" en ${sheet}.`);
     return index;
   };
@@ -160,7 +161,7 @@ async function main() {
     const extraWorkbook = XLSX.read(fs.readFileSync(extraEgressFile), { type: "buffer" });
     const extraSheet = readMatrix(extraWorkbook, extraWorkbook.SheetNames[0], "Día");
     const x = {
-      day: extraSheet.col("Día"), month: extraSheet.col("Mes"), year: extraSheet.col("Año"), code: extraSheet.col(planilla.egress.code),
+      day: extraSheet.col("Día"), month: extraSheet.col("Mes"), year: extraSheet.col("Año"), code: extraSheet.col(`${planilla.egress.code}|SKU`),
       quantity: extraSheet.col("Cantidad"), operation: extraSheet.col("Operación"), destination: extraSheet.col("Destino"),
       comments: extraSheet.col("Comentarios"), description: extraSheet.col("Descripcion"),
     };
