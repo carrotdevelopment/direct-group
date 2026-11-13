@@ -1,10 +1,10 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { NextResponse } from "next/server";
-import { cancelPasaje, confirmPasaje, PasajeAjusteError, setPasajeDestination } from "@/lib/pasajes-ajustes-db";
+import { approvePasaje, cancelPasaje, confirmPasaje, PasajeAjusteError, setPasajeDestination } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
 
-type Body = { action?: "cancel" | "confirm" | "destination"; comment?: string; quantity?: number; toClient?: string; toClientCode?: string };
+type Body = { action?: "approve" | "cancel" | "confirm" | "destination"; comment?: string; quantity?: number; toClient?: string; toClientCode?: string };
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await checkApiAccess(["pasajes"], true);
@@ -13,6 +13,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const body = (await request.json()) as Body;
   try {
     const actor = await currentPasajeActor();
+    if (body.action === "approve") {
+      return NextResponse.json({ pasaje: await approvePasaje(id, actor) });
+    }
     if (body.action === "confirm") {
       return NextResponse.json({ pasaje: await confirmPasaje(id, Number(body.quantity), actor) });
     }

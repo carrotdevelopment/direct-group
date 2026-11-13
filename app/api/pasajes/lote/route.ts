@@ -1,12 +1,13 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { NextResponse } from "next/server";
-import { confirmPasajes, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
+import { approvePasajes, confirmPasajes, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
 
-type Body = { action?: "confirm"; items?: { id: string; quantity: number }[] };
+type Body = { action?: "approve" | "confirm"; ids?: string[]; items?: { id: string; quantity: number }[] };
 
-// Confirma a mano varios pasajes juntos, con la cantidad real. Cada pasaje se valida por separado.
+// Aprueba (encargada del origen) o confirma (encargada del destino, con la cantidad real) varios pasajes
+// juntos. Cada pasaje se valida por separado.
 export async function POST(request: Request) {
   const denied = await checkApiAccess(["pasajes"], true);
   if (denied) return denied;
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
   }
   try {
     const actor = await currentPasajeActor();
+    if (body.action === "approve") return NextResponse.json(await approvePasajes(body.ids ?? [], actor));
     if (body.action === "confirm") return NextResponse.json(await confirmPasajes(body.items ?? [], actor));
     return NextResponse.json({ message: "Acción inválida." }, { status: 400 });
   } catch (error) {

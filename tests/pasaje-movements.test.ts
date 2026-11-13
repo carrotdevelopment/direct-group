@@ -8,6 +8,8 @@ const db = vi.hoisted(() => ({
   incomes: [] as Record<string, unknown>[],
   clientCodes: [] as Record<string, unknown>[],
   movements: [] as Record<string, unknown>[],
+  batches: [] as Record<string, unknown>[],
+  shippers: [] as Record<string, unknown>[],
 }));
 
 vi.mock("server-only", () => ({}));
@@ -65,6 +67,8 @@ vi.mock("@/lib/excel-postgres-client", () => {
         return { count: found.length };
       },
     },
+    pasajeBatch: table(() => db.batches),
+    urbanoShipper: { findMany: async () => db.shippers },
     excelClientCode: {
       findMany: async () => db.clientCodes,
       findFirst: async ({ where }: { where: { client?: { equals: string }; clientCode: { equals: string } } }) =>
@@ -82,7 +86,8 @@ vi.mock("@/lib/excel-postgres-client", () => {
 
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import {
-  cancelPasaje, confirmPasaje, createPasaje as createManualPasaje, createPasajesFromUrbano, createPasajeWithMovements, reconcilePasajesWithUrbano, setPasajeDestination,
+  approvePasaje, cancelPasaje, confirmPasaje, createPasaje as createManualPasaje, createPasajeWithMovements, linkUrbanoPasajeOutgoings,
+  reconcilePasajesWithUrbano, setPasajeDestination,
 } from "@/lib/pasajes-ajustes-db";
 
 const creator = { name: "Emilia", role: "ADMIN", clients: [] };
@@ -101,6 +106,8 @@ const code = (client: string, clientCode: string, uniqueCode: string, active = t
 
 beforeEach(() => {
   stock.available = 100;
+  db.batches.length = 0;
+  db.shippers.splice(0, db.shippers.length, { code: "1315", name: "BCO LA PAMPA", clients: ["Pampa"], active: true }, { code: "3102", name: "UMILES/MACRO", clients: ["Umiles", "Macro"], active: true });
   db.pasajes.length = 0;
   db.egresses.length = 0;
   db.incomes.length = 0;
@@ -124,9 +131,9 @@ describe("movimientos de un pasaje", () => {
   it("al cancelarlo se inactiva el egreso y se borra el ingreso pendiente", async () => {
     const pasaje = await createPasaje(input, creator);
     Object.assign(db.pasajes[0], { status: "pending" });
-    await cancelPasaje(pasaje.id, receiver);
-    expect(db.pasajes[0]).toMatchObject({ status: "rejected", respondedBy: "Liz" });
-    expect(db.egresses[0]).toMatchObject({ deletedBy: "Liz", deletedAt: expect.any(Date) });
+    await cancelPasaje(pasaje.id, creator);
+    expect(db.pasajes[0]).toMatchObject({ status: "rejected", respondedBy: "Emilia" });
+    expect(db.egresses[0]).toMatchObject({ deletedBy: "Emilia", deletedAt: expect.any(Date) });
     expect(db.incomes).toEqual([]);
   });
 
@@ -145,7 +152,7 @@ describe("movimientos de un pasaje", () => {
 
   it("al confirmar el total, ingresa todo sin duplicar movimientos", async () => {
     const pasaje = await createPasaje(input, creator);
-    Object.assign(db.pasajes[0], { status: "pending" });
+    Object.assign(db.pasajes[0], { status: "approved" });
     await confirmPasaje(pasaje.id, 10, creator);
     expect(db.egresses).toHaveLength(1);
     expect(db.incomes).toHaveLength(1);
@@ -202,7 +209,7 @@ describe("movimientos de un pasaje", () => {
     const pasaje = await createPasaje(input, creator);
     Object.assign(db.pasajes[0], { status: "pending" });
     db.incomes.push(tangoRow({ pasajeId: pasaje.id }));
-    await cancelPasaje(pasaje.id, receiver);
+    await cancelPasaje(pasaje.id, creator);
     expect(db.incomes).toEqual([expect.objectContaining({ id: "tango-1" })]);
   });
 
@@ -241,84 +248,50 @@ describe("movimientos de un pasaje", () => {
   });
 });
 
-describe("pasajes creados desde las salidas de Urbano", () => {
-  const salida = (overrides: Row = {}) => ({
-    id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", product: "Mochila",
-    outQuantity: 10, date: new Date("2026-11-10T18:18:33Z"), voucher: "E10010061768692", ...overrides,
-  });
-
-  it("crea el pasaje sin destino, egresa del origen con la fecha de la salida y no la vuelve a usar", async () => {
-    db.movements.push(salida());
-    expect(await createPasajesFromUrbano()).toEqual({ created: 1, matched: 0, withoutCode: [], failed: [] });
-    expect(db.pasajes[0]).toMatchObject({
-      status: "no_destination", fromClient: "Pampa", fromClientCode: "76-5030", toClient: "", uniqueCode: "30433", quantity: 10,
-      createdBy: "Urbano (automático)", comments: "Salida de Urbano E10010061768692", requestDate: new Date("2026-11-10T00:00:00Z"),
+// Pasajes que se crearon solos desde una salida de Urbano antes del cambio: quedaron sin destino.
+describe("pasajes sin destino que ya existían", () => {
+  const sinDestino = async () => {
+    await createPasajeWithMovements(excelPostgres as never, {
+      fromClient: "Pampa", fromClientCode: "76-5030", toClient: "", toClientCode: "", uniqueCode: "30433", product: "Mochila",
+      comments: "Salida de Urbano E1", quantity: 10, createdBy: "Urbano (automático)",
     });
-    expect(db.egresses).toEqual([expect.objectContaining({
-      client: "Pampa", quantity: 10, destination: null, date: new Date("2026-11-10T18:18:33Z"), comments: expect.stringContaining("destino a definir"),
-    })]);
+    return db.pasajes[0].id as string;
+  };
+
+  it("al elegir el destino crea el ingreso pendiente y pasa a esperar la aprobación del origen", async () => {
+    const id = await sinDestino();
     expect(db.incomes).toEqual([]);
-    expect(db.movements[0]).toMatchObject({ pasajeId: db.pasajes[0].id });
-
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 0, withoutCode: [], failed: [] });
-    expect(db.pasajes).toHaveLength(1);
-  });
-
-  it("ignora los picking que no son pasaje y saltea los códigos que no están en Códigos Cliente", async () => {
-    db.movements.push(salida({ id: 51, pasajeOutgoing: false }), salida({ id: 52, clientCode: "NO-EXISTE", voucher: "X1" }));
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 0, withoutCode: ["NO-EXISTE (X1)"], failed: [] });
-    expect(db.pasajes).toEqual([]);
-    expect(db.movements.every((row) => row.pasajeId === null)).toBe(true);
-  });
-
-  it("al elegir el destino queda esperando a Urbano y se confirma con la recepción", async () => {
-    db.movements.push(salida());
-    await createPasajesFromUrbano();
-    const id = db.pasajes[0].id as string;
     await setPasajeDestination(id, "umiles", "dg-1", receiver);
     expect(db.pasajes[0]).toMatchObject({ status: "pending", toClient: "Umiles", toClientCode: "DG-1" });
     expect(db.egresses[0]).toMatchObject({ destination: "Umiles", comments: expect.stringContaining("Pasaje a Umiles (DG-1)") });
     expect(db.incomes).toEqual([expect.objectContaining({ client: "Umiles", clientCode: "DG-1", quantity: 10, deliveredQuantity: 0, transferOrigin: "Pampa" })]);
-
-    db.movements.push({ id: 60, type: "RECEPCION", client: "Umiles", clientCode: "DG-1", inQuantity: 10, date: new Date("2026-11-12T12:00:00Z"), voucher: "R1", pasajeId: null });
-    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 1, toReview: 0, failed: [] });
-    expect(db.incomes).toEqual([expect.objectContaining({ deliveredQuantity: 10 })]);
-  });
-
-  it("se puede corregir el destino antes de confirmar, sin duplicar el ingreso", async () => {
-    db.movements.push(salida());
-    await createPasajesFromUrbano();
-    const id = db.pasajes[0].id as string;
-    await setPasajeDestination(id, "Umiles", "DG-1", receiver);
-    await setPasajeDestination(id, "Amex", "AM-9", receiver);
-    expect(db.pasajes[0]).toMatchObject({ toClient: "Amex", toClientCode: "AM-9" });
-    expect(db.incomes).toEqual([expect.objectContaining({ client: "Amex", clientCode: "AM-9" })]);
   });
 
   it("no acepta un destino con otro código único ni el mismo cliente del origen", async () => {
-    db.movements.push(salida());
-    await createPasajesFromUrbano();
-    const id = db.pasajes[0].id as string;
+    const id = await sinDestino();
     await expect(setPasajeDestination(id, "Amex", "AM-1", receiver)).rejects.toThrow("código único 30433");
     await expect(setPasajeDestination(id, "Pampa", "76-5030", receiver)).rejects.toThrow("mismo cliente");
     expect(db.pasajes[0]).toMatchObject({ status: "no_destination" });
   });
 
-  it("al cancelarlo vuelve el stock al origen y la salida no crea otro pasaje", async () => {
-    db.movements.push(salida());
-    await createPasajesFromUrbano();
-    await cancelPasaje(db.pasajes[0].id as string, receiver);
+  it("cualquiera lo puede cancelar y el stock vuelve al origen", async () => {
+    const id = await sinDestino();
+    await cancelPasaje(id, receiver);
     expect(db.pasajes[0]).toMatchObject({ status: "rejected" });
     expect(db.egresses[0].deletedAt).toBeInstanceOf(Date);
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 0, withoutCode: [], failed: [] });
   });
 });
 
-describe("pasajes cargados a mano", () => {
-  it("egresa del origen, deja el ingreso pendiente y guarda el aviso si no alcanzaba el stock", async () => {
+describe("pasajes cargados en la plataforma", () => {
+  const ana = { name: "Ana", role: "VENDEDOR", clients: ["Pampa"] };
+
+  it("egresa del origen, deja el ingreso pendiente, espera aprobación y guarda el aviso si no alcanzaba el stock", async () => {
     stock.available = 4;
-    const pasaje = await createManualPasaje(input, creator);
-    expect(pasaje).toMatchObject({ status: "pending", createdBy: "Emilia", warning: "Se egresaron 10 con 4 disponibles en stock." });
+    const pasaje = await createManualPasaje(input, receiver);
+    expect(pasaje).toMatchObject({
+      status: "pending", createdBy: "Liz", warning: "Se egresaron 10 con 4 disponibles en stock.",
+      fromShipper: "1315", toShipper: "3102", fromDescription: "Mochila", batchId: db.batches[0].id,
+    });
     expect(db.egresses).toEqual([expect.objectContaining({ client: "Pampa", quantity: 10, destination: "Umiles" })]);
     expect(db.incomes).toEqual([expect.objectContaining({ client: "Umiles", clientCode: "DG-1", quantity: 10, deliveredQuantity: 0 })]);
   });
@@ -327,23 +300,72 @@ describe("pasajes cargados a mano", () => {
     expect(await createManualPasaje(input, creator)).toMatchObject({ warning: null });
   });
 
-  it("no lo carga si Urbano ya informó esa salida y espera destino", async () => {
-    db.movements.push({ id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", outQuantity: 10, date: new Date(), voucher: "E1" });
-    await createPasajesFromUrbano();
+  it("lo aprueba la encargada del origen y recién después lo confirma la del destino", async () => {
+    const pasaje = await createManualPasaje(input, receiver);
+    await expect(confirmPasaje(pasaje.id, 10, receiver)).rejects.toThrow("Primero lo tiene que aprobar la encargada de Pampa");
+    await expect(approvePasaje(pasaje.id, receiver)).rejects.toThrow("Lo aprueba la encargada de Pampa");
+    await approvePasaje(pasaje.id, ana);
+    expect(db.pasajes[0]).toMatchObject({ status: "approved", respondedBy: "Ana" });
+    await expect(confirmPasaje(pasaje.id, 10, ana)).rejects.toThrow("Lo confirma la encargada de Umiles");
+    await confirmPasaje(pasaje.id, 10, receiver);
+    expect(db.pasajes[0]).toMatchObject({ status: "confirmed", confirmedBy: "Liz" });
+    expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 10 });
+  });
+
+  it("si la encargada del origen lo rechaza, el stock vuelve al origen", async () => {
+    const pasaje = await createManualPasaje(input, receiver);
+    await cancelPasaje(pasaje.id, ana);
+    expect(db.pasajes[0]).toMatchObject({ status: "rejected", respondedBy: "Ana" });
+    expect(db.egresses[0].deletedAt).toBeInstanceOf(Date);
+    expect(db.incomes).toEqual([]);
+  });
+
+  it("la encargada del destino no lo puede rechazar", async () => {
+    const pasaje = await createManualPasaje(input, creator);
+    await expect(cancelPasaje(pasaje.id, receiver)).rejects.toThrow("encargada de Pampa o quien lo cargó");
+  });
+
+  it("no lo carga si hay un pasaje viejo de Urbano esperando destino", async () => {
+    await createPasajeWithMovements(excelPostgres as never, {
+      fromClient: "Pampa", fromClientCode: "76-5030", toClient: "", toClientCode: "", uniqueCode: "30433", product: null,
+      comments: null, quantity: 10, createdBy: "Urbano (automático)",
+    });
     await expect(createManualPasaje(input, creator)).rejects.toThrow("Sin destino");
     expect(db.egresses).toHaveLength(1);
   });
+});
 
-  it("la salida de Urbano se vincula al pasaje cargado a mano en lugar de crear otro", async () => {
+describe("salidas de pasaje de Urbano como control", () => {
+  const salida = (overrides: Row = {}) => ({
+    id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", product: "Mochila",
+    outQuantity: 10, date: new Date(), voucher: "E1", ...overrides,
+  });
+
+  it("se vincula al pasaje cargado y no crea ninguno", async () => {
     const pasaje = await createManualPasaje(input, creator);
-    db.movements.push({ id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", outQuantity: 10, date: new Date(), voucher: "E1" });
-    expect(await createPasajesFromUrbano()).toEqual({ created: 0, matched: 1, withoutCode: [], failed: [] });
+    db.movements.push(salida());
+    expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 1, unmatched: [], withoutCode: [] });
     expect(db.pasajes).toHaveLength(1);
     expect(db.egresses).toHaveLength(1);
     expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
+  });
 
-    // Una segunda salida igual ya no tiene pasaje manual libre: crea uno nuevo.
-    db.movements.push({ id: 51, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", outQuantity: 10, date: new Date(), voucher: "E2" });
-    expect(await createPasajesFromUrbano()).toEqual({ created: 1, matched: 0, withoutCode: [], failed: [] });
+  it("una salida sin pasaje cargado queda para control y no toca el stock", async () => {
+    db.movements.push(salida({ outQuantity: 7 }));
+    expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 0, unmatched: ["Pampa 76-5030 x7 (E1)"], withoutCode: [] });
+    expect(db.pasajes).toEqual([]);
+    expect(db.egresses).toEqual([]);
+  });
+
+  it("cada pasaje se vincula a una sola salida y saltea códigos desconocidos", async () => {
+    await createManualPasaje(input, creator);
+    db.movements.push(salida(), salida({ id: 51, voucher: "E2" }), salida({ id: 52, clientCode: "NO-EXISTE", voucher: "X1" }));
+    expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 1, unmatched: ["Pampa 76-5030 x10 (E2)"], withoutCode: ["NO-EXISTE (X1)"] });
+  });
+
+  it("al cargar el pasaje después de la salida, la vincula en el momento", async () => {
+    db.movements.push(salida());
+    const pasaje = await createManualPasaje(input, creator);
+    expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
   });
 });

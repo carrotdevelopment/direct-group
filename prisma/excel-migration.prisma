@@ -617,6 +617,8 @@ model PasajeRequest {
   fromShipper     String?   @map("shipper_origen") @db.VarChar(20)
   toShipper       String?   @map("shipper_destino") @db.VarChar(20)
   sourceRow       Int?      @map("fila_origen")
+  fromDescription String?   @map("descripcion_origen") @db.VarChar(255)
+  toDescription   String?   @map("descripcion_destino") @db.VarChar(255)
   warning         String?   @map("aviso")
   batch           PasajeBatch? @relation(fields: [batchId], references: [id])
 

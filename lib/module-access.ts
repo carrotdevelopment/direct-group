@@ -37,9 +37,9 @@ export function canActForClient(actor: Pick<PasajeActor, "role" | "clients">, cl
   return actor.clients.some((assigned) => assigned.trim().toLowerCase() === wanted);
 }
 
-// Pasajes: cualquiera con el módulo puede generarlos desde cualquier cliente; se confirman con lo que
-// informa Urbano. Quien lo generó lo sigue viendo y, si la cantidad no coincide, puede confirmar a mano
-// aunque no tenga asignado el cliente origen.
+// Pasajes: cualquiera con el módulo puede cargarlos desde cualquier cliente. Egresan del origen al
+// cargarse; los aprueba la encargada del cliente origen y los confirma la del cliente destino cuando
+// Urbano avisa que llegaron. Quien lo cargó lo sigue viendo y puede cancelarlo si se equivocó.
 type PasajeParties = { fromClient: string; toClient: string; createdBy: string };
 
 export function isPasajeCreator(actor: Pick<PasajeActor, "name">, pasaje: Pick<PasajeParties, "createdBy">) {
@@ -50,6 +50,17 @@ export function canSeePasaje(actor: PasajeActor, pasaje: PasajeParties) {
   return canActForClient(actor, pasaje.fromClient) || canActForClient(actor, pasaje.toClient) || isPasajeCreator(actor, pasaje);
 }
 
-export function canConfirmPasaje(actor: PasajeActor, pasaje: PasajeParties) {
-  return canActForClient(actor, pasaje.fromClient) || isPasajeCreator(actor, pasaje);
+// Aprueba (o rechaza) el pasaje la encargada del cliente origen.
+export function canApprovePasaje(actor: PasajeActor, pasaje: PasajeParties) {
+  return canActForClient(actor, pasaje.fromClient);
+}
+
+// Confirma lo que llegó la encargada del cliente destino.
+export function canReceivePasaje(actor: PasajeActor, pasaje: PasajeParties) {
+  return canActForClient(actor, pasaje.toClient);
+}
+
+// Cancela un pasaje la encargada del origen o quien lo cargó.
+export function canCancelPasaje(actor: PasajeActor, pasaje: PasajeParties) {
+  return canApprovePasaje(actor, pasaje) || isPasajeCreator(actor, pasaje);
 }

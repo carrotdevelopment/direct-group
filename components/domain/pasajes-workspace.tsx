@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Check, MapPin, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PasajeBatchesSection, type PasajeBatch } from "@/components/domain/pasaje-batches";
+import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
 type ProductLookup = { code: string; name: string };
@@ -31,7 +33,19 @@ type Pasaje = {
   requestDate: string | null;
   warning: string | null;
   sourceRow: number | null;
+  fromDescription: string | null;
   batch: { fileName: string | null; requestDate: string | null } | null;
+};
+
+type UrbanoOutgoing = {
+  id: number;
+  date: string;
+  voucher: string | null;
+  company: string | null;
+  client: string | null;
+  clientCode: string;
+  product: string | null;
+  outQuantity: number;
 };
 
 type Ajuste = {
@@ -63,19 +77,18 @@ function statusBadge(status: string) {
 
 function statusLabel(status: string) {
   if (status === "pending") return "Pendiente";
+  if (status === "approved") return "Aprobado";
   if (status === "confirmed") return "Confirmado";
   if (status === "accepted") return "Aceptado";
   return "Rechazado";
 }
 
 function pasajeStatusLabel(status: string) {
-  return status === "rejected" ? "Cancelado" : statusLabel(status);
+  return status === "rejected" ? "Rechazado" : statusLabel(status);
 }
 
 const isOpenPasaje = (p: { status: string }) => p.status === "pending" || p.status === "approved";
 const lacksDestination = (p: { status: string }) => p.status === "no_destination";
-// Quien figura como creador de los pasajes que salen de Urbano (URBANO_ACTOR en el servidor).
-const URBANO_ACTOR = "Urbano (automático)";
 
 function ClientCodeSelect({
   label,
@@ -183,6 +196,10 @@ export function PasajesWorkspace({
   const [ajustes, setAjustes] = useState<Ajuste[]>([]);
   const [status, setStatus] = useState("Cargando...");
   const [pasajeModalOpen, setPasajeModalOpen] = useState(false);
+  const [solicitudModalOpen, setSolicitudModalOpen] = useState(false);
+  const [batches, setBatches] = useState<PasajeBatch[]>([]);
+  const [urbanoWithoutPasaje, setUrbanoWithoutPasaje] = useState<UrbanoOutgoing[]>([]);
+  const [selectedApprove, setSelectedApprove] = useState<Set<string>>(new Set());
   const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
   // Destino elegido para cada pasaje sin destino, como "cliente|código".
   const [destinationChoice, setDestinationChoice] = useState<Record<string, string>>({});
@@ -202,23 +219,29 @@ export function PasajesWorkspace({
   const isOwn = (createdBy: string) =>
     restrictedClients !== null && createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
   const createdByMe = (createdBy: string) => createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
-  // Los ajustes se cargan solo de los clientes asignados; los pasajes los crea la salida de Urbano.
+  // Los ajustes se cargan solo de los clientes asignados; los pasajes, desde cualquier cliente.
   const cannotCreateAjuste = restrictedClients !== null && restrictedClients.length === 0;
 
   async function loadAll() {
     try {
-      const [mappingsRes, productsRes, pasajesRes, ajustesRes] = await Promise.all([
+      const [mappingsRes, productsRes, pasajesRes, ajustesRes, batchesRes, controlRes] = await Promise.all([
         fetch("/api/lookups?kind=client-codes"),
         fetch("/api/lookups?kind=products"),
         fetch("/api/pasajes"),
         fetch("/api/ajustes"),
+        fetch("/api/pasajes/lotes", { cache: "no-store" }),
+        fetch("/api/pasajes/control-urbano", { cache: "no-store" }),
       ]);
-      const [mappingsData, productsData, pasajesData, ajustesData] = await Promise.all([
+      const [mappingsData, productsData, pasajesData, ajustesData, batchesData, controlData] = await Promise.all([
         mappingsRes.json(),
         productsRes.json(),
         pasajesRes.json(),
         ajustesRes.json(),
+        batchesRes.ok ? batchesRes.json() : { batches: [] },
+        controlRes.ok ? controlRes.json() : { outgoings: [] },
       ]);
+      setBatches(batchesData.batches ?? []);
+      setUrbanoWithoutPasaje(controlData.outgoings ?? []);
       setMappings(mappingsData.mappings ?? []);
       setProducts(productsData.products ?? []);
       setPasajes(pasajesData.pasajes ?? []);
@@ -235,9 +258,9 @@ export function PasajesWorkspace({
     void loadAll();
   }, []);
 
-  async function respond(kind: "pasajes" | "ajustes", id: string, action: "accept" | "reject" | "cancel") {
+  async function respond(kind: "pasajes" | "ajustes", id: string, action: "accept" | "reject" | "cancel" | "approve") {
     setError("");
-    if (action === "cancel" && !window.confirm("¿Cancelar el pasaje? Se revierte el egreso y el stock vuelve al origen.")) return;
+    if (action === "cancel" && !window.confirm("¿Rechazar el pasaje? Se revierte el egreso, el stock vuelve al origen y se borra el ingreso pendiente.")) return;
     if (action === "reject" && !window.confirm("¿Rechazar el ajuste? El stock queda sin cambios.")) return;
     try {
       const response = await fetch(`/api/${kind}/${id}`, {
@@ -319,6 +342,7 @@ export function PasajesWorkspace({
       if (data.failed?.length) setError(`${data.done?.length ?? 0} ${okMessage}; ${data.failed.length} no: ${[...new Set(data.failed.map((item) => item.message))].join(" ")}`);
       setStatus(`${data.done?.length ?? 0} ${okMessage}.`);
       setSelectedConfirm(new Set());
+      setSelectedApprove(new Set());
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo procesar.");
@@ -328,12 +352,15 @@ export function PasajesWorkspace({
   }
 
   const realFor = (p: Pasaje) => realQuantity[p.id] ?? String(Number(p.quantity));
-  const canConfirm = (p: Pasaje) => canAct(p.fromClient) || createdByMe(p.createdBy);
+  // Aprueba la encargada del origen; confirma lo que llegó la del destino; rechaza la del origen o quien lo cargó.
+  const canApprove = (p: Pasaje) => canAct(p.fromClient);
+  const canConfirm = (p: Pasaje) => canAct(p.toClient);
+  const canCancel = (p: Pasaje) => canAct(p.fromClient) || createdByMe(p.createdBy);
   const requestLabel = (p: Pasaje) => {
     const date = p.batch?.requestDate ?? p.requestDate;
     if (!date) return "";
     const [year, month, day] = date.slice(0, 10).split("-");
-    return ` · Solicitud a Urbano del ${day}/${month}/${year}${p.sourceRow ? `, fila ${p.sourceRow}` : ""}`;
+    return ` · Solicitud del ${day}/${month}/${year}${p.sourceRow ? `, fila ${p.sourceRow}` : ""}`;
   };
 
   async function confirmSelected(list: Pasaje[]) {
@@ -347,6 +374,8 @@ export function PasajesWorkspace({
 
   const withoutDestination = pasajes.filter(lacksDestination);
   const openPasajes = pasajes.filter(isOpenPasaje);
+  const awaitingApproval = pasajes.filter((p) => p.status === "pending");
+  const awaitingArrival = pasajes.filter((p) => p.status === "approved");
   const resolvedPasajes = pasajes.filter((p) => !isOpenPasaje(p) && !lacksDestination(p));
   const pendingPasajes = withoutDestination.length + openPasajes.length;
   const pendingAjustes = ajustes.filter((a) => a.status === "pending");
@@ -372,9 +401,14 @@ export function PasajesWorkspace({
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-bold text-[#8a99ad]">{status}</span>
           {tab === "pasajes" ? (
-            <Button size="sm" onClick={() => setPasajeModalOpen(true)}>
-              <ArrowRightLeft size={15} /> Nuevo pasaje
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setPasajeModalOpen(true)}>
+                <ArrowRightLeft size={15} /> Un pasaje
+              </Button>
+              <Button size="sm" onClick={() => setSolicitudModalOpen(true)}>
+                <FileSpreadsheet size={15} /> Cargar pasajes
+              </Button>
+            </>
           ) : (
             <Button size="sm" disabled={cannotCreateAjuste} onClick={() => setAjusteModalOpen(true)}>
               <SlidersHorizontal size={15} /> Nuevo ajuste
@@ -398,23 +432,46 @@ export function PasajesWorkspace({
       {tab === "pasajes" ? (
         <div className="space-y-4">
           <div className="rounded-xl bg-[#eef3fb] px-4 py-3 text-xs font-bold text-[#52647d]">
-            Los pasajes se crean solos cada mañana con las salidas que Urbano informa como &quot;Pasaje de stock&quot;, y egresan
-            del origen en ese momento; Urbano no informa el destino, así que hay que elegirlo. También se pueden cargar a mano
-            con &quot;Nuevo pasaje&quot;: cuando llega la salida de Urbano se vincula a ese pasaje y no se crea otro.
+            Los pasajes se cargan acá (&quot;Cargar pasajes&quot;): egresan del origen en el momento y dejan el ingreso pendiente en
+            el destino. Los aprueba la encargada del cliente origen y, cuando Urbano avisa por correo que llegaron, los confirma la
+            encargada del cliente destino. De cada carga se bajan el Excel para mandarle a Urbano y la planilla para subir en Urbano.
           </div>
 
+          {urbanoWithoutPasaje.length > 0 && (
+            <section className="card animate-enter overflow-hidden border border-[#f4c16d]">
+              <div className="border-b border-[#f4dcae] bg-[#fff8ec] p-4">
+                <h2 className="flex items-center gap-2 text-sm font-black text-[#985b00]">
+                  <AlertTriangle size={15} /> Salidas de Urbano sin pasaje cargado ({urbanoWithoutPasaje.length})
+                </h2>
+                <p className="mt-1 text-[10px] font-semibold text-[#985b00]">
+                  Urbano sacó estas unidades como &quot;Pasaje de stock&quot; y no hay un pasaje cargado con el mismo código origen y
+                  cantidad. No tocan el stock: cargá el pasaje (se vincula solo) o avisale a Urbano si no correspondía.
+                </p>
+              </div>
+              <div className="max-h-[260px] divide-y divide-[#f4e6cc] overflow-auto">
+                {urbanoWithoutPasaje.map((item) => (
+                  <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs">
+                    <div>
+                      <span className="font-bold text-[#10233f]">{item.client ?? `Cuenta ${item.company ?? "?"}`} ({item.clientCode})</span>
+                      <span className="text-[#62728a]"> · {item.product || "—"} · Salieron {item.outQuantity}</span>
+                    </div>
+                    <span className="text-[10px] text-[#8a99ad]">{formatDateTime(item.date)}{item.voucher ? ` · ${item.voucher}` : ""}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {withoutDestination.length > 0 && (
           <section className="card animate-enter overflow-hidden">
             <div className="border-b border-[#e1e8f1] bg-white p-4">
               <h2 className="text-sm font-black text-[#10233f]">Sin destino</h2>
               <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
-                Urbano informó la salida del origen. Elegí a qué cliente fue: después se confirma solo cuando Urbano informa la recepción.
-                Si no era un pasaje, cancelalo y el stock vuelve al origen.
+                Pasajes que se crearon solos con una salida de Urbano, antes de que se cargaran en la plataforma. Elegí a qué
+                cliente fue y sigue como cualquier pasaje; si no era un pasaje, cancelalo y el stock vuelve al origen.
               </p>
             </div>
             <div className="divide-y divide-[#e7edf4]">
-              {withoutDestination.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes sin destino.</p>
-              )}
               {withoutDestination.map((p) => {
                 const options = destinationOptions(p);
                 return (
@@ -446,82 +503,160 @@ export function PasajesWorkspace({
               })}
             </div>
           </section>
+          )}
 
           <section className="card animate-enter overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e1e8f1] bg-white p-4">
               <div>
-                <h2 className="text-sm font-black text-[#10233f]">Esperando a Urbano</h2>
+                <h2 className="text-sm font-black text-[#10233f]">1 · Esperando aprobación del origen ({awaitingApproval.length})</h2>
                 <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
-                  El egreso ya está registrado y el ingreso sigue pendiente. Se confirma solo cuando Urbano informa una recepción
-                  con la misma cantidad. Si informa otra cantidad, revisalo y confirmá a mano: si pasó menos, la diferencia vuelve
-                  al origen; con 0, se revierte el egreso.
+                  El egreso del origen ya está hecho y el ingreso al destino quedó pendiente. Lo aprueba la encargada del cliente
+                  origen; si lo rechaza, el stock vuelve al origen y se borra el ingreso pendiente.
                 </p>
               </div>
               {(() => {
-                const mine = openPasajes.filter(canConfirm);
+                const mine = awaitingApproval.filter(canApprove);
+                const selected = mine.filter((p) => selectedApprove.has(p.id));
+                return mine.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setSelectedApprove(selected.length === mine.length ? new Set() : new Set(mine.map((p) => p.id)))}>
+                      {selected.length === mine.length ? "Quitar selección" : `Seleccionar todos (${mine.length})`}
+                    </Button>
+                    <Button size="sm" disabled={busy || selected.length === 0} onClick={() => void bulk({ action: "approve", ids: selected.map((p) => p.id) }, "pasajes aprobados")}>
+                      <Check size={14} /> Aprobar {selected.length || ""}
+                    </Button>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+            <div className="max-h-[520px] divide-y divide-[#e7edf4] overflow-auto">
+              {awaitingApproval.length === 0 && (
+                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando aprobación.</p>
+              )}
+              {awaitingApproval.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                  <div className="flex min-w-0 items-start gap-3 text-xs">
+                    {canApprove(p) && (
+                      <input
+                        type="checkbox"
+                        aria-label="Incluir en la aprobación"
+                        className="mt-1"
+                        checked={selectedApprove.has(p.id)}
+                        onChange={(event) => setSelectedApprove((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(p.id); else next.delete(p.id);
+                          return next;
+                        })}
+                      />
+                    )}
+                    <div className="min-w-0">
+                        <div className="font-bold text-[#10233f]">
+                          {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
+                        </div>
+                        <div className="mt-0.5 text-[#62728a]">
+                          {p.fromDescription || productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · {Number(p.quantity)} u.
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                          Cargado por {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
+                          {p.comments ? ` · ${p.comments}` : ""}
+                        </div>
+                        {p.warning && <div className="mt-0.5 text-[10px] font-bold text-[#985b00]">{p.warning}</div>}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canApprove(p) ? (
+                      <Button size="sm" onClick={() => void respond("pasajes", p.id, "approve")}>
+                        <Check size={14} /> Aprobar
+                      </Button>
+                    ) : (
+                      <span className="text-[10px] font-bold text-[#8a99ad]">Lo aprueba la encargada de {p.fromClient}</span>
+                    )}
+                    {canCancel(p) && (
+                      <Button size="sm" variant="secondary" onClick={() => void respond("pasajes", p.id, "cancel")}>
+                        <X size={14} /> Rechazar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="card animate-enter overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e1e8f1] bg-white p-4">
+              <div>
+                <h2 className="text-sm font-black text-[#10233f]">2 · Esperando que llegue al destino ({awaitingArrival.length})</h2>
+                <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
+                  Aprobados por el origen. Cuando Urbano avisa por correo que llegaron, la encargada del cliente destino confirma
+                  cuántas unidades llegaron: ingresan al destino; si llegaron menos, la diferencia vuelve al origen; con 0, se revierte.
+                </p>
+              </div>
+              {(() => {
+                const mine = awaitingArrival.filter(canConfirm);
                 const selected = mine.filter((p) => selectedConfirm.has(p.id));
                 return mine.length > 0 ? (
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="secondary" onClick={() => setSelectedConfirm(selected.length === mine.length ? new Set() : new Set(mine.map((p) => p.id)))}>
                       {selected.length === mine.length ? "Quitar selección" : `Seleccionar todos (${mine.length})`}
                     </Button>
-                    <Button size="sm" disabled={busy || selected.length === 0} onClick={() => void confirmSelected(openPasajes)}>
+                    <Button size="sm" disabled={busy || selected.length === 0} onClick={() => void confirmSelected(awaitingArrival)}>
                       <Check size={14} /> Confirmar {selected.length || ""}
                     </Button>
                   </div>
                 ) : null;
               })()}
             </div>
-            <div className="divide-y divide-[#e7edf4]">
-              {openPasajes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando lo que informe Urbano.</p>
+            <div className="max-h-[520px] divide-y divide-[#e7edf4] overflow-auto">
+              {awaitingArrival.length === 0 && (
+                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando que lleguen al destino.</p>
               )}
-              {openPasajes.map((p) => {
+              {awaitingArrival.map((p) => {
                 const requested = Number(p.quantity);
                 const real = Number(realFor(p));
                 return (
                   <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                     <div className="flex min-w-0 items-start gap-3 text-xs">
                       {canConfirm(p) && (
-                        <input
-                          type="checkbox"
-                          aria-label="Incluir en la confirmación"
-                          className="mt-1"
-                          checked={selectedConfirm.has(p.id)}
-                          onChange={(event) => setSelectedConfirm((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) next.add(p.id); else next.delete(p.id);
-                            return next;
-                          })}
-                        />
+                      <input
+                        type="checkbox"
+                        aria-label="Incluir en la confirmación"
+                        className="mt-1"
+                        checked={selectedConfirm.has(p.id)}
+                        onChange={(event) => setSelectedConfirm((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(p.id); else next.delete(p.id);
+                          return next;
+                        })}
+                      />
                       )}
                       <div className="min-w-0">
                         <div className="font-bold text-[#10233f]">
                           {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
                         </div>
                         <div className="mt-0.5 text-[#62728a]">
-                          {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Solicitado: {requested}
+                          {p.fromDescription || productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · {Number(p.quantity)} u.
                         </div>
                         <div className="mt-0.5 text-[10px] text-[#8a99ad]">
-                          Generado por {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
+                          Cargado por {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
                           {p.comments ? ` · ${p.comments}` : ""}
                         </div>
                         {p.warning && <div className="mt-0.5 text-[10px] font-bold text-[#985b00]">{p.warning}</div>}
+                        {p.respondedBy && p.respondedAt && (
+                          <div className="mt-0.5 text-[10px] text-[#8a99ad]">Aprobado por {p.respondedBy} el {formatDateTime(p.respondedAt)}</div>
+                        )}
                         {p.urbanoInformed && (
                           <div className={`mt-0.5 text-[10px] font-bold ${p.urbanoInformed.exact ? "text-[#23783a]" : "text-[#985b00]"}`}>
                             {p.urbanoInformed.exact
-                              ? `Urbano ya informó la recepción${p.urbanoInformed.vouchers.length ? ` (${p.urbanoInformed.vouchers.join(", ")})` : ""}: se confirma en la próxima carga de movimientos.`
-                              : `Para revisar: Urbano informó ${p.urbanoInformed.received} y se pidieron ${requested}${p.urbanoInformed.vouchers.length ? ` (${p.urbanoInformed.vouchers.join(", ")})` : ""}.`}
+                              ? `En los movimientos de Urbano ya figura una recepción de ${p.urbanoInformed.received}${p.urbanoInformed.vouchers.length ? ` (${p.urbanoInformed.vouchers.join(", ")})` : ""}.`
+                              : `En los movimientos de Urbano figura una recepción de ${p.urbanoInformed.received} y se pasaron ${requested}${p.urbanoInformed.vouchers.length ? ` (${p.urbanoInformed.vouchers.join(", ")})` : ""}.`}
                           </div>
                         )}
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      {/* Un pasaje creado desde Urbano tuvo el destino elegido a mano: se puede corregir. */}
-                      {p.createdBy === URBANO_ACTOR && destinationOptions(p).length > 1 && destinationPicker(p, "Cambiar destino")}
                       {canConfirm(p) ? (
                         <label className="flex items-center gap-2 text-[11px] font-extrabold text-[#334b6b]">
-                          Pasó
+                          Llegaron
                           <input
                             type="number"
                             min="0"
@@ -534,21 +669,25 @@ export function PasajesWorkspace({
                             className="h-9 w-20 rounded-lg border border-[#dbe4ef] px-2 text-right text-xs tabular-nums outline-none focus:border-[#7da4d3]"
                           />
                           <span className={real < requested ? "text-[#985b00]" : "text-[#8a99ad]"}>
-                            {real === 0 ? "no se realizó" : real < requested ? `faltan ${requested - real}` : `de ${requested}`}
+                            {real === 0 ? "no llegó" : real < requested ? `faltan ${requested - real}` : `de ${requested}`}
                           </span>
                         </label>
                       ) : (
-                        <span className="text-[10px] font-bold text-[#8a99ad]">A mano lo confirma {p.createdBy} o quien tenga {p.fromClient}</span>
+                        <span className="text-[10px] font-bold text-[#8a99ad]">Lo confirma la encargada de {p.toClient}</span>
                       )}
-                      <Button size="sm" variant="secondary" onClick={() => respond("pasajes", p.id, "cancel")}>
-                        <X size={14} /> Cancelar
-                      </Button>
+                      {canCancel(p) && (
+                        <Button size="sm" variant="secondary" onClick={() => void respond("pasajes", p.id, "cancel")}>
+                          <X size={14} /> Rechazar
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
           </section>
+
+          <PasajeBatchesSection batches={batches} />
 
           <section className="card animate-enter overflow-hidden">
             <div className="border-b border-[#e1e8f1] bg-white p-4">
@@ -568,11 +707,11 @@ export function PasajesWorkspace({
                       {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Cantidad: {p.quantity}
                     </div>
                     <div className="mt-0.5 text-[10px] text-[#8a99ad]">
-                      Generado por {p.createdBy} el {formatDateTime(p.createdAt)}
-                      {p.respondedBy && p.respondedAt ? ` · ${p.status === "rejected" ? "Cancelado" : "Aprobado"} por ${p.respondedBy} el ${formatDateTime(p.respondedAt)}` : ""}
+                      Cargado por {p.createdBy} el {formatDateTime(p.createdAt)}
+                      {p.respondedBy && p.respondedAt ? ` · ${p.status === "rejected" ? "Rechazado" : "Aprobado"} por ${p.respondedBy} el ${formatDateTime(p.respondedAt)}` : ""}
                       {p.responseComment ? ` · ${p.responseComment}` : ""}
                       {p.status === "confirmed" && p.confirmedAt
-                        ? ` · Confirmado por ${p.confirmedBy} el ${formatDateTime(p.confirmedAt)}: ${Number(p.confirmedQuantity) === 0 ? "no se realizó" : `pasó ${Number(p.confirmedQuantity)} de ${Number(p.quantity)}`}`
+                        ? ` · Confirmado por ${p.confirmedBy} el ${formatDateTime(p.confirmedAt)}: ${Number(p.confirmedQuantity) === 0 ? "no llegó" : `llegaron ${Number(p.confirmedQuantity)} de ${Number(p.quantity)}`}`
                         : ""}
                       {p.urbanoVoucher ? ` · Comprobante de Urbano ${p.urbanoVoucher}` : ""}
                       {requestLabel(p)}
@@ -669,10 +808,13 @@ export function PasajesWorkspace({
           onClose={() => setPasajeModalOpen(false)}
           onCreated={(warning) => {
             setPasajeModalOpen(false);
-            setStatus(warning ? `Pasaje generado. ${warning}` : "Pasaje generado: el ingreso queda pendiente hasta la recepción de Urbano.");
+            setStatus(warning ? `Pasaje cargado. ${warning}` : "Pasaje cargado: espera la aprobación de la encargada del origen.");
             void loadAll();
           }}
         />
+      )}
+      {solicitudModalOpen && (
+        <PasajeSolicitudModal onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
       )}
       {ajusteModalOpen && (
         <AjusteModal
