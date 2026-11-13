@@ -26,7 +26,7 @@ describe("reconsulta y respuesta de proveedores", () => {
     listInbox.mockResolvedValue({ threads: [thread({ hasAttachments: true })] });
     const reply = await findSupplierReply(contact);
     expect(listInbox.mock.calls[0][0].query).toBe('{from:ftedin@acegame.com.ar subject:"Solicitud de catálogo de productos - ACEGAME - noviembre de 2026"} after:2026/11/01');
-    expect(reply).toEqual({ repliedAt: new Date("2026-11-03T15:00:00.000Z"), hasAttachment: true });
+    expect(reply).toEqual({ repliedAt: new Date("2026-11-03T15:00:00.000Z"), hasAttachment: true, threadId: "t1" });
   });
 
   it("no cuenta hilos anteriores al envío ni los que solo tienen mensajes propios", async () => {

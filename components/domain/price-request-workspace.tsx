@@ -124,6 +124,9 @@ export function PriceRequestWorkspace() {
   // La lista de proveedores del envío mensual arranca cerrada para no ocupar la página.
   const [suppliersOpen, setSuppliersOpen] = useState(false);
   const [supplierQuery, setSupplierQuery] = useState("");
+  // Adjuntos de la respuesta de cada proveedor, cuando trae más de uno.
+  const [replyAttachments, setReplyAttachments] = useState<Record<string, { name: string; url: string }[]>>({});
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
   const [prices, setPrices] = useState<PriceRecord[]>([]);
   const [pricesLoading, setPricesLoading] = useState(true);
   const [pricesFetching, setPricesFetching] = useState(false);
@@ -610,6 +613,28 @@ export function PriceRequestWorkspace() {
     setPriceDraft(null);
   }
 
+  // Abre el adjunto de la respuesta en la misma pestaña; si trae varios, los lista debajo.
+  async function openReplyAttachment(config: SupplierMailConfig) {
+    setOpeningAttachmentId(config.id);
+    try {
+      const response = await fetch(`/api/price-requests/contacts/${config.id}/adjuntos`, { cache: "no-store" });
+      const data = (await response.json()) as { attachments?: { name: string; url: string }[]; message?: string };
+      if (!response.ok) throw new Error(data.message || "No pude abrir la respuesta del proveedor.");
+      const attachments = data.attachments ?? [];
+      if (attachments.length === 0) {
+        setMailStatus({ tone: "error", text: `Todavía no está ubicado el adjunto de ${config.supplier}: tocá "Revisar respuestas" y probá de nuevo.` });
+      } else if (attachments.length === 1) {
+        window.location.assign(attachments[0].url);
+      } else {
+        setReplyAttachments((current) => ({ ...current, [config.id]: attachments }));
+      }
+    } catch (error) {
+      setMailStatus({ tone: "error", text: error instanceof Error ? error.message : "No pude abrir la respuesta del proveedor." });
+    } finally {
+      setOpeningAttachmentId(null);
+    }
+  }
+
   const activeSupplierCount = suppliers.filter((config) => config.active).length;
   const repliedSupplierCount = suppliers.filter((config) => config.repliedAt).length;
   const supplierNeedle = supplierQuery.trim().toLowerCase();
@@ -726,11 +751,34 @@ export function PriceRequestWorkspace() {
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     {config.repliedAt ? (
+                      <>
                       <span title={`Contestó el ${formatDate(config.repliedAt)}${config.replyHasAttachment ? " con adjunto" : " sin adjunto"}`}>
                         <Badge tone="success">
                           Sí {config.replyHasAttachment && <Paperclip size={11} aria-label="con adjunto" />}
                         </Badge>
                       </span>
+                      {config.replyHasAttachment && (
+                        <div className="mt-0.5">
+                          {replyAttachments[config.id] ? (
+                            replyAttachments[config.id].map((attachment) => (
+                              <a key={attachment.url} href={attachment.url} className="block max-w-[160px] truncate text-[10px] font-bold text-[#0b5bbb] hover:underline" title={attachment.name}>
+                                {attachment.name}
+                              </a>
+                            ))
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void openReplyAttachment(config)}
+                              disabled={openingAttachmentId === config.id}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-[#0b5bbb] hover:underline disabled:text-[#8a99ad]"
+                            >
+                              {openingAttachmentId === config.id ? <LoaderCircle size={11} className="animate-spin" /> : <Paperclip size={11} />}
+                              Ver adjunto
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      </>
                     ) : (
                       <span title={config.repliesCheckedAt ? `Revisado el ${formatDate(config.repliesCheckedAt)}` : "Todavía no se revisó"}>
                         <Badge tone="neutral">No</Badge>

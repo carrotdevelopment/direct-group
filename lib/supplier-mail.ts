@@ -1,6 +1,6 @@
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
-import { listInbox } from "@/lib/mail-inbox";
+import { getInboxAttachment, getInboxThread, listInbox } from "@/lib/mail-inbox";
 import { DEFAULT_SUPPLIER_MAIL, renderMailTemplate, withDefaults, type SupplierMailTemplates } from "@/lib/org-settings";
 
 // Sin "server-only": lo usa también el script que dispara la tarea programada.
@@ -123,7 +123,7 @@ export async function sendPriceRequestToContact(id: string, trigger: Trigger, no
     await excelPostgres.$transaction([
       excelPostgres.supplierMailLog.create({ data: { contactId: id, period, status: "sent", trigger } }),
       // Con cada pedido nuevo se vuelve a esperar la respuesta del proveedor.
-      excelPostgres.supplierMailContact.update({ where: { id }, data: { lastSentAt: now, repliedAt: null, replyHasAttachment: false, lastFollowUpAt: null } }),
+      excelPostgres.supplierMailContact.update({ where: { id }, data: { lastSentAt: now, repliedAt: null, replyHasAttachment: false, replyThreadId: null, lastFollowUpAt: null } }),
     ]);
     return { from: result.from, email: contact.email };
   } catch (error) {
@@ -208,8 +208,33 @@ export async function findSupplierReply(
     return !thread.from.toLowerCase().includes(OWN_DOMAIN) || thread.messageCount > 1;
   });
   if (replies.length === 0) return null;
-  const first = replies.reduce((earliest, thread) => (thread.date < earliest.date ? thread : earliest));
-  return { repliedAt: new Date(first.date), hasAttachment: replies.some((thread) => thread.hasAttachments) };
+  const earliest = (threads: typeof replies) => threads.reduce((first, thread) => (thread.date < first.date ? thread : first));
+  const first = earliest(replies);
+  const withAttachment = replies.filter((thread) => thread.hasAttachments);
+  return {
+    repliedAt: new Date(first.date),
+    hasAttachment: withAttachment.length > 0,
+    threadId: (withAttachment.length ? earliest(withAttachment) : first).id,
+  };
+}
+
+// Adjuntos de la respuesta guardada del proveedor (sin los de nuestros propios mensajes del hilo).
+// Solo se puede abrir lo de ese hilo: no da acceso al resto de la casilla.
+export async function supplierReplyAttachments(contactId: string) {
+  const contact = await excelPostgres.supplierMailContact.findUnique({ where: { id: contactId } });
+  if (!contact) throw new SupplierMailError("El contacto no existe.", 404);
+  if (!contact.replyThreadId) return [];
+  const thread = await getInboxThread(contact.replyThreadId);
+  return thread.messages
+    .filter((message) => !message.from.toLowerCase().includes(OWN_DOMAIN))
+    .flatMap((message) => message.attachments.map((attachment) => ({ ...attachment, messageId: message.id })))
+    .map(({ messageId, index, name, contentType, size }, position) => ({ position, messageId, index, name, contentType, size }));
+}
+
+export async function supplierReplyAttachment(contactId: string, position: number) {
+  const attachment = (await supplierReplyAttachments(contactId)).find((item) => item.position === position);
+  if (!attachment) throw new SupplierMailError("Ese adjunto ya no está en la respuesta del proveedor.", 404);
+  return getInboxAttachment(attachment.messageId, attachment.index);
 }
 
 // Revisa las respuestas de todos los contactos activos que ya recibieron el pedido. Se corre desde la
@@ -226,7 +251,7 @@ export async function checkSupplierReplies(now = new Date()) {
   // De a pocos a la vez: cada búsqueda pasa por el puente de Google Apps Script.
   const worker = async () => {
     for (let contact = queue.shift(); contact; contact = queue.shift()) {
-      if (contact.repliedAt && contact.replyHasAttachment) {
+      if (contact.repliedAt && contact.replyHasAttachment && contact.replyThreadId) {
         replied += 1;
         continue;
       }
@@ -237,7 +262,7 @@ export async function checkSupplierReplies(now = new Date()) {
         );
         await excelPostgres.supplierMailContact.update({
           where: { id: contact.id },
-          data: { repliesCheckedAt: now, ...(reply ? { repliedAt: reply.repliedAt, replyHasAttachment: reply.hasAttachment } : {}) },
+          data: { repliesCheckedAt: now, ...(reply ? { repliedAt: reply.repliedAt, replyHasAttachment: reply.hasAttachment, replyThreadId: reply.threadId } : {}) },
         });
         if (reply) replied += 1;
       } catch (error) {

@@ -756,6 +756,8 @@ model SupplierMailContact {
   // Respuesta del proveedor al último pedido (se busca en la casilla; se borra con cada pedido nuevo).
   repliedAt          DateTime? @map("respondido_at") @db.Timestamptz(6)
   replyHasAttachment Boolean   @default(false) @map("respuesta_con_adjunto")
+  // Hilo de Gmail de esa respuesta (el que trae adjunto, si hay): de ahí se abre el adjunto.
+  replyThreadId      String?   @map("respuesta_hilo_id") @db.VarChar(64)
   repliesCheckedAt   DateTime? @map("respuestas_revisadas_at") @db.Timestamptz(6)
   lastFollowUpAt     DateTime? @map("ultima_reconsulta_at") @db.Timestamptz(6)
   createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)

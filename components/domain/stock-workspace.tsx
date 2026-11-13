@@ -1,8 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Minus, Plus, Search } from "lucide-react";
 import { PageHeader } from "@/components/domain/page-header";
+
+// Zoom de la tabla, en porcentaje. Se recuerda en este navegador.
+const ZOOM_MIN = 50;
+const ZOOM_MAX = 200;
+const ZOOM_STEP = 10;
+const ZOOM_KEY = "dg:stock:zoom";
+const clampZoom = (value: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value)));
+
+function readSavedZoom() {
+  try {
+    const saved = Number(window.localStorage.getItem(ZOOM_KEY));
+    return saved ? clampZoom(saved) : 100;
+  } catch {
+    return 100;
+  }
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,6 +103,21 @@ export function StockWorkspace() {
   const [codeSearch, setCodeSearch] = useState("");
   const [uniqueSearch, setUniqueSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
+  const [zoom, setZoomState] = useState(100);
+  // El zoom guardado se lee después de montar, para que el HTML del servidor y el del navegador coincidan.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setZoomState(readSavedZoom()));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const setZoom = (value: number) => {
+    const next = clampZoom(value);
+    setZoomState(next);
+    try {
+      window.localStorage.setItem(ZOOM_KEY, String(next));
+    } catch {
+      // Sin almacenamiento el zoom vale solo para esta visita.
+    }
+  };
   const [planningMonths, setPlanningMonths] = useState("2");
 
   useEffect(() => {
@@ -393,6 +424,46 @@ export function StockWorkspace() {
               </div>
             )}
           </div>
+          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-[#62728a]">
+            Zoom
+            <button
+              type="button"
+              aria-label="Achicar la tabla"
+              onClick={() => setZoom(zoom - ZOOM_STEP)}
+              disabled={zoom <= ZOOM_MIN}
+              className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] bg-white text-[#334b6b] hover:bg-[#f2f6fb] disabled:opacity-40"
+            >
+              <Minus size={13} />
+            </button>
+            <input
+              type="range"
+              aria-label="Zoom de la tabla"
+              min={ZOOM_MIN}
+              max={ZOOM_MAX}
+              step={ZOOM_STEP}
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="w-24 accent-[#0b5bbb]"
+            />
+            <button
+              type="button"
+              aria-label="Agrandar la tabla"
+              onClick={() => setZoom(zoom + ZOOM_STEP)}
+              disabled={zoom >= ZOOM_MAX}
+              className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] bg-white text-[#334b6b] hover:bg-[#f2f6fb] disabled:opacity-40"
+            >
+              <Plus size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(100)}
+              title="Volver al 100%"
+              className="w-11 rounded-lg px-1 py-1 text-right text-xs normal-case text-[#10233f] hover:bg-[#f2f6fb]"
+            >
+              {zoom}%
+            </button>
+          </div>
           <label className="flex items-center gap-2 text-[10px] font-black uppercase text-[#62728a]">
             Meses stock
             <input
@@ -404,10 +475,14 @@ export function StockWorkspace() {
               className="h-8 w-20 rounded-lg border border-[#dbe4ef] bg-white px-2 text-right text-xs text-[#10233f] outline-none focus:border-[#0b5bbb]"
             />
           </label>
+          </div>
         </div>
 
         <div className="max-h-[calc(100vh-390px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
-          <table className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[8px]">
+          <table
+            style={{ zoom: zoom / 100 }}
+            className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[8px]"
+          >
             <thead>
               {/* Row 1 – group headers */}
               <tr>
