@@ -127,7 +127,7 @@ async function publish(tx: Tx, job: TangoSyncJob) {
       (r->>'deliveryDate')::date AS fecha_entrega,
       (r->>'deliveredQuantity')::numeric(18,4) AS entregado, r->>'comments' AS comentarios
     FROM tango_sync_batches b CROSS JOIN LATERAL jsonb_array_elements(b.rows) r
-    WHERE b.job_id = ${job.id}::uuid`;
+    WHERE b.job_id = ${job.id}::uuid AND b.kind = 'ingresos'`;
   const duplicate = await tx.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM
     (SELECT external_key FROM tango_sync_incoming GROUP BY external_key HAVING count(*) > 1) d`;
   if (Number(duplicate[0].count)) throw new TangoSyncError("La consulta devolvió IDs de Tango repetidos. Revisá las uniones de depósitos y órdenes.");
@@ -173,6 +173,25 @@ async function publish(tx: Tx, job: TangoSyncJob) {
       entregado = EXCLUDED.entregado, comentarios = EXCLUDED.comentarios, updated_at = now()`;
 }
 
+// Las OC pendientes son una foto: se reemplaza entera con lo que mandó el conector en este trabajo.
+async function publishPendingOrders(tx: Tx, job: TangoSyncJob) {
+  const duplicate = await tx.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM (
+      SELECT r->>'sourceId' FROM tango_sync_batches b CROSS JOIN LATERAL jsonb_array_elements(b.rows) r
+      WHERE b.job_id = ${job.id}::uuid AND b.kind = 'pendientes'
+      GROUP BY r->>'sourceId' HAVING count(*) > 1) d`;
+  if (Number(duplicate[0].count)) throw new TangoSyncError("La consulta de OC pendientes devolvió renglones repetidos. Revisá las uniones de la consulta.");
+  await tx.$executeRaw`DELETE FROM tango_oc_pendientes`;
+  await tx.$executeRaw`INSERT INTO tango_oc_pendientes
+    (source_id, orden_de_compra, renglon, codigo_cliente, deposito, cliente, fecha_pedido,
+     cantidad_pedida, cantidad_recibida, cantidad_pendiente, estado, updated_at)
+    SELECT r->>'sourceId', r->>'purchaseOrder', (r->>'line')::int, r->>'clientCode',
+      coalesce(r->>'warehouse', ''), coalesce(r->>'client', ''), (r->>'orderDate')::date,
+      (r->>'orderedQuantity')::numeric(18,4), (r->>'receivedQuantity')::numeric(18,4),
+      (r->>'pendingQuantity')::numeric(18,4), coalesce(r->>'status', ''), now()
+    FROM tango_sync_batches b CROSS JOIN LATERAL jsonb_array_elements(b.rows) r
+    WHERE b.job_id = ${job.id}::uuid AND b.kind = 'pendientes'`;
+}
+
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -210,7 +229,7 @@ export async function handleAgent(input: TangoAgentRequest) {
       }
       const claimed = await tx.tangoSyncJob.update({ where: { id: job.id }, data: {
         status: "running", attempts: { increment: 1 }, claimToken: randomUUID(),
-        leaseUntil: new Date(now.getTime() + LEASE_MS), rowCount: 0, message: null,
+        leaseUntil: new Date(now.getTime() + LEASE_MS), rowCount: 0, pendingRowCount: null, message: null,
       } });
       await tx.tangoSyncBatch.deleteMany({ where: { jobId: job.id } });
       return { job: { ...publicJob(claimed), claimToken: claimed.claimToken } };
@@ -234,33 +253,49 @@ export async function handleAgent(input: TangoAgentRequest) {
       await tx.tangoSyncBatch.deleteMany({ where: { jobId: job.id } });
       return { ok: true };
     }
-    if (input.action === "batch") {
-      const from = job.dateFrom.toISOString().slice(0, 10), to = job.dateTo.toISOString().slice(0, 10);
-      if (input.rows.some((r) => r.deliveryDate < from || r.deliveryDate > to)) throw new TangoSyncError("Un renglón está fuera del período solicitado.", 400);
-      const existing = await tx.tangoSyncBatch.findUnique({ where: { jobId_index: { jobId: job.id, index: input.index } } });
+    if (input.action === "batch" || input.action === "pending") {
+      const kind = input.action === "batch" ? "ingresos" : "pendientes";
+      if (input.action === "batch") {
+        const from = job.dateFrom.toISOString().slice(0, 10), to = job.dateTo.toISOString().slice(0, 10);
+        if (input.rows.some((r) => r.deliveryDate < from || r.deliveryDate > to)) throw new TangoSyncError("Un renglón está fuera del período solicitado.", 400);
+      }
+      const existing = await tx.tangoSyncBatch.findUnique({ where: { jobId_kind_index: { jobId: job.id, kind, index: input.index } } });
       if (existing && JSON.stringify(existing.rows) !== JSON.stringify(input.rows)) {
         // JSONB property ordering is not stable: compare through PostgreSQL instead.
         const equal = await tx.$queryRaw<{ equal: boolean }[]>`SELECT rows = ${JSON.stringify(input.rows)}::jsonb AS equal
-          FROM tango_sync_batches WHERE job_id = ${job.id}::uuid AND index = ${input.index}`;
+          FROM tango_sync_batches WHERE job_id = ${job.id}::uuid AND kind = ${kind} AND index = ${input.index}`;
         if (!equal[0]?.equal) throw new TangoSyncError("El lote ya existe con otro contenido.");
       }
+      const received = kind === "ingresos" ? job.rowCount : job.pendingRowCount ?? 0;
       if (!existing) {
-        if (job.rowCount + input.rows.length > TANGO_MAX_ROWS) throw new TangoSyncError("Se superó el límite de renglones.", 400);
-        await tx.tangoSyncBatch.create({ data: { jobId: job.id, index: input.index, rows: input.rows } });
+        if (received + input.rows.length > TANGO_MAX_ROWS) throw new TangoSyncError("Se superó el límite de renglones.", 400);
+        await tx.tangoSyncBatch.create({ data: { jobId: job.id, kind, index: input.index, rows: input.rows } });
       }
+      const added = existing ? 0 : input.rows.length;
       await tx.tangoSyncJob.update({ where: { id: job.id }, data: {
-        rowCount: { increment: existing ? 0 : input.rows.length }, leaseUntil: new Date(now.getTime() + LEASE_MS),
+        ...(kind === "ingresos" ? { rowCount: { increment: added } } : { pendingRowCount: received + added }),
+        leaseUntil: new Date(now.getTime() + LEASE_MS),
       } });
       return { ok: true };
     }
-    const batches = await tx.tangoSyncBatch.findMany({ where: { jobId: job.id }, select: { index: true }, orderBy: { index: "asc" } });
-    if (job.rowCount !== input.totalRows || batches.length !== input.totalBatches || batches.some((b, i) => b.index !== i)) {
+    const batches = await tx.tangoSyncBatch.findMany({ where: { jobId: job.id }, select: { kind: true, index: true }, orderBy: { index: "asc" } });
+    const complete = (kind: string, rows: number, received: number, total: number) => {
+      const indexes = batches.filter((b) => b.kind === kind).map((b) => b.index);
+      return received === rows && indexes.length === total && indexes.every((index, i) => index === i);
+    };
+    if (!complete("ingresos", input.totalRows, job.rowCount, input.totalBatches)) {
       throw new TangoSyncError("Faltan lotes o no coincide el total recibido.");
     }
+    // Sin pendingRows (conector viejo o sin acceso a las OC) la foto de OC pendientes queda como estaba.
+    const pendingRows = input.pendingBatches === undefined ? undefined : input.pendingRows;
+    if (pendingRows !== undefined && !complete("pendientes", pendingRows, job.pendingRowCount ?? 0, input.pendingBatches!)) {
+      throw new TangoSyncError("Faltan lotes de OC pendientes o no coincide el total recibido.");
+    }
     await publish(tx, job);
+    if (pendingRows !== undefined) await publishPendingOrders(tx, job);
     await tx.tangoSyncJob.update({ where: { id: job.id }, data: {
-      status: "completed", finishedAt: now, leaseUntil: null,
-      message: `${job.rowCount} renglones importados.`,
+      status: "completed", finishedAt: now, leaseUntil: null, pendingRowCount: pendingRows ?? null,
+      message: `${job.rowCount} renglones importados.` + (pendingRows !== undefined ? ` ${pendingRows} renglones de OC pendientes.` : ""),
     } });
     // Successful batches are retained as the raw audit of the last received payloads.
     return { ok: true };

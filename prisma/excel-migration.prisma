@@ -287,16 +287,16 @@ model ExcelSantanderEgress {
 }
 
 model EgressImportProfile {
-  id         BigInt   @id @default(autoincrement()) @db.BigInt
-  client     String   @map("cliente") @db.VarChar(255)
-  version    Int      @default(1)
-  active     Boolean  @default(true) @map("activo")
-  sheetName  String?  @map("nombre_hoja") @db.VarChar(255)
-  headerRow  Int      @default(1) @map("fila_encabezado")
-  columns    Json     @map("columnas")
-  mapping    Json     @map("mapeo")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id        BigInt   @id @default(autoincrement()) @db.BigInt
+  client    String   @map("cliente") @db.VarChar(255)
+  version   Int      @default(1)
+  active    Boolean  @default(true) @map("activo")
+  sheetName String?  @map("nombre_hoja") @db.VarChar(255)
+  headerRow Int      @default(1) @map("fila_encabezado")
+  columns   Json     @map("columnas")
+  mapping   Json     @map("mapeo")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([client, version])
   @@index([client, active])
@@ -343,26 +343,26 @@ model EgressRawRow {
 }
 
 model Egress {
-  id          BigInt       @id @default(autoincrement()) @db.BigInt
-  client      String       @map("cliente") @db.VarChar(255)
-  operation   String       @map("operacion") @db.VarChar(50)
-  date        DateTime?    @map("fecha") @db.Date
-  clientCode  String?      @map("codigo_cliente") @db.VarChar(255)
-  uniqueCode  String?      @map("codigo_unico") @db.VarChar(255)
-  product     String?      @map("producto")
-  quantity    Decimal?     @map("cantidad") @db.Decimal(18, 4)
-  destination String?      @map("destino")
-  comments    String?      @map("comentarios")
+  id          BigInt        @id @default(autoincrement()) @db.BigInt
+  client      String        @map("cliente") @db.VarChar(255)
+  operation   String        @map("operacion") @db.VarChar(50)
+  date        DateTime?     @map("fecha") @db.Date
+  clientCode  String?       @map("codigo_cliente") @db.VarChar(255)
+  uniqueCode  String?       @map("codigo_unico") @db.VarChar(255)
+  product     String?       @map("producto")
+  quantity    Decimal?      @map("cantidad") @db.Decimal(18, 4)
+  destination String?       @map("destino")
+  comments    String?       @map("comentarios")
   // Pasaje que generó este egreso (se ajusta al confirmarlo y se revierte al rechazarlo).
-  pasajeId    String?      @map("pasaje_id") @db.Uuid
-  rawRowId    BigInt?      @unique @map("raw_row_id") @db.BigInt
-  sourceHash  String?      @map("source_hash") @db.VarChar(64)
-  createdBy   String?      @map("created_by") @db.VarChar(255)
-  modifiedBy  String?      @map("modified_by") @db.VarChar(255)
-  deletedBy   String?      @map("deleted_by") @db.VarChar(255)
-  deletedAt   DateTime?    @map("deleted_at") @db.Timestamptz(6)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  pasajeId    String?       @map("pasaje_id") @db.Uuid
+  rawRowId    BigInt?       @unique @map("raw_row_id") @db.BigInt
+  sourceHash  String?       @map("source_hash") @db.VarChar(64)
+  createdBy   String?       @map("created_by") @db.VarChar(255)
+  modifiedBy  String?       @map("modified_by") @db.VarChar(255)
+  deletedBy   String?       @map("deleted_by") @db.VarChar(255)
+  deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   rawRow      EgressRawRow? @relation(fields: [rawRowId], references: [id])
 
   @@index([client, date])
@@ -548,32 +548,57 @@ model TangoClientCodeMap {
 }
 
 model TangoSyncJob {
-  id          String    @id @default(uuid()) @db.Uuid
-  dateFrom    DateTime  @map("date_from") @db.Date
-  dateTo      DateTime  @map("date_to") @db.Date
-  status      String    @default("pending") @db.VarChar(20)
-  requestedBy String    @map("requested_by") @db.VarChar(255)
-  attempts    Int       @default(0)
-  claimToken  String?   @map("claim_token") @db.Uuid
-  leaseUntil  DateTime? @map("lease_until") @db.Timestamptz(6)
-  rowCount    Int       @default(0) @map("row_count")
-  message     String?
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
-  batches     TangoSyncBatch[]
+  id              String           @id @default(uuid()) @db.Uuid
+  dateFrom        DateTime         @map("date_from") @db.Date
+  dateTo          DateTime         @map("date_to") @db.Date
+  status          String           @default("pending") @db.VarChar(20)
+  requestedBy     String           @map("requested_by") @db.VarChar(255)
+  attempts        Int              @default(0)
+  claimToken      String?          @map("claim_token") @db.Uuid
+  leaseUntil      DateTime?        @map("lease_until") @db.Timestamptz(6)
+  rowCount        Int              @default(0) @map("row_count")
+  // Renglones de OC pendientes recibidos; null si el conector no los mandó.
+  pendingRowCount Int?             @map("pending_row_count")
+  message         String?
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt      DateTime?        @map("finished_at") @db.Timestamptz(6)
+  batches         TangoSyncBatch[]
 
   @@index([status, createdAt])
   @@map("tango_sync_jobs")
 }
 
 model TangoSyncBatch {
-  jobId   String       @map("job_id") @db.Uuid
-  index   Int
-  rows    Json         @db.JsonB
-  job     TangoSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String       @map("job_id") @db.Uuid
+  // "ingresos" (STA20) u "pendientes" (renglones de OC con cantidad pendiente, CPA36).
+  kind  String       @default("ingresos") @db.VarChar(20)
+  index Int
+  rows  Json         @db.JsonB
+  job   TangoSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
-  @@id([jobId, index])
+  @@id([jobId, kind, index])
   @@map("tango_sync_batches")
+}
+
+// Renglones de órdenes de compra de Tango con cantidad pendiente de recibir. Es una foto que
+// cada importación reemplaza entera: suma solo al stock teórico; lo recibido entra por tango_ingresos.
+model TangoPendingOrderLine {
+  sourceId         String    @id @map("source_id") @db.VarChar(32)
+  purchaseOrder    String    @map("orden_de_compra") @db.VarChar(255)
+  line             Int?      @map("renglon")
+  clientCode       String    @map("codigo_cliente") @db.VarChar(255)
+  warehouse        String    @default("") @map("deposito") @db.VarChar(255)
+  client           String    @default("") @map("cliente") @db.VarChar(255)
+  orderDate        DateTime? @map("fecha_pedido") @db.Date
+  orderedQuantity  Decimal   @map("cantidad_pedida") @db.Decimal(18, 4)
+  receivedQuantity Decimal   @map("cantidad_recibida") @db.Decimal(18, 4)
+  pendingQuantity  Decimal   @map("cantidad_pendiente") @db.Decimal(18, 4)
+  status           String    @default("") @map("estado") @db.VarChar(20)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([clientCode])
+  @@index([purchaseOrder])
+  @@map("tango_oc_pendientes")
 }
 
 model TangoConnectorState {
@@ -588,39 +613,39 @@ model TangoConnectorState {
 // receptora. Si se acepta, impacta stock: resta en origen (egresos) y suma
 // en destino (tango_ingresos, como entrada manual pendiente de Tango).
 model PasajeRequest {
-  id              String    @id @default(uuid()) @db.Uuid
-  fromClient      String    @map("cliente_origen") @db.VarChar(255)
-  fromClientCode  String    @map("codigo_cliente_origen") @db.VarChar(255)
-  toClient        String    @map("cliente_destino") @db.VarChar(255)
-  toClientCode    String    @map("codigo_cliente_destino") @db.VarChar(255)
-  uniqueCode      String    @map("codigo_unico") @db.VarChar(255)
-  product         String?   @map("producto") @db.VarChar(255)
-  quantity        Decimal   @map("cantidad") @db.Decimal(18, 4)
-  status          String    @default("pending") @db.VarChar(20)
-  comments        String?   @map("comentarios")
-  createdBy       String    @map("created_by") @db.VarChar(255)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  respondedBy     String?   @map("responded_by") @db.VarChar(255)
-  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
-  responseComment String?   @map("response_comment")
-  confirmedQuantity Decimal? @map("cantidad_confirmada") @db.Decimal(18, 4)
-  confirmedBy     String?   @map("confirmed_by") @db.VarChar(255)
-  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  id                String       @id @default(uuid()) @db.Uuid
+  fromClient        String       @map("cliente_origen") @db.VarChar(255)
+  fromClientCode    String       @map("codigo_cliente_origen") @db.VarChar(255)
+  toClient          String       @map("cliente_destino") @db.VarChar(255)
+  toClientCode      String       @map("codigo_cliente_destino") @db.VarChar(255)
+  uniqueCode        String       @map("codigo_unico") @db.VarChar(255)
+  product           String?      @map("producto") @db.VarChar(255)
+  quantity          Decimal      @map("cantidad") @db.Decimal(18, 4)
+  status            String       @default("pending") @db.VarChar(20)
+  comments          String?      @map("comentarios")
+  createdBy         String       @map("created_by") @db.VarChar(255)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  respondedBy       String?      @map("responded_by") @db.VarChar(255)
+  respondedAt       DateTime?    @map("responded_at") @db.Timestamptz(6)
+  responseComment   String?      @map("response_comment")
+  confirmedQuantity Decimal?     @map("cantidad_confirmada") @db.Decimal(18, 4)
+  confirmedBy       String?      @map("confirmed_by") @db.VarChar(255)
+  confirmedAt       DateTime?    @map("confirmed_at") @db.Timestamptz(6)
   // true: el egreso se registró al crear el pasaje. false: pasaje anterior a ese cambio, que todavía
   // no descontó stock y por eso sigue reservando el disponible hasta confirmarse.
-  egressImpacted  Boolean   @default(false) @map("egreso_impactado")
+  egressImpacted    Boolean      @default(false) @map("egreso_impactado")
   // Comprobante de Urbano con el que se confirmó automáticamente.
-  urbanoVoucher   String?   @map("comprobante_urbano") @db.VarChar(255)
+  urbanoVoucher     String?      @map("comprobante_urbano") @db.VarChar(255)
   // Pasajes cargados desde la solicitud de pasaje de stock a Urbano (Excel).
-  batchId         String?   @map("lote_id") @db.Uuid
-  requestDate     DateTime? @map("fecha_solicitud") @db.Date
-  fromShipper     String?   @map("shipper_origen") @db.VarChar(20)
-  toShipper       String?   @map("shipper_destino") @db.VarChar(20)
-  sourceRow       Int?      @map("fila_origen")
-  fromDescription String?   @map("descripcion_origen") @db.VarChar(255)
-  toDescription   String?   @map("descripcion_destino") @db.VarChar(255)
-  warning         String?   @map("aviso")
-  batch           PasajeBatch? @relation(fields: [batchId], references: [id])
+  batchId           String?      @map("lote_id") @db.Uuid
+  requestDate       DateTime?    @map("fecha_solicitud") @db.Date
+  fromShipper       String?      @map("shipper_origen") @db.VarChar(20)
+  toShipper         String?      @map("shipper_destino") @db.VarChar(20)
+  sourceRow         Int?         @map("fila_origen")
+  fromDescription   String?      @map("descripcion_origen") @db.VarChar(255)
+  toDescription     String?      @map("descripcion_destino") @db.VarChar(255)
+  warning           String?      @map("aviso")
+  batch             PasajeBatch? @relation(fields: [batchId], references: [id])
 
   @@index([status])
   @@index([batchId])
@@ -695,28 +720,28 @@ model UrbanoStockItem {
 // Movimientos de depósito que informa la API de Urbano. No se guardan el usuario de Urbano ni la razón
 // social (en los picking es el nombre del destinatario). "saldo" no es el stock total del código.
 model UrbanoMovement {
-  id          BigInt   @id @default(autoincrement()) @db.BigInt
-  key         String   @unique @map("clave") @db.VarChar(64)
-  type        String   @map("tipo") @db.VarChar(30)
-  date        DateTime @map("fecha") @db.Timestamptz(6)
-  voucher     String?  @map("comprobante") @db.VarChar(100)
-  reference   String?  @map("referencia") @db.VarChar(100)
-  company     String?  @map("compania") @db.VarChar(20)
-  urbanoCode  String   @map("codigo_urbano") @db.VarChar(255)
-  clientCode  String   @map("codigo_cliente") @db.VarChar(255)
-  product     String?  @map("producto")
-  lot         String?  @map("lote") @db.VarChar(100)
-  serial      String?  @map("serie") @db.VarChar(100)
-  inQuantity  Decimal  @default(0) @map("entrada") @db.Decimal(18, 4)
-  outQuantity Decimal  @default(0) @map("salida") @db.Decimal(18, 4)
-  balance     Decimal  @default(0) @map("saldo") @db.Decimal(18, 4)
-  client      String?  @map("cliente") @db.VarChar(255)
-  uniqueCode  String?  @map("codigo_unico") @db.VarChar(255)
+  id             BigInt   @id @default(autoincrement()) @db.BigInt
+  key            String   @unique @map("clave") @db.VarChar(64)
+  type           String   @map("tipo") @db.VarChar(30)
+  date           DateTime @map("fecha") @db.Timestamptz(6)
+  voucher        String?  @map("comprobante") @db.VarChar(100)
+  reference      String?  @map("referencia") @db.VarChar(100)
+  company        String?  @map("compania") @db.VarChar(20)
+  urbanoCode     String   @map("codigo_urbano") @db.VarChar(255)
+  clientCode     String   @map("codigo_cliente") @db.VarChar(255)
+  product        String?  @map("producto")
+  lot            String?  @map("lote") @db.VarChar(100)
+  serial         String?  @map("serie") @db.VarChar(100)
+  inQuantity     Decimal  @default(0) @map("entrada") @db.Decimal(18, 4)
+  outQuantity    Decimal  @default(0) @map("salida") @db.Decimal(18, 4)
+  balance        Decimal  @default(0) @map("saldo") @db.Decimal(18, 4)
+  client         String?  @map("cliente") @db.VarChar(255)
+  uniqueCode     String?  @map("codigo_unico") @db.VarChar(255)
   // Pasaje de esta recepción (la que lo confirmó) o de esta salida (la que lo creó): no se usan dos veces.
-  pasajeId    String?  @map("pasaje_id") @db.Uuid
+  pasajeId       String?  @map("pasaje_id") @db.Uuid
   // PICKING cuyo destinatario es "PASAJE DE STOCK": la plataforma crea el pasaje desde esta salida.
-  pasajeOutgoing Boolean @default(false) @map("salida_pasaje")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  pasajeOutgoing Boolean  @default(false) @map("salida_pasaje")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([date])
   @@index([clientCode])
@@ -749,22 +774,22 @@ model AjusteRequest {
 }
 
 model SupplierMailContact {
-  id          String            @id @default(uuid()) @db.Uuid
-  supplier    String            @db.VarChar(255)
-  contactName String            @map("contacto") @db.VarChar(255)
-  email       String            @db.VarChar(255)
-  active      Boolean           @default(true)
-  lastSentAt  DateTime?         @map("last_sent_at") @db.Timestamptz(6)
+  id                 String            @id @default(uuid()) @db.Uuid
+  supplier           String            @db.VarChar(255)
+  contactName        String            @map("contacto") @db.VarChar(255)
+  email              String            @db.VarChar(255)
+  active             Boolean           @default(true)
+  lastSentAt         DateTime?         @map("last_sent_at") @db.Timestamptz(6)
   // Respuesta del proveedor al último pedido (se busca en la casilla; se borra con cada pedido nuevo).
-  repliedAt          DateTime? @map("respondido_at") @db.Timestamptz(6)
-  replyHasAttachment Boolean   @default(false) @map("respuesta_con_adjunto")
+  repliedAt          DateTime?         @map("respondido_at") @db.Timestamptz(6)
+  replyHasAttachment Boolean           @default(false) @map("respuesta_con_adjunto")
   // Hilo de Gmail de esa respuesta (el que trae adjunto, si hay): de ahí se abre el adjunto.
-  replyThreadId      String?   @map("respuesta_hilo_id") @db.VarChar(64)
-  repliesCheckedAt   DateTime? @map("respuestas_revisadas_at") @db.Timestamptz(6)
-  lastFollowUpAt     DateTime? @map("ultima_reconsulta_at") @db.Timestamptz(6)
-  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  logs        SupplierMailLog[]
+  replyThreadId      String?           @map("respuesta_hilo_id") @db.VarChar(64)
+  repliesCheckedAt   DateTime?         @map("respuestas_revisadas_at") @db.Timestamptz(6)
+  lastFollowUpAt     DateTime?         @map("ultima_reconsulta_at") @db.Timestamptz(6)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  logs               SupplierMailLog[]
 
   @@map("supplier_mail_contacts")
 }
@@ -813,20 +838,19 @@ model ConfigSetting {
 // Cambios de producto en un canje ya cargado (Egresos > Cambiar producto): el código original recupera
 // la cantidad y el nuevo la descuenta. Queda el historial de cada cambio.
 model EgressProductChange {
-  id               BigInt   @id @default(autoincrement()) @db.BigInt
-  egressId         BigInt   @map("egreso_id") @db.BigInt
-  client           String   @map("cliente") @db.VarChar(255)
-  fromClientCode   String   @map("codigo_anterior") @db.VarChar(255)
-  fromProduct      String?  @map("producto_anterior")
-  fromQuantity     Decimal  @map("cantidad_anterior") @db.Decimal(18, 4)
-  toClientCode     String   @map("codigo_nuevo") @db.VarChar(255)
-  toProduct        String?  @map("producto_nuevo")
-  toQuantity       Decimal  @map("cantidad_nueva") @db.Decimal(18, 4)
-  reason           String?  @map("motivo")
-  createdBy        String   @map("created_by") @db.VarChar(255)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id             BigInt   @id @default(autoincrement()) @db.BigInt
+  egressId       BigInt   @map("egreso_id") @db.BigInt
+  client         String   @map("cliente") @db.VarChar(255)
+  fromClientCode String   @map("codigo_anterior") @db.VarChar(255)
+  fromProduct    String?  @map("producto_anterior")
+  fromQuantity   Decimal  @map("cantidad_anterior") @db.Decimal(18, 4)
+  toClientCode   String   @map("codigo_nuevo") @db.VarChar(255)
+  toProduct      String?  @map("producto_nuevo")
+  toQuantity     Decimal  @map("cantidad_nueva") @db.Decimal(18, 4)
+  reason         String?  @map("motivo")
+  createdBy      String   @map("created_by") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([egressId])
   @@map("egresos_cambios_producto")
 }
-

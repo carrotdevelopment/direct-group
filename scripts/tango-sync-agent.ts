@@ -42,6 +42,28 @@ WHERE d.TIPO_MOV = 'E'
 ORDER BY h.FECHA_MOV ASC;
 `;
 
+// Renglones de órdenes de compra con cantidad pendiente de recibir. No depende del período:
+// es una foto de lo que falta entrar, y en la plataforma suma solo al stock teórico.
+const PENDIENTES_QUERY = `
+SELECT
+    r.ID_CPA36 AS SourceId,
+    LTRIM(RTRIM(r.N_ORDEN_CO)) AS OrdenDeCompra,
+    r.N_RENGL_OC AS Renglon,
+    LTRIM(RTRIM(r.COD_ARTICU)) AS CodigoCliente,
+    LTRIM(RTRIM(ISNULL(r.COD_DEPOSI, ''))) AS Deposito,
+    dep.NOMBRE_SUC AS Cliente,
+    oc.FEC_EMISIO AS FechaPedido,
+    r.CAN_PEDIDA AS Pedido,
+    r.CAN_RECIBI AS Recibido,
+    r.CAN_PENDIE AS Pendiente,
+    r.ESTADO AS Estado
+FROM CPA36 r
+LEFT JOIN CPA35 oc ON oc.ID_CPA35 = r.ID_CPA35
+LEFT JOIN STA22 dep ON LTRIM(RTRIM(dep.COD_SUCURS)) = LTRIM(RTRIM(r.COD_DEPOSI))
+WHERE r.CAN_PENDIE > 0
+ORDER BY r.N_ORDEN_CO, r.N_RENGL_OC;
+`;
+
 function requireEnv(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Falta la variable de entorno ${name} en .env.`);
@@ -89,6 +111,34 @@ async function callAgent(body: unknown) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.message || `El servidor respondió ${response.status}.`);
   return payload;
+}
+
+async function readPendingRows(pool: Awaited<ReturnType<typeof connectSqlServer>>, maxRows: number) {
+  // Si falla (por ejemplo, falta el permiso de lectura sobre CPA36) los ingresos se importan igual
+  // y la foto de OC pendientes de la plataforma queda como estaba.
+  try {
+    const result = await pool.request().query(PENDIENTES_QUERY);
+    if (result.recordset.length > maxRows) {
+      console.warn(`La consulta de OC pendientes devolvió ${result.recordset.length} filas, más de las ${maxRows} permitidas. No se envían.`);
+      return null;
+    }
+    return result.recordset.map((row: Record<string, unknown>) => ({
+      sourceId: String(row.SourceId),
+      purchaseOrder: String(row.OrdenDeCompra ?? "").trim().slice(0, 255),
+      line: row.Renglon == null ? null : Number(row.Renglon),
+      clientCode: String(row.CodigoCliente ?? "").trim().slice(0, 255),
+      warehouse: String(row.Deposito ?? "").trim().slice(0, 255),
+      client: String(row.Cliente ?? "").trim().slice(0, 255),
+      orderDate: toDateString(row.FechaPedido),
+      orderedQuantity: formatQuantity(row.Pedido),
+      receivedQuantity: formatQuantity(row.Recibido),
+      pendingQuantity: formatQuantity(row.Pendiente),
+      status: String(row.Estado ?? "").trim().slice(0, 20),
+    })).filter((row) => row.purchaseOrder && row.clientCode);
+  } catch (error) {
+    console.warn("No se pudieron leer las OC pendientes; se importan solo los ingresos:", error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 async function processJob(
@@ -153,7 +203,27 @@ async function processJob(
     console.log(`  Lote ${index + 1}/${totalBatches} enviado (${batch.length} filas).`);
   }
 
-  await callAgent({ action: "finish", jobId, claimToken, totalRows: rows.length, totalBatches });
+  let pending = await readPendingRows(pool, maxRows);
+  let pendingBatches = 0;
+  if (pending) {
+    pendingBatches = pending.length === 0 ? 0 : Math.ceil(pending.length / batchSize);
+    console.log(`Enviando ${pending.length} renglones de OC pendientes...`);
+    try {
+      for (let index = 0; index < pendingBatches; index++) {
+        const batch = pending.slice(index * batchSize, (index + 1) * batchSize);
+        await callAgent({ action: "pending", jobId, claimToken, index, rows: batch });
+      }
+    } catch (error) {
+      // Un servidor sin esta función rechaza los lotes: se terminan de importar solo los ingresos.
+      console.warn("No se pudieron enviar las OC pendientes; se importan solo los ingresos:", error instanceof Error ? error.message : error);
+      pending = null;
+    }
+  }
+
+  await callAgent({
+    action: "finish", jobId, claimToken, totalRows: rows.length, totalBatches,
+    ...(pending ? { pendingRows: pending.length, pendingBatches } : {}),
+  });
   console.log("Importación completada.");
 }
 

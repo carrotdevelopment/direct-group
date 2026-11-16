@@ -62,6 +62,18 @@ Para probarla ya, sin esperar a las 6 AM: click derecho sobre la tarea → **Eje
 
 Opción manual (si preferís armarla vos): Desencadenador → diario, una vez por día; Acción → iniciar `node.exe` con el argumento `agent.js`, "Iniciar en" apuntando a esta carpeta; en Configuración general marcar **"Ejecutar tanto si el usuario inició sesión como si no"**.
 
+## OC pendientes
+
+Además de los ingresos, en cada corrida el conector manda los renglones de órdenes de compra con cantidad pendiente de recibir (`CPA36.CAN_PENDIE > 0`). En la plataforma suman solo al stock teórico; cuando la mercadería se recibe, entra como ingreso y deja de figurar como pendiente.
+
+El usuario de solo lectura necesita permiso sobre `CPA35` y `CPA36`:
+
+```sql
+GRANT SELECT ON dbo.CPA36 TO dg_platform_reader;
+```
+
+Si la consulta de OC pendientes falla, por ejemplo por falta de permiso, el conector lo avisa en la consola e importa igual los ingresos.
+
 ## Nota de mantenimiento
 
 `agent.js` es una copia independiente de `dg_platform/scripts/tango-sync-agent.ts`. Si la consulta SQL o el formato de los datos cambia en el proyecto principal, hay que actualizar este archivo a mano también — no se sincronizan solos.

@@ -62,7 +62,7 @@ function norm(expression: string) {
 
 // Resuelve el cliente real de cada ingreso en la base con esa prioridad: Códigos
 // Cliente activos, referencia histórica, "Sin asignar".
-const RESOLVED_INCOME_CTE = Prisma.raw(`
+const CLIENT_RESOLUTION_CTE = `
   act AS (
     SELECT DISTINCT ON (${norm("codigo_cliente")})
       ${norm("codigo_cliente")} AS k, btrim(coalesce(cliente, '')) AS cliente, btrim(coalesce(codigo_unico, '')) AS codigo_unico
@@ -80,21 +80,36 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`
     SELECT DISTINCT ON (lower(btrim(nombre))) lower(btrim(nombre)) AS k, btrim(nombre) AS nombre
     FROM base_clientes
     ORDER BY lower(btrim(nombre)), id
-  ),
+  )`;
+const RESOLVED_CLIENT = `coalesce(canon.nombre, nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar')`;
+const CLIENT_JOINS = `
+    LEFT JOIN hist ON hist.k = t.k
+    LEFT JOIN act ON act.k = t.k
+    LEFT JOIN canon ON canon.k = lower(btrim(coalesce(nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar')))`;
+const RESOLVED_INCOME_CTE = Prisma.raw(`${CLIENT_RESOLUTION_CTE},
   r AS (
     SELECT t.id, btrim(coalesce(t.operacion, '')) AS operacion, t.fecha_pedido, btrim(coalesce(t.orden_de_compra, '')) AS orden_de_compra,
       btrim(coalesce(t.codigo_cliente, '')) AS codigo_cliente, coalesce(t.cantidad, 0) AS cantidad,
       btrim(coalesce(t.origen_del_pasaje, '')) AS origen, t.fecha_entrega, coalesce(t.entregado, 0) AS entregado,
       btrim(coalesce(t.comentarios, '')) AS comentarios, t.pending_tango_entry, t.created_by, t.updated_at,
-      coalesce(canon.nombre, nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar') AS cliente_res,
+      ${RESOLVED_CLIENT} AS cliente_res,
       coalesce(act.codigo_unico, '') AS codigo_unico,
       greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente
-    FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t
-    LEFT JOIN hist ON hist.k = t.k
-    LEFT JOIN act ON act.k = t.k
-    LEFT JOIN canon ON canon.k = lower(btrim(coalesce(nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar')))
+    FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t${CLIENT_JOINS}
   )
 `);
+
+// OC de Tango con cantidad pendiente de recibir, sumadas por código cliente. El cliente se resuelve
+// igual que en los ingresos (por código cliente), no por el depósito de la OC.
+export async function readPendingPurchaseOrdersFromPostgres(client: string) {
+  const rows = await excelPostgres.$queryRaw<{ codigo_cliente: string; pendiente: number }[]>`
+    WITH ${Prisma.raw(CLIENT_RESOLUTION_CTE)}
+    SELECT min(btrim(t.codigo_cliente)) AS codigo_cliente, sum(t.cantidad_pendiente)::float8 AS pendiente
+    FROM (SELECT *, ${Prisma.raw(norm("codigo_cliente"))} AS k FROM tango_oc_pendientes) t${Prisma.raw(CLIENT_JOINS)}
+    WHERE ${Prisma.raw(norm(RESOLVED_CLIENT))} = ${normalizeSearch(client)}
+    GROUP BY t.k`;
+  return rows.map((row) => ({ clientCode: text(row.codigo_cliente), quantity: number(row.pendiente) }));
+}
 
 type IncomeDbRow = {
   id: bigint;

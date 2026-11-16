@@ -17,6 +17,7 @@ import {
   readSantanderStockFromPostgres,
 } from "@/lib/postgres-replica-db";
 import {
+  readPendingPurchaseOrdersFromPostgres,
   readStockOperationRowsFromPostgres,
 } from "@/lib/postgres-operation-db";
 import { STOCK_EGRESS_OPERATIONS, stockIncomeOperations, stockOperation } from "@/lib/stock-operations";
@@ -155,7 +156,7 @@ export async function GET(request: Request) {
   const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 
   // En PostgreSQL todo se lee filtrado por cliente y en paralelo.
-  const [mappingRows, productRows, allStockRows, allCostRows, postgresOperations, postgresUrbano] = postgres
+  const [mappingRows, productRows, allStockRows, allCostRows, postgresOperations, postgresUrbano, pendingOrders] = postgres
     ? await Promise.all([
         readClientCodesFromPostgres(clientName),
         readProductsFromPostgres(),
@@ -163,6 +164,7 @@ export async function GET(request: Request) {
         readSantanderCostsFromPostgres(clientName),
         readStockOperationRowsFromPostgres(clientName),
         latestUrbanoStockByCode(),
+        readPendingPurchaseOrdersFromPostgres(clientName),
       ])
     : [
         readClientCodesFromExcel(),
@@ -171,6 +173,7 @@ export async function GET(request: Request) {
         readSantanderCostRowsFromExcel(),
         null,
         null,
+        [],
       ];
   const persistedStockRows = allStockRows.filter((row) => sameClient(row.client));
   const costRows = allCostRows.filter((row) => sameClient(row.client));
@@ -180,7 +183,11 @@ export async function GET(request: Request) {
       };
   // Stock Urbano: Cant. Física (todos los estados) de la última carga del reporte de Urbano que trae cada código.
   const urbanoStock = postgresUrbano ?? new Map<string, { quantity: number; reportDate: string }>();
-  const incomeRows = operationRows.incomes;
+  // OC de Tango pendientes de recibir: suman a lo pedido (stock teórico y pendientes de entrega), no a lo entregado.
+  const incomeRows = [
+    ...operationRows.incomes,
+    ...pendingOrders.map((order) => ({ "Código Cliente": order.clientCode, Operación: "COMPRA", Cantidad: order.quantity, Entregado: 0 })),
+  ];
   const egressRows = operationRows.egresses;
 
   // All non-voided Santander assignments up to today
