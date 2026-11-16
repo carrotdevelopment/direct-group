@@ -120,6 +120,14 @@ function displayPeriod(value: string | null) {
   const [y, m] = value.split("-");
   return y && m ? `${m}/${y}` : value;
 }
+// Semáforo de utilidad % sobre costo: bordó negativa, rojo 0–15, amarillo 15–20, azul 20 o más.
+function profitColor(pct: number): string {
+  if (pct < 0) return "text-[#7a1428]";
+  if (pct < 15) return "text-[#d13b35]";
+  if (pct < 20) return "text-[#b98300]";
+  return "text-[#0b5bbb]";
+}
+
 export function CostStructureWorkspace() {
   const [clientList, setClientList] = useState<ClientData[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
@@ -150,7 +158,7 @@ export function CostStructureWorkspace() {
 
   const [sortKey, setSortKey] = useState<
     "costDgUpdatedAt" | "pvcUpdatedAt" | "profitAmt" | "profitPct" | null
-  >(null);
+  >("profitPct");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   // History panel
@@ -238,7 +246,7 @@ export function CostStructureWorkspace() {
     );
   }, [rows, clientCodeSearch, uniqueCodeSearch, productSearch, supplierFilter]);
 
-  const alertCount = rows.filter((r) => r.hasPriceAlert).length;
+  const alertCount = rows.filter((r) => r.hasPriceAlert && r.segment === "active").length;
   const someSelected = filteredRows.some((r) => selectedIds.has(r.id));
   const allSelected = filteredRows.length > 0 && filteredRows.every((r) => selectedIds.has(r.id));
 
@@ -325,7 +333,7 @@ export function CostStructureWorkspace() {
   }
 
   function selectAlerted() {
-    setSelectedIds(new Set(rows.filter((r) => r.hasPriceAlert).map((r) => r.id)));
+    setSelectedIds(new Set(rows.filter((r) => r.hasPriceAlert && r.segment === "active").map((r) => r.id)));
   }
 
   function applyPvcProposal() {
@@ -1036,7 +1044,7 @@ export function CostStructureWorkspace() {
                     </span>
                   </span>
                 <ColumnFormula text="PVC sin IVA − costo total. Costo total = costo DG + flete + cargos sobre costo y precio." /></th>
-                <th title="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%."
+                <th title="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más."
                   className="sticky top-0 z-10 w-12 cursor-pointer select-none border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f] hover:bg-[#d8e8cb]"
                   onClick={() => toggleSort("profitPct")}
                 >
@@ -1046,7 +1054,7 @@ export function CostStructureWorkspace() {
                       {sortKey === "profitPct" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
-                <ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%." /></th>
+                <ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
                 <th className="sticky top-0 z-10 w-10 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
                   Stock
                 </th>
@@ -1232,12 +1240,12 @@ export function CostStructureWorkspace() {
                       </td>
                       {/* Utilidad */}
                       <td
-                        className={`${formulaCell} font-bold ${calc.profitPct < 20 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
+                        className={`${formulaCell} font-bold ${profitColor(calc.profitPct)}`}
                       >
                         {money(calc.profit)}
                       </td>
                       <td
-                        className={`${formulaCell} font-bold ${calc.profitPct < 20 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
+                        className={`${formulaCell} font-bold ${profitColor(calc.profitPct)}`}
                       >
                         {money(calc.profitPct)}%
                       </td>
@@ -1526,7 +1534,7 @@ export function CostStructureWorkspace() {
                       <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Flete s/IVA<ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
                       <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC s/IVA<ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
                       <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
-                      <th title="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%." className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Util.%<ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo; rojo si es menor al 20%." /></th>
+                      <th title="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Util.%<ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
                       <th className="border-b border-[#c3d0df] bg-[#eaf1df] px-3 py-2 text-center text-[9px] font-extrabold uppercase tracking-wide text-[#34452f]">Acciones</th>
                     </tr>
                   </thead>
@@ -1583,7 +1591,7 @@ export function CostStructureWorkspace() {
                             </>
                           )}
 
-                          <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.profitPercentage < 20 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}>
+                          <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${profitColor(row.profitPercentage)}`}>
                             {money(row.profitPercentage)}%
                           </td>
 

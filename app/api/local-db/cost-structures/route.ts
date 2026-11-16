@@ -340,7 +340,7 @@ export async function GET(request: Request) {
         latestSupplierCostDg: liveCostDg,
         supplierCostDgDate: sourceDateOrNull(costDgPrice),
         hasPriceAlert:
-          savedCostDg > 0 && liveCostDg > 0 && Math.abs(savedCostDg - liveCostDg) > 0.01,
+          segment === "active" && savedCostDg > 0 && liveCostDg > 0 && Math.abs(savedCostDg - liveCostDg) > 0.01,
         segment,
         pvcHistory,
         freightCriterion: getActiveCriterion(

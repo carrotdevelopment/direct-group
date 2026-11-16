@@ -14,6 +14,7 @@ export type ExcelProduct = {
   category: string;
   unitsPerPackage: number | null;
   imageUrl?: string;
+  description?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -627,6 +628,7 @@ export function readProductsFromExcel() {
           row["Bulto"] || row["unitsPerPackage"],
         ),
         imageUrl: asString(row["Imagen"] || row["imageUrl"]) || undefined,
+        description: asString(row["Descripción"] || row["Descripcion"] || row["description"]) || undefined,
         createdAt: asIsoDateTime(row["Creado"] || row["createdAt"]),
         updatedAt: asIsoDateTime(row["Actualizado"] || row["updatedAt"]),
       };
@@ -650,6 +652,7 @@ export function writeProductsToExcel(products: ExcelProduct[]) {
       Categoria: product.category,
       Bulto: product.unitsPerPackage ?? "",
       Imagen: product.imageUrl ?? "",
+      Descripción: product.description ?? "",
       Creado: product.createdAt ?? "",
       Actualizado: product.updatedAt ?? "",
     })),

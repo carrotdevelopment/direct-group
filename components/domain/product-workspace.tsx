@@ -45,6 +45,7 @@ type Product = {
   category: string;
   unitsPerPackage: number | null;
   imageUrl?: string;
+  description?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -167,6 +168,7 @@ const emptyForm = {
   category: "",
   unitsPerPackage: "",
   imageUrl: "",
+  description: "",
 };
 
 const visibleBatchSize = 300;
@@ -625,6 +627,7 @@ export function ProductWorkspace() {
         ? Number(form.unitsPerPackage)
         : null,
       imageUrl: form.imageUrl.trim() || undefined,
+      description: form.description.trim(),
     };
     const now = new Date().toISOString();
     const nextProducts = editingId
@@ -704,6 +707,7 @@ export function ProductWorkspace() {
         ? String(product.unitsPerPackage)
         : "",
       imageUrl: product.imageUrl ?? "",
+      description: product.description ?? "",
     });
     setError("");
     setImageError("");
@@ -1482,7 +1486,7 @@ export function ProductWorkspace() {
             </h2>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               {[
-                ["name", "Nombre del producto *", "Descripción comercial"],
+                ["name", "Nombre del producto *", "Nombre del producto"],
                 ["code", "Código único *", "421000005"],
                 ["supplier", "Proveedor", "Proveedor principal"],
                 ["brand", "Marca", "Marca"],
@@ -1540,6 +1544,19 @@ export function ProductWorkspace() {
                 {similarCodes.length > 5 && <div>…y {similarCodes.length - 5} más.</div>}
               </div>
             )}
+            <div className="mt-4">
+              <label htmlFor="product-description" className="text-[11px] font-extrabold text-[#334b6b]">
+                Descripción
+              </label>
+              <textarea
+                id="product-description"
+                rows={3}
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                placeholder="Descripción comercial para presentar el producto a los clientes"
+                className="mt-2 w-full resize-y rounded-xl border border-[#dbe4ef] px-3 py-2 text-xs outline-none focus:border-[#7da4d3]"
+              />
+            </div>
             <div className="mt-4">
               <label className="text-[11px] font-extrabold text-[#334b6b]">
                 Imagen del producto

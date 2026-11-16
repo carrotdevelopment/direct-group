@@ -79,6 +79,7 @@ export async function readProductsFromPostgres(): Promise<ExcelProduct[]> {
     category: text(row.category?.category ?? row.categoryOriginal),
     unitsPerPackage: nullableNumber(row.packageSize),
     imageUrl: text(row.imageUrl) || undefined,
+    description: text(row.description) || undefined,
     createdAt: date(row.sourceCreatedAt),
     updatedAt: date(row.sourceUpdatedAt),
   }));
@@ -120,6 +121,8 @@ export async function writeProductsToPostgres(products: ExcelProduct[]) {
           supplierId: supplierByName.get(normalize(product.supplier)) ?? null,
           categoryId: categoryByName.get(normalize(product.category)) ?? null,
           imageUrl: product.imageUrl?.trim() || null,
+          // Sin la propiedad (pantallas viejas abiertas) no se pisa la descripción guardada.
+          description: product.description === undefined ? undefined : product.description.trim() || null,
           packageSize: product.unitsPerPackage,
           sourceCreatedAt: product.createdAt ? new Date(product.createdAt) : null,
           sourceUpdatedAt: product.updatedAt ? new Date(product.updatedAt) : new Date(),
