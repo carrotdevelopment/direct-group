@@ -23,6 +23,11 @@ export function stockIncomeOperations(client: string) {
   return operations;
 }
 
+// Desde esta fecha (de entrega) de lo que llega de Tango solo impactan en el stock las compras: los
+// pasajes, ajustes y devoluciones se manejan en la plataforma. Lo anterior queda como estaba, y los
+// ingresos cargados en la plataforma (a mano o desde Pasajes, aunque Tango ya los haya vinculado) siguen sumando.
+export const TANGO_ONLY_PURCHASES_FROM = "2026-11-16";
+
 export const STOCK_EGRESS_OPERATIONS = new Set(["CANJE", "ROBO/AJUSTE", "PASAJE", "CAMBIO"]);
 
 type IncomeRow = { clientCode: string; operation: string; delivered: number };

@@ -13,6 +13,7 @@ import {
   type TangoIncomeSummary,
   type TangoIncomeViewSummary,
 } from "@/lib/operation-excel-db";
+import { TANGO_ONLY_PURCHASES_FROM } from "@/lib/stock-operations";
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -94,7 +95,8 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`${CLIENT_RESOLUTION_CTE},
       btrim(coalesce(t.comentarios, '')) AS comentarios, t.pending_tango_entry, t.created_by, t.updated_at,
       ${RESOLVED_CLIENT} AS cliente_res,
       coalesce(act.codigo_unico, '') AS codigo_unico,
-      greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente
+      greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente,
+      (t.external_key IS NOT NULL AND t.pasaje_id IS NULL) AS desde_tango
     FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t${CLIENT_JOINS}
   )
 `);
@@ -367,6 +369,7 @@ export async function readStockOperationRowsFromPostgres(client = "Santander") {
         min(fecha_entrega) FILTER (WHERE ${operationKey} IN ('COMPRA', 'PASAJE')) AS primera_entrega
       FROM r
       WHERE ${Prisma.raw(norm("cliente_res"))} = ${wantedClient}
+        AND NOT (r.desde_tango AND r.fecha_entrega >= ${TANGO_ONLY_PURCHASES_FROM}::date AND ${operationKey} <> 'COMPRA')
       GROUP BY ${Prisma.raw(norm("codigo_cliente"))}, ${operationKey}`,
     excelPostgres.egress.groupBy({
       by: ["clientCode", "operation"],
