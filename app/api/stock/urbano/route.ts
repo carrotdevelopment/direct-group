@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import {
   UrbanoStockError,
   deleteUrbanoStockLoad,
-  listUrbanoMovements,
   listUrbanoStockLoads,
   previewUrbanoStock,
   saveUrbanoStock,
@@ -24,13 +23,11 @@ function failure(error: unknown) {
   throw error;
 }
 
-// Cargas del reporte de stock de Urbano; con ?load=<id> devuelve los renglones de esa carga y con
-// ?movements=1 (opcional &type=) los últimos movimientos.
+// Cargas del reporte de stock de Urbano; con ?load=<id> devuelve los renglones de esa carga.
 export async function GET(request: Request) {
   const denied = await checkApiAccess(["stock"], false);
   if (denied) return denied;
   const params = new URL(request.url).searchParams;
-  if (params.get("movements")) return NextResponse.json(await listUrbanoMovements(params.get("type")));
   const loadId = params.get("load");
   if (loadId && !UUID.test(loadId)) return NextResponse.json({ message: "La carga no existe." }, { status: 404 });
   if (loadId) return NextResponse.json({ items: await urbanoStockItems(loadId) });

@@ -3,9 +3,7 @@ import type { PasajeRequest, Prisma } from "../node_modules/.prisma/excel-client
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { tangoPasajeOperations, tangoWindowStart } from "@/lib/pasaje-tango-match";
-import { matchUrbanoReceptions, urbanoSearchStart } from "@/lib/pasaje-urbano-match";
 import { availableStockForCodes } from "@/lib/pasaje-stock-db";
-import { urbanoCodeFinder } from "@/lib/urbano-api-rows";
 import { canActForClient, canApprovePasaje, canCancelPasaje, canReceivePasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
 
 export class PasajeAjusteError extends Error {
@@ -243,7 +241,6 @@ export async function createPasaje(input: PasajeInput, actor: PasajeActor) {
     });
   });
   invalidateIncomeGroups();
-  await linkUrbanoPasajeOutgoings().catch(() => undefined);
   return pasaje;
 }
 
@@ -259,34 +256,15 @@ const NO_DESTINATION = "no_destination";
 const CANCELABLE_STATUSES = [...OPEN_STATUSES, NO_DESTINATION];
 export const URBANO_ACTOR = "Urbano (automático)";
 
-// Recepciones de Urbano sin usar, cruzadas con los pasajes abiertos.
-async function urbanoMatches(open: PasajeRequest[]) {
-  if (open.length === 0) return { matches: [], review: [] };
-  const from = new Date(Math.min(...open.map((pasaje) => urbanoSearchStart(pasaje).getTime())));
-  const receptions = await excelPostgres.urbanoMovement.findMany({
-    where: { type: "RECEPCION", pasajeId: null, inQuantity: { gt: 0 }, date: { gte: from } },
-    select: { id: true, client: true, clientCode: true, inQuantity: true, date: true, voucher: true },
-  });
-  return matchUrbanoReceptions(
-    open.map((pasaje) => ({ id: pasaje.id, toClient: pasaje.toClient, toClientCode: pasaje.toClientCode, quantity: Number(pasaje.quantity), requestDate: pasaje.requestDate, createdAt: pasaje.createdAt })),
-    receptions.map((item) => ({ id: item.id, client: item.client, clientCode: item.clientCode, quantity: Number(item.inQuantity), date: item.date, voucher: item.voucher })),
-  );
-}
-
 export async function listPasajes(actor: PasajeActor, status?: string) {
   const rows = await excelPostgres.pasajeRequest.findMany({
     where: status ? { status } : undefined,
     orderBy: [{ createdAt: "desc" }, { sourceRow: "asc" }],
     include: { batch: { select: { fileName: true, requestDate: true } } },
   });
-  const { matches, review } = await urbanoMatches(rows.filter((row) => OPEN_STATUSES.includes(row.status)));
-  const informed = new Map<string, { received: number; vouchers: string[]; exact: boolean }>();
-  for (const item of review) informed.set(item.pasajeId, { received: item.received, vouchers: item.vouchers, exact: false });
-  for (const item of matches) informed.set(item.pasajeId, { received: item.quantity, vouchers: item.vouchers, exact: true });
   // Sin destino todavía no se sabe a qué cliente va: lo ve cualquiera, para que lo complete quien sepa.
   return rows
-    .filter((row) => row.status === NO_DESTINATION || canSeePasaje(actor, row))
-    .map((row) => ({ ...row, urbanoInformed: informed.get(row.id) ?? null }));
+    .filter((row) => row.status === NO_DESTINATION || canSeePasaje(actor, row));
 }
 
 // Rechaza o cancela un pasaje: el stock vuelve al origen. Lo hace la encargada del origen (al no aprobarlo)
@@ -369,107 +347,8 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
   return result;
 }
 
-// Confirma los pasajes cuya recepción ya informó Urbano. No corre en la carga diaria: la confirmación la
-// hace la encargada del destino. Cada pasaje va en su propia transacción.
-export async function reconcilePasajesWithUrbano() {
-  const open = await excelPostgres.pasajeRequest.findMany({ where: { status: { in: OPEN_STATUSES } } });
-  const { matches, review } = await urbanoMatches(open);
-  const failed: { id: string; message: string }[] = [];
-  let confirmed = 0;
-  for (const match of matches) {
-    try {
-      await excelPostgres.$transaction(async (tx) => {
-        const pasaje = await tx.pasajeRequest.findUnique({ where: { id: match.pasajeId } });
-        if (!pasaje || !OPEN_STATUSES.includes(pasaje.status)) return;
-        await applyConfirmation(tx, pasaje, match.quantity, URBANO_ACTOR, match.vouchers.join(", ").slice(0, 255));
-        await tx.urbanoMovement.updateMany({ where: { id: { in: match.receptionIds } }, data: { pasajeId: pasaje.id } });
-        confirmed += 1;
-      });
-    } catch (error) {
-      failed.push({ id: match.pasajeId, message: error instanceof Error ? error.message : "No se pudo confirmar." });
-    }
-  }
-  if (confirmed > 0) invalidateIncomeGroups();
-  return { confirmed, toReview: review.length, failed };
-}
-
-async function activeClientCodes() {
-  const codes = await excelPostgres.excelClientCode.findMany({
-    select: { client: true, clientCode: true, uniqueCode: true, active: true, voidedAt: true },
-  });
-  return codes
-    .filter((code) => code.client && code.clientCode)
-    .map((code) => ({
-      client: String(code.client), clientCode: String(code.clientCode), uniqueCode: String(code.uniqueCode ?? ""),
-      active: code.active === true, voided: !!code.voidedAt,
-    }));
-}
-
-// Un pasaje cargado hasta estos días antes de la salida de Urbano se toma como el de esa salida.
-const MANUAL_MATCH_DAYS = 20;
-
 // Día de Argentina de un momento, como fecha sin hora.
 const argentinaDay = (date: Date) => new Date(`${new Date(date.getTime() - 3 * 3_600_000).toISOString().slice(0, 10)}T00:00:00.000Z`);
-
-// Las salidas que Urbano marca como "PASAJE DE STOCK" ya no crean pasajes: se cruzan con los cargados en la
-// plataforma (mismo código origen, producto y cantidad, cargado hasta 20 días antes de la salida o después)
-// y quedan vinculadas. Las que no encuentran pasaje se muestran como control en la pantalla y se vuelven a
-// intentar en la próxima carga.
-export async function linkUrbanoPasajeOutgoings() {
-  const outgoing = await excelPostgres.urbanoMovement.findMany({
-    where: { type: "PICKING", pasajeOutgoing: true, pasajeId: null, outQuantity: { gt: 0 } },
-    orderBy: [{ date: "asc" }, { id: "asc" }],
-  });
-  const result = { matched: 0, unmatched: [] as string[], withoutCode: [] as string[] };
-  if (outgoing.length === 0) return result;
-  const find = urbanoCodeFinder(await activeClientCodes());
-  // Pasajes que ya tienen su salida de Urbano: no se vuelven a usar.
-  const used = new Set(
-    (await excelPostgres.urbanoMovement.findMany({ where: { type: "PICKING", pasajeOutgoing: true, pasajeId: { not: null } }, select: { pasajeId: true } }))
-      .map((row) => row.pasajeId as string),
-  );
-  for (const movement of outgoing) {
-    const voucher = movement.voucher ?? String(movement.id);
-    const origin = find(movement.clientCode);
-    if (!origin?.uniqueCode) {
-      result.withoutCode.push(`${movement.clientCode} (${voucher})`);
-      continue;
-    }
-    const pasaje = (await excelPostgres.pasajeRequest.findMany({
-      where: {
-        createdBy: { not: URBANO_ACTOR },
-        status: { in: [...OPEN_STATUSES, "confirmed"] },
-        fromClientCode: { equals: origin.clientCode, mode: "insensitive" },
-        uniqueCode: { equals: origin.uniqueCode, mode: "insensitive" },
-        quantity: Number(movement.outQuantity),
-        createdAt: { gte: new Date(movement.date.getTime() - MANUAL_MATCH_DAYS * 86_400_000) },
-      },
-      orderBy: { createdAt: "asc" },
-    })).find((candidate) => !used.has(candidate.id));
-    if (!pasaje) {
-      result.unmatched.push(`${origin.client} ${movement.clientCode} x${Number(movement.outQuantity)} (${voucher})`);
-      continue;
-    }
-    const linked = await excelPostgres.urbanoMovement.updateMany({ where: { id: movement.id, pasajeId: null }, data: { pasajeId: pasaje.id } });
-    if (linked.count === 1) {
-      used.add(pasaje.id);
-      result.matched += 1;
-    }
-  }
-  return result;
-}
-
-// Salidas de pasaje de Urbano de los últimos 30 días que no tienen un pasaje cargado: se muestran para
-// que alguien lo cargue (o avise que Urbano sacó algo que no se pidió).
-export async function urbanoOutgoingsWithoutPasaje() {
-  const rows = await excelPostgres.urbanoMovement.findMany({
-    where: { type: "PICKING", pasajeOutgoing: true, pasajeId: null, outQuantity: { gt: 0 }, date: { gte: new Date(Date.now() - 30 * 86_400_000) } },
-    orderBy: [{ date: "desc" }, { id: "desc" }],
-    select: { id: true, date: true, voucher: true, company: true, client: true, clientCode: true, product: true, outQuantity: true },
-  });
-  // El id es BigInt en la base y JSON no lo serializa: sin pasarlo a número, la consulta daba error 500.
-  return rows.map((row) => ({ ...row, id: Number(row.id), outQuantity: Number(row.outQuantity) }));
-}
 
 // La encargada del cliente origen aprueba el pasaje: recién ahí egresa del origen y queda el ingreso
 // pendiente en el destino.

@@ -153,52 +153,6 @@ export async function syncUrbanoStockFromApi(actor: string) {
 // La API si está configurada; si no, el portal de clientes.
 export const syncUrbanoStock = (actor: string) => (urbanoApiConfig() ? syncUrbanoStockFromApi(actor) : syncUrbanoStockFromPortal(actor));
 
-const MOVEMENTS_BATCH = 1000;
-
-// Guarda los movimientos nuevos: los que ya estaban (la API repite los últimos días) se ignoran.
-export async function syncUrbanoMovements() {
-  const movements = await fetchUrbanoApiMovements();
-  const { rows, skipped } = urbanoApiMovementRows(movements);
-  if (movements.length > 0 && rows.length === 0) throw new UrbanoStockError("La API de Urbano devolvió movimientos que no se pudieron leer.");
-  const find = urbanoCodeFinder(await clientCodes());
-  let saved = 0;
-  for (let start = 0; start < rows.length; start += MOVEMENTS_BATCH) {
-    const { count } = await excelPostgres.urbanoMovement.createMany({
-      data: rows.slice(start, start + MOVEMENTS_BATCH).map((row) => {
-        const match = find(row.clientCode);
-        return { ...row, client: match?.client ?? null, uniqueCode: match?.uniqueCode ?? null };
-      }),
-      skipDuplicates: true,
-    });
-    saved += count;
-  }
-  // Las salidas ya guardadas antes de saber que eran un pasaje se marcan ahora (la API repite unos días).
-  const pasajeKeys = rows.filter((row) => row.pasajeOutgoing).map((row) => row.key);
-  if (pasajeKeys.length) {
-    await excelPostgres.urbanoMovement.updateMany({ where: { key: { in: pasajeKeys }, pasajeOutgoing: false }, data: { pasajeOutgoing: true } });
-  }
-  return { received: movements.length, saved, skipped };
-}
-
-const MOVEMENTS_LIMIT = 1000;
-
-export async function listUrbanoMovements(type?: string | null) {
-  const where = type ? { type } : {};
-  const [items, total, types] = await Promise.all([
-    excelPostgres.urbanoMovement.findMany({ where, orderBy: [{ date: "desc" }, { id: "desc" }], take: MOVEMENTS_LIMIT }),
-    excelPostgres.urbanoMovement.count({ where }),
-    excelPostgres.urbanoMovement.findMany({ distinct: ["type"], select: { type: true }, orderBy: { type: "asc" } }),
-  ]);
-  return {
-    total,
-    types: types.map((item) => item.type),
-    items: items.map((item) => ({
-      id: String(item.id), type: item.type, date: item.date.toISOString(), voucher: item.voucher, clientCode: item.clientCode,
-      product: item.product ?? "", client: item.client, inQuantity: Number(item.inQuantity), outQuantity: Number(item.outQuantity),
-    })),
-  };
-}
-
 export async function listUrbanoStockLoads(limit = 30) {
   const loads = await excelPostgres.urbanoStockLoad.findMany({ orderBy: [{ reportDate: "desc" }, { createdAt: "desc" }], take: limit });
   return loads.map((load) => ({

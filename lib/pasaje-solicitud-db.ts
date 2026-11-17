@@ -1,6 +1,6 @@
 import "server-only";
 import { excelPostgres } from "@/lib/excel-postgres-client";
-import { createPasajeWithMovements, linkUrbanoPasajeOutgoings, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
+import { createPasajeWithMovements, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import type { PasajeActor } from "@/lib/module-access";
 import { markDuplicates, markStockShortages, resolveSolicitud, type SolicitudRow } from "@/lib/pasaje-solicitud";
@@ -140,8 +140,6 @@ export async function createSolicitud(input: unknown, fileName: unknown, fileHas
     return created;
   }, { timeout: 120_000 }); // Hasta 300 pasajes, con tres inserciones cada uno.
   invalidateIncomeGroups();
-  // Si Urbano ya informó alguna de estas salidas, queda vinculada ahora.
-  await linkUrbanoPasajeOutgoings().catch(() => undefined);
 
   return {
     batchId: batch.id,

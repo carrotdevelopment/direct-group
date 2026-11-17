@@ -86,8 +86,8 @@ vi.mock("@/lib/excel-postgres-client", () => {
 
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import {
-  approvePasaje, cancelPasaje, confirmPasaje, createPasaje as createManualPasaje, createPasajeWithMovements, linkUrbanoPasajeOutgoings,
-  reconcilePasajesWithUrbano, setPasajeDestination,
+  approvePasaje, cancelPasaje, confirmPasaje, createPasaje as createManualPasaje, createPasajeWithMovements,
+  setPasajeDestination,
 } from "@/lib/pasajes-ajustes-db";
 
 const creator = { name: "Emilia", role: "ADMIN", clients: [] };
@@ -226,32 +226,6 @@ describe("movimientos de un pasaje", () => {
     expect(db.incomes).toEqual([expect.objectContaining({ id: "tango-1" })]);
   });
 
-  it("con la recepción de Urbano se confirma solo, una sola vez", async () => {
-    const pasaje = await createPasaje(input, creator);
-    Object.assign(db.pasajes[0], { status: "pending", requestDate: null, createdAt: new Date("2026-11-02T12:00:00Z") });
-    db.movements.push({ id: 1, type: "RECEPCION", client: "Umiles", clientCode: "dg-1", inQuantity: 10, date: new Date("2026-11-03T12:00:00Z"), voucher: "0955261102", pasajeId: null });
-
-    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 1, toReview: 0, failed: [] });
-    expect(db.pasajes[0]).toMatchObject({ status: "confirmed", confirmedQuantity: 10, confirmedBy: "Urbano (automático)", urbanoVoucher: "0955261102" });
-    expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 10, pasajeId: pasaje.id });
-    expect(db.egresses[0]).toMatchObject({ quantity: 10, deletedAt: null });
-    expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
-
-    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 0, toReview: 0, failed: [] });
-    expect(db.incomes).toHaveLength(1);
-  });
-
-  it("si Urbano informó otra cantidad, no confirma ni usa la recepción", async () => {
-    await createPasaje(input, creator);
-    Object.assign(db.pasajes[0], { status: "pending", requestDate: null, createdAt: new Date("2026-11-02T12:00:00Z") });
-    db.movements.push({ id: 1, type: "RECEPCION", client: "Umiles", clientCode: "DG-1", inQuantity: 7, date: new Date("2026-11-03T12:00:00Z"), voucher: "V", pasajeId: null });
-
-    expect(await reconcilePasajesWithUrbano()).toEqual({ confirmed: 0, toReview: 1, failed: [] });
-    expect(db.pasajes[0]).toMatchObject({ status: "pending" });
-    expect(db.incomes[0]).toMatchObject({ deliveredQuantity: 0 });
-    expect(db.movements[0]).toMatchObject({ pasajeId: null });
-  });
-
   it("si inactivaron el egreso a mano, confirmar lo vuelve a registrar", async () => {
     const pasaje = await createPasaje(input, creator);
     Object.assign(db.pasajes[0], { status: "approved" });
@@ -360,40 +334,5 @@ describe("pasajes cargados en la plataforma", () => {
     });
     await expect(createManualPasaje(input, creator)).rejects.toThrow("Sin destino");
     expect(db.egresses).toHaveLength(1);
-  });
-});
-
-describe("salidas de pasaje de Urbano como control", () => {
-  const salida = (overrides: Row = {}) => ({
-    id: 50, type: "PICKING", pasajeOutgoing: true, pasajeId: null, clientCode: "76-5030", company: "315", product: "Mochila",
-    outQuantity: 10, date: new Date(), voucher: "E1", ...overrides,
-  });
-
-  it("se vincula al pasaje cargado y no crea ninguno", async () => {
-    const pasaje = await createManualPasaje(input, creator);
-    db.movements.push(salida());
-    expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 1, unmatched: [], withoutCode: [] });
-    expect(db.pasajes).toHaveLength(1);
-    expect(db.egresses).toEqual([]);
-    expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
-  });
-
-  it("una salida sin pasaje cargado queda para control y no toca el stock", async () => {
-    db.movements.push(salida({ outQuantity: 7 }));
-    expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 0, unmatched: ["Pampa 76-5030 x7 (E1)"], withoutCode: [] });
-    expect(db.pasajes).toEqual([]);
-    expect(db.egresses).toEqual([]);
-  });
-
-  it("cada pasaje se vincula a una sola salida y saltea códigos desconocidos", async () => {
-    await createManualPasaje(input, creator);
-    db.movements.push(salida(), salida({ id: 51, voucher: "E2" }), salida({ id: 52, clientCode: "NO-EXISTE", voucher: "X1" }));
-    expect(await linkUrbanoPasajeOutgoings()).toEqual({ matched: 1, unmatched: ["Pampa 76-5030 x10 (E2)"], withoutCode: ["NO-EXISTE (X1)"] });
-  });
-
-  it("al cargar el pasaje después de la salida, la vincula en el momento", async () => {
-    db.movements.push(salida());
-    const pasaje = await createManualPasaje(input, creator);
-    expect(db.movements[0]).toMatchObject({ pasajeId: pasaje.id });
   });
 });

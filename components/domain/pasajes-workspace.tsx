@@ -30,23 +30,11 @@ type Pasaje = {
   confirmedAt: string | null;
   urbanoVoucher: string | null;
   urbanoCertificate?: string | null;
-  urbanoInformed: { received: number; vouchers: string[]; exact: boolean } | null;
   requestDate: string | null;
   warning: string | null;
   sourceRow: number | null;
   fromDescription: string | null;
   batch: { fileName: string | null; requestDate: string | null } | null;
-};
-
-type UrbanoOutgoing = {
-  id: number;
-  date: string;
-  voucher: string | null;
-  company: string | null;
-  client: string | null;
-  clientCode: string;
-  product: string | null;
-  outQuantity: number;
 };
 
 type Ajuste = {
@@ -199,7 +187,6 @@ export function PasajesWorkspace({
   const [pasajeModalOpen, setPasajeModalOpen] = useState(false);
   const [solicitudModalOpen, setSolicitudModalOpen] = useState(false);
   const [batches, setBatches] = useState<PasajeBatch[]>([]);
-  const [urbanoWithoutPasaje, setUrbanoWithoutPasaje] = useState<UrbanoOutgoing[]>([]);
   const [selectedApprove, setSelectedApprove] = useState<Set<string>>(new Set());
   const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
   // Destino elegido para cada pasaje sin destino, como "cliente|código".
@@ -225,24 +212,21 @@ export function PasajesWorkspace({
 
   async function loadAll() {
     try {
-      const [mappingsRes, productsRes, pasajesRes, ajustesRes, batchesRes, controlRes] = await Promise.all([
+      const [mappingsRes, productsRes, pasajesRes, ajustesRes, batchesRes] = await Promise.all([
         fetch("/api/lookups?kind=client-codes"),
         fetch("/api/lookups?kind=products"),
         fetch("/api/pasajes"),
         fetch("/api/ajustes"),
         fetch("/api/pasajes/lotes", { cache: "no-store" }),
-        fetch("/api/pasajes/control-urbano", { cache: "no-store" }),
       ]);
-      const [mappingsData, productsData, pasajesData, ajustesData, batchesData, controlData] = await Promise.all([
+      const [mappingsData, productsData, pasajesData, ajustesData, batchesData] = await Promise.all([
         mappingsRes.json(),
         productsRes.json(),
         pasajesRes.json(),
         ajustesRes.json(),
         batchesRes.ok ? batchesRes.json() : { batches: [] },
-        controlRes.ok ? controlRes.json() : { outgoings: [] },
       ]);
       setBatches(batchesData.batches ?? []);
-      setUrbanoWithoutPasaje(controlData.outgoings ?? []);
       setMappings(mappingsData.mappings ?? []);
       setProducts(productsData.products ?? []);
       setPasajes(pasajesData.pasajes ?? []);
@@ -444,31 +428,6 @@ export function PasajesWorkspace({
             </p>
           </details>
 
-          {urbanoWithoutPasaje.length > 0 && (
-            <section className="card animate-enter overflow-hidden border border-[#f4c16d]">
-              <div className="border-b border-[#f4dcae] bg-[#fff8ec] p-4">
-                <h2 className="flex items-center gap-2 text-sm font-black text-[#985b00]">
-                  <AlertTriangle size={15} /> Salidas de Urbano sin pasaje cargado ({urbanoWithoutPasaje.length})
-                </h2>
-                <p className="mt-1 text-[10px] font-semibold text-[#985b00]">
-                  Urbano sacó estas unidades como &quot;Pasaje de stock&quot; y no hay un pasaje cargado con el mismo código origen y
-                  cantidad. No tocan el stock: cargá el pasaje (se vincula solo) o avisale a Urbano si no correspondía.
-                </p>
-              </div>
-              <div className="max-h-[260px] divide-y divide-[#f4e6cc] overflow-auto">
-                {urbanoWithoutPasaje.map((item) => (
-                  <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs">
-                    <div>
-                      <span className="font-bold text-[#10233f]">{item.client ?? `Cuenta ${item.company ?? "?"}`} ({item.clientCode})</span>
-                      <span className="text-[#62728a]"> · {item.product || "—"} · Salieron {item.outQuantity}</span>
-                    </div>
-                    <span className="text-[10px] text-[#8a99ad]">{formatDateTime(item.date)}{item.voucher ? ` · ${item.voucher}` : ""}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
           {withoutDestination.length > 0 && (
           <section className="card animate-enter overflow-hidden">
             <div className="border-b border-[#e1e8f1] bg-white p-4">
@@ -650,13 +609,6 @@ export function PasajesWorkspace({
                         {p.warning && <div className="mt-0.5 text-[10px] font-bold text-[#985b00]">{p.warning}</div>}
                         {p.respondedBy && p.respondedAt && (
                           <div className="mt-0.5 text-[10px] text-[#8a99ad]">Aprobado por {p.respondedBy} el {formatDateTime(p.respondedAt)}</div>
-                        )}
-                        {p.urbanoInformed && (
-                          <div className={`mt-0.5 text-[10px] font-bold ${p.urbanoInformed.exact ? "text-[#23783a]" : "text-[#985b00]"}`}>
-                            {p.urbanoInformed.exact
-                              ? `En los movimientos de Urbano ya figura una recepción de ${p.urbanoInformed.received}${p.urbanoInformed.vouchers.length ? ` (${p.urbanoInformed.vouchers.join(", ")})` : ""}.`
-                              : `En los movimientos de Urbano figura una recepción de ${p.urbanoInformed.received} y se pasaron ${requested}${p.urbanoInformed.vouchers.length ? ` (${p.urbanoInformed.vouchers.join(", ")})` : ""}.`}
-                          </div>
                         )}
                       </div>
                     </div>

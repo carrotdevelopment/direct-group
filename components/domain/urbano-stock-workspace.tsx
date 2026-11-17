@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, CloudDownload, FileSpreadsheet, Search, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
-import { UrbanoMovementsCard } from "@/components/domain/urbano-movements-card";
 import { parseUrbanoStockSheet, reportDateFromFileName, type ResolvedUrbanoStockRow, type UrbanoStockRow } from "@/lib/urbano-stock";
 
 type Load = { id: string; fileName: string | null; reportDate: string; source: string; createdBy: string; createdAt: string; rowCount: number; totalQuantity: number };
@@ -224,7 +223,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
       <PageHeader
         eyebrow="Stock"
         title="Carga de stock Urbano"
-        description="Stock y movimientos que informa Urbano: se traen solos todos los días o se sube el Excel exportado del portal (con todas las columnas). La pantalla Stock muestra la cantidad física de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
+        description="Stock que informa Urbano: se trae solo todos los días o se sube el Excel exportado del portal (con todas las columnas). La pantalla Stock muestra la cantidad física de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
       />
 
       {canWrite && (
@@ -421,7 +420,6 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
         </div>
       </section>
 
-      <UrbanoMovementsCard />
     </>
   );
 }

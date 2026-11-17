@@ -1,48 +1,25 @@
-import { linkUrbanoPasajeOutgoings } from "@/lib/pasajes-ajustes-db";
-import { urbanoApiConfig } from "@/lib/urbano-api";
-import { syncUrbanoMovements, syncUrbanoStock } from "@/lib/urbano-stock-db";
+import { syncUrbanoStock } from "@/lib/urbano-stock-db";
 
 // Uso (en el servidor, todos los días desde cron):
 //   set -a && . ./.env && set +a && DG_DATA_SOURCE=postgresql npx tsx --conditions=react-server scripts/sync-urbano-stock.ts
-// Trae el stock de Urbano y lo guarda como carga del día (reemplaza la de hoy). Con la API configurada trae
-// todas las cuentas y también los movimientos; si no, el reporte "Stock en línea" del portal de clientes.
+// Trae el stock de Urbano y lo guarda como carga del día (reemplaza la de hoy): por la API si está
+// configurada; si no, el reporte "Stock en línea" del portal de clientes. Los movimientos de Urbano ya no se
+// traen: los pasajes se cargan y se confirman a mano en la plataforma.
 const stamp = () => new Date().toISOString();
 const message = (error: unknown) => (error instanceof Error ? error.message : error);
 
 async function main() {
-  let failed = false;
   try {
     const result = await syncUrbanoStock("Sincronización automática");
     console.log(
       `${stamp()} Stock OK. ${result.saved} códigos, física total ${result.totalQuantity}` +
         `${result.withoutClient ? `, ${result.withoutClient} sin código cliente` : ""}${result.replaced ? ", reemplazó la carga de hoy" : ""}.`,
     );
+    process.exit(0);
   } catch (error) {
-    failed = true;
     console.error(`${stamp()} ERROR en stock`, message(error));
+    process.exit(1);
   }
-  // Un error en el stock no frena los movimientos: son consultas independientes.
-  if (urbanoApiConfig()) {
-    try {
-      const result = await syncUrbanoMovements();
-      console.log(`${stamp()} Movimientos OK. ${result.received} recibidos, ${result.saved} nuevos${result.skipped ? `, ${result.skipped} sin poder leer` : ""}.`);
-    } catch (error) {
-      failed = true;
-      console.error(`${stamp()} ERROR en movimientos`, message(error));
-    }
-    // Aunque falle la carga de hoy, los movimientos ya guardados se cruzan con los pasajes cargados. Las
-    // salidas de pasaje no crean pasajes ni los confirman: eso lo hacen las encargadas en la plataforma.
-    try {
-      const result = await linkUrbanoPasajeOutgoings();
-      console.log(`${stamp()} Pasajes: ${result.matched} salidas de Urbano vinculadas${result.unmatched.length ? `, ${result.unmatched.length} sin pasaje cargado` : ""}${result.withoutCode.length ? `, ${result.withoutCode.length} sin código cliente` : ""}.`);
-      if (result.unmatched.length) console.log(`${stamp()} Salidas de pasaje sin pasaje cargado: ${result.unmatched.join(", ")}`);
-      if (result.withoutCode.length) console.log(`${stamp()} Salidas de pasaje sin código cliente: ${result.withoutCode.join(", ")}`);
-    } catch (error) {
-      failed = true;
-      console.error(`${stamp()} ERROR al cruzar pasajes`, message(error));
-    }
-  }
-  process.exit(failed ? 1 : 0);
 }
 
 void main();
