@@ -921,9 +921,9 @@ function ColPicker({ visibleCols, allKeys, onAdd, onRemove, onMove, onClose }: {
               <div key={k} className="flex items-center gap-1 rounded px-1 py-0.5 bg-[#edf4fc] mb-0.5">
                 <div className="flex flex-col">
                   <button type="button" disabled={i === 0} onClick={() => onMove(k, -1)}
-                    className="text-[8px] leading-tight text-[#62728a] disabled:opacity-20 hover:text-[#0b5bbb]">▲</button>
+                    className="text-[9px] leading-tight text-[#62728a] disabled:opacity-20 hover:text-[#0b5bbb]">▲</button>
                   <button type="button" disabled={i === visibleCols.length - 1} onClick={() => onMove(k, 1)}
-                    className="text-[8px] leading-tight text-[#62728a] disabled:opacity-20 hover:text-[#0b5bbb]">▼</button>
+                    className="text-[9px] leading-tight text-[#62728a] disabled:opacity-20 hover:text-[#0b5bbb]">▼</button>
                 </div>
                 <span className="flex-1 truncate text-[10px] text-[#10233f]">{k}</span>
                 <button type="button" onClick={() => onRemove(k)}

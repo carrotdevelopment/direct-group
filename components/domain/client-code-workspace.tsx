@@ -1170,16 +1170,16 @@ export function ClientCodeWorkspace() {
                                 }`}
                               />
                               {duplicateUniqueCode ? (
-                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#b42318]">
                                   Repetido
                                 </span>
                               ) : unknownUniqueCode ? (
-                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#b42318]">
                                   No existe
                                 </span>
                               ) : activeAssignment ? (
                                 <span
-                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fff3cd] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#9a5c00]"
+                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fff3cd] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#9a5c00]"
                                   title="Este producto ya tiene una asignación activa"
                                 >
                                   Ya asignado
@@ -1218,7 +1218,7 @@ export function ClientCodeWorkspace() {
                               }`}
                             />
                             {duplicateClientCode && (
-                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-[#b42318]">
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#b42318]">
                                 Repetido
                               </span>
                             )}

@@ -263,11 +263,11 @@ export function StockWorkspace() {
   // Group header row cells (sticky top-0, h-7 = 28px fixed height)
   const grpBase = "sticky top-0 h-7 border-b border-[#c8d6e5] px-2 text-center text-[8.5px] font-black uppercase tracking-wide";
   // Column header cells (sticky top-7 = below group row)
-  const colHdr = "sticky top-7 z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[8px] font-black text-[#334b6b]";
+  const colHdr = "sticky top-7 z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[9px] font-black text-[#334b6b]";
   // Sticky column header cells (also left-pinned)
-  const colHdrSticky = "sticky top-7 z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[8px] font-black text-[#334b6b]";
+  const colHdrSticky = "sticky top-7 z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[9px] font-black text-[#334b6b]";
   // Body number cells
-  const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[8px] text-right tabular-nums";
+  const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[9px] text-right tabular-nums";
 
   // ── Row renderer ──────────────────────────────────────────────────────────
 
@@ -285,21 +285,21 @@ export function StockWorkspace() {
       <tr key={row.id} className={rowBg}>
         {/* Sticky col 1: Código cliente */}
         <td
-          className={`sticky left-0 z-30 w-[80px] min-w-[80px] max-w-[80px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[8px] ${stickyBg}`}
+          className={`sticky left-0 z-30 w-[80px] min-w-[80px] max-w-[80px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[9px] ${stickyBg}`}
           title={row.clientCode}
         >
           <div className="truncate">{row.clientCode}</div>
         </td>
         {/* Sticky col 2: Código único */}
         <td
-          className={`sticky left-[80px] z-30 w-[90px] min-w-[90px] max-w-[90px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[8px] ${stickyBg}`}
+          className={`sticky left-[80px] z-30 w-[90px] min-w-[90px] max-w-[90px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[9px] ${stickyBg}`}
           title={row.uniqueCode}
         >
           <div className="truncate">{row.uniqueCode}</div>
         </td>
         {/* Sticky col 3: Producto */}
         <td
-          className={`sticky left-[170px] z-30 w-[180px] min-w-[180px] max-w-[180px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[8px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
+          className={`sticky left-[170px] z-30 w-[180px] min-w-[180px] max-w-[180px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[9px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
           title={row.product}
         >
           <div className="truncate">{row.product || "—"}</div>
@@ -481,7 +481,7 @@ export function StockWorkspace() {
         <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
           <table
             style={{ zoom: zoom / 100 }}
-            className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[8px]"
+            className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[9px]"
           >
             <thead>
               {/* Row 1 – group headers */}
@@ -529,7 +529,7 @@ export function StockWorkspace() {
                       value={codeSearch}
                       onChange={(e) => setCodeSearch(e.target.value)}
                       aria-label="Buscar código cliente"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[7px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -542,7 +542,7 @@ export function StockWorkspace() {
                       value={uniqueSearch}
                       onChange={(e) => setUniqueSearch(e.target.value)}
                       aria-label="Buscar código único"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[7px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -555,7 +555,7 @@ export function StockWorkspace() {
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
                       aria-label="Buscar producto"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[7px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>

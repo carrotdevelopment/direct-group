@@ -638,7 +638,7 @@ export function CostStructureWorkspace() {
   const formulaCell = "whitespace-nowrap bg-[#f3f7fc] px-2 py-1 text-right tabular-nums text-[#334b6b]";
   const sourceCell = "bg-[#f8fafd] px-2 py-1 text-[#425979]";
   const numberInput =
-    "h-7 w-full min-w-[52px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[8px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]";
+    "h-7 w-full min-w-[52px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[9px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]";
   const stickyTh =
     "sticky top-0 z-40 border-b border-r border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]";
 
@@ -917,7 +917,7 @@ export function CostStructureWorkspace() {
 
         {/* Table */}
         <div className="max-h-[calc(100vh-270px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
-          <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[8px]" style={{ borderSpacing: 0 }}>
+          <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[9px]" style={{ borderSpacing: 0 }}>
             <colgroup>
               <col style={{ width: 36 }} />
               <col style={{ width: 64 }} />
@@ -983,7 +983,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Fecha costo
-                    <span className="text-[7px]">
+                    <span className="text-[9px]">
                       {sortKey === "costDgUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1004,7 +1004,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Fecha PVC ant
-                    <span className="text-[7px]">
+                    <span className="text-[9px]">
                       {sortKey === "pvcUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1037,7 +1037,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Utilidad $
-                    <span className="text-[7px]">
+                    <span className="text-[9px]">
                       {sortKey === "profitAmt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1048,7 +1048,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Util. %
-                    <span className="text-[7px]">
+                    <span className="text-[9px]">
                       {sortKey === "profitPct" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1150,7 +1150,7 @@ export function CostStructureWorkspace() {
                               <AlertTriangle size={9} className="text-[#b7433f]" />
                             </span>
                           ) : isProposed ? (
-                            <span title="PVC propuesto" className="text-[7px] font-black text-[#0b5bbb]">✓</span>
+                            <span title="PVC propuesto" className="text-[9px] font-black text-[#0b5bbb]">✓</span>
                           ) : <span className="w-[9px]" />}
                         </div>
                       </td>
@@ -1310,7 +1310,7 @@ export function CostStructureWorkspace() {
                                       : row.freightCriterion;
                                     if (!c) return null;
                                     return (
-                                      <span className="ml-1.5 rounded bg-[#edf4fc] px-1.5 py-0.5 text-[8px] font-semibold text-[#0b5bbb]">
+                                      <span className="ml-1.5 rounded bg-[#edf4fc] px-1.5 py-0.5 text-[9px] font-semibold text-[#0b5bbb]">
                                         {c.mode === "pct"
                                           ? `${c.value}% Costo DG`
                                           : `$${money(c.value)} fijo`}
@@ -1881,7 +1881,7 @@ function InlineSearch({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-5 w-full rounded-md border border-[#b8c8d8] bg-white py-0.5 pl-4 pr-1 text-[7px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+        className="h-5 w-full rounded-md border border-[#b8c8d8] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
       />
     </div>
   );

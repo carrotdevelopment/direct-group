@@ -31,7 +31,9 @@ body {
   margin: 0;
   color: var(--ink);
   background: var(--canvas);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -47,8 +49,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .card {
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 18px;
-  box-shadow: 0 1px 2px rgb(23 33 27 / 0.03);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgb(16 35 63 / 0.04), 0 1px 1px rgb(16 35 63 / 0.02);
 }
 
 .eyebrow {
@@ -62,10 +64,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .tabular { font-variant-numeric: tabular-nums; }
 
 @keyframes enter {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.animate-enter { animation: enter .42s cubic-bezier(.22,.8,.32,1) both; }
+.animate-enter { animation: enter .22s cubic-bezier(.22,.8,.32,1) both; }
+
+@media (prefers-reduced-motion: reduce) { .animate-enter { animation: none; } }
 
 .cost-table tbody td { border-bottom: 1px solid #e1e8f1; }
