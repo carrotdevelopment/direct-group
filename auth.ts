@@ -5,7 +5,12 @@ import { z } from "zod";
 import { prisma } from "@/server/lib/prisma";
 import { sessionVersion } from "@/server/lib/session-version";
 
-const credentialsSchema = z.object({ email: z.string().trim().email(), password: z.string().min(8).max(72).refine(value => new TextEncoder().encode(value).length <= 72) });
+// Solo en desarrollo local (npm run dev) se puede entrar como "admin" / "admin": el usuario
+// admin@local.test existe únicamente en la base local. En producción NODE_ENV es "production" y esto no aplica.
+const isLocalDev = process.env.NODE_ENV === "development";
+const LOCAL_ADMIN_EMAIL = "admin@local.test";
+
+const credentialsSchema = z.object({ email: isLocalDev ? z.string().trim().min(1) : z.string().trim().email(), password: z.string().min(isLocalDev ? 5 : 8).max(72).refine(value => new TextEncoder().encode(value).length <= 72) });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -16,7 +21,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async authorize(credentials) {
       const parsed = credentialsSchema.safeParse(credentials);
       if (!parsed.success) return null;
-      const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
+      const login = parsed.data.email.toLowerCase();
+      const email = isLocalDev && login === "admin" ? LOCAL_ADMIN_EMAIL : login;
+      const user = await prisma.user.findUnique({ where: { email } });
       if (!user?.active || !(await compare(parsed.data.password, user.passwordHash))) return null;
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
       return { id: user.id, name: user.name, email: user.email, role: user.role, moduleAccess: user.moduleAccess, credentialVersion: sessionVersion(user.passwordHash) };
