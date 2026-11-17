@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markDuplicates, parseSolicitudSheet, resolveSolicitud, type ClientCodeRecord, type ShipperRecord } from "@/lib/pasaje-solicitud";
+import { markDuplicates, parseSolicitudSheet, resolveSolicitud, shipperCodeOptions, type ClientCodeRecord, type ShipperRecord } from "@/lib/pasaje-solicitud";
 
 const header = ["FECHA", "SH", "SKU VIEJO", "DESCRIPCION", "CANT ", "", "SH", "SKU NUEVO", "DESCRIPCION", "CANT", "", "COSTO $"];
 const sheet = [
@@ -148,3 +148,26 @@ describe("shipper de Importados", () => {
   });
 });
 
+
+describe("shipperCodeOptions", () => {
+  const mappings = [
+    { client: "Amex", clientCode: "76-5030", uniqueCode: "U1", active: true },
+    { client: "Amex", clientCode: "75-5030", uniqueCode: "U1", active: false },
+    { client: "Macro", clientCode: "M-1", uniqueCode: "U2", active: true },
+  ];
+  const name = (code: string) => (code === "U1" ? "Cortador" : "");
+
+  it("ofrece solo los códigos de los clientes del shipper", () => {
+    const options = shipperCodeOptions({ clients: ["AMEX"] }, mappings, "origen", name);
+    expect(options.map((o) => o.clientCode)).toEqual(["75-5030", "76-5030"]);
+    expect(options[0].product).toBe("Cortador");
+  });
+
+  it("en el destino deja afuera los códigos no vigentes", () => {
+    expect(shipperCodeOptions({ clients: ["Amex"] }, mappings, "destino", name).map((o) => o.clientCode)).toEqual(["76-5030"]);
+  });
+
+  it("sin shipper no ofrece nada", () => {
+    expect(shipperCodeOptions(undefined, mappings, "origen", name)).toEqual([]);
+  });
+});

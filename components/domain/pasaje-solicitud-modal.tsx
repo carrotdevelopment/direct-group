@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeftRight, CheckCircle2, Download, FileSpreadsheet, Plus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BatchDownloads, type PasajeBatch } from "@/components/domain/pasaje-batches";
 import { draftRequestSheet, REQUEST_HEADER, requestFileName } from "@/lib/pasaje-export";
-import { parseSolicitudSheet, type ResolvedRow, type SolicitudRow } from "@/lib/pasaje-solicitud";
+import { parseSolicitudSheet, shipperCodeOptions, type ResolvedRow, type ShipperCodeOption, type SolicitudRow } from "@/lib/pasaje-solicitud";
 
 type CreateResult = {
   batchId: string;
@@ -28,6 +28,15 @@ const COLUMNS = [
 ];
 
 type GridRow = string[];
+type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
+type Shipper = { code: string; name: string; clients: string[] };
+
+// Columnas de cada lado: shipper, código y descripción (origen 1-3, destino 5-7).
+const SIDES = [
+  { side: "origen" as const, shipper: 1, code: 2, description: 3 },
+  { side: "destino" as const, shipper: 5, code: 6, description: 7 },
+];
+const shipperKey = (value: string) => value.trim().toLowerCase();
 const emptyRow = (): GridRow => COLUMNS.map(() => "");
 const blankGrid = (n = 8) => Array.from({ length: n }, emptyRow);
 const filled = (row: GridRow) => row.some((cell, index) => index > 0 && cell.trim());
@@ -61,8 +70,70 @@ function pasteInto(grid: GridRow[], text: string, startRow: number, startCol: nu
 // Carga de pasajes: se completa la grilla (o se sube el Excel de la solicitud), el servidor resuelve cada fila
 // (shipper + código → cliente) y, al confirmar, crea el lote: cada pasaje espera la aprobación de la encargada
 // del origen, que es cuando egresa y queda el ingreso pendiente en el destino.
-export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+export function PasajeSolicitudModal({
+  mappings,
+  products,
+  onClose,
+  onCreated,
+}: {
+  mappings: Mapping[];
+  products: { code: string; name: string }[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [grid, setGrid] = useState<GridRow[]>(() => blankGrid());
+  const [shippers, setShippers] = useState<Shipper[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/pasajes/solicitud", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : { shippers: [] }))
+      .then((data: { shippers?: Shipper[] }) => { if (alive) setShippers(data.shippers ?? []); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+
+  const shipperByCode = useMemo(() => new Map(shippers.map((shipper) => [shipperKey(shipper.code), shipper])), [shippers]);
+  const productName = useMemo(() => {
+    const names = new Map(products.map((product) => [product.code.toLowerCase(), product.name]));
+    return (uniqueCode: string) => names.get(uniqueCode.toLowerCase()) ?? "";
+  }, [products]);
+
+  // Códigos que se ofrecen para cada shipper y lado que aparece en la grilla.
+  const optionsByList = useMemo(() => {
+    const lists = new Map<string, ShipperCodeOption[]>();
+    for (const row of grid) {
+      for (const { side, shipper } of SIDES) {
+        const key = shipperKey(row[shipper]);
+        const id = `pasaje-codes-${side}-${key}`;
+        if (!key || lists.has(id) || !shipperByCode.has(key)) continue;
+        lists.set(id, shipperCodeOptions(shipperByCode.get(key), mappings, side, productName));
+      }
+    }
+    return lists;
+  }, [grid, shipperByCode, mappings, productName]);
+
+  function codeListId(row: GridRow, col: number) {
+    const side = SIDES.find((item) => item.code === col);
+    if (!side) return undefined;
+    const id = `pasaje-codes-${side.side}-${shipperKey(row[side.shipper])}`;
+    return optionsByList.has(id) ? id : undefined;
+  }
+
+  // Aviso en la celda: shipper que no está en la tabla, o código que no es de los clientes del shipper.
+  function cellWarning(row: GridRow, col: number) {
+    const side = SIDES.find((item) => item.shipper === col || item.code === col);
+    if (!side || !shippers.length) return "";
+    const key = shipperKey(row[side.shipper]);
+    if (col === side.shipper) return key && !shipperByCode.has(key) ? `El shipper ${row[col]} no está en la tabla de shippers.` : "";
+    const code = row[col].trim().toLowerCase();
+    const options = optionsByList.get(`pasaje-codes-${side.side}-${key}`);
+    if (!code || !options) return "";
+    const shipper = shipperByCode.get(key);
+    return options.some((option) => option.clientCode.toLowerCase() === code)
+      ? ""
+      : `El código ${row[col]} no es de ${shipper?.clients.join(" / ") || "los clientes"} del shipper ${shipper?.code}.`;
+  }
   const [fileName, setFileName] = useState("");
   const [fileHash, setFileHash] = useState("");
   const [rows, setRows] = useState<SolicitudRow[]>([]);
@@ -74,7 +145,18 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
   const [batch, setBatch] = useState<PasajeBatch | null>(null);
 
   function editCell(rowIndex: number, col: number, value: string) {
-    setGrid((current) => current.map((row, index) => (index === rowIndex ? row.map((cell, c) => (c === col ? value : cell)) : row)));
+    setGrid((current) => current.map((row, index) => {
+      if (index !== rowIndex) return row;
+      const next = row.map((cell, c) => (c === col ? value : cell));
+      // Al elegir un código del shipper, completa la descripción si está vacía.
+      const side = SIDES.find((item) => item.code === col);
+      if (side && !next[side.description].trim()) {
+        const options = optionsByList.get(`pasaje-codes-${side.side}-${shipperKey(next[side.shipper])}`) ?? [];
+        const match = options.find((option) => option.clientCode.toLowerCase() === value.trim().toLowerCase());
+        if (match?.product) next[side.description] = match.product;
+      }
+      return next;
+    }));
     // Un cambio en la grilla deja de ser el archivo subido tal cual.
     setFileHash("");
   }
@@ -199,7 +281,7 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
                 {fileName ? `Cambiar archivo (${fileName})` : "Subir el Excel de la solicitud"}
                 <input type="file" accept=".xls,.xlsx,.xlsm" className="sr-only" onChange={onFile} />
               </label>
-              <span className="text-[10px] font-semibold text-[#8a99ad]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra.</span>
+              <span className="text-[10px] font-semibold text-[#8a99ad]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper y completa la descripción.</span>
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full min-w-[1080px] table-fixed text-left text-[11px]">
@@ -217,10 +299,15 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
                 <tbody className="divide-y divide-[#eef2f7]">
                   {grid.map((row, rowIndex) => (
                     <tr key={rowIndex}>
-                      {row.map((cell, col) => (
+                      {row.map((cell, col) => {
+                        const warning = cellWarning(row, col);
+                        return (
                         <td key={col} className={`p-0.5 ${col === 4 ? "border-r border-[#dbe4ef]" : ""}`}>
                           <input
                             value={cell}
+                            list={col === 1 || col === 5 ? "pasaje-shippers" : codeListId(row, col)}
+                            title={warning || undefined}
+                            aria-invalid={warning ? true : undefined}
                             inputMode={col === 4 || col === 8 ? "numeric" : undefined}
                             placeholder={rowIndex === 0 ? COLUMNS[col].placeholder : ""}
                             onChange={(event) => editCell(rowIndex, col, event.target.value)}
@@ -231,14 +318,29 @@ export function PasajeSolicitudModal({ onClose, onCreated }: { onClose: () => vo
                               setGrid((current) => pasteInto(current, text, rowIndex, col));
                               setFileHash("");
                             }}
-                            className={`h-8 w-full rounded-md border border-transparent px-1.5 text-[11px] outline-none hover:border-[#dbe4ef] focus:border-[#7da4d3] focus:bg-white ${col === 4 || col === 8 ? "text-right" : ""}`}
+                            className={`h-8 w-full rounded-md border px-1.5 text-[11px] outline-none focus:bg-white ${warning ? "border-[#e0a23a] bg-[#fff7e6] focus:border-[#c98a1e]" : "border-transparent hover:border-[#dbe4ef] focus:border-[#7da4d3]"} ${col === 4 || col === 8 ? "text-right" : ""}`}
                           />
                         </td>
-                      ))}
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <datalist id="pasaje-shippers">
+                {shippers.map((shipper) => (
+                  <option key={shipper.code} value={shipper.code}>{shipper.name}</option>
+                ))}
+              </datalist>
+              {[...optionsByList].map(([id, options]) => (
+                <datalist key={id} id={id}>
+                  {options.map((option) => (
+                    <option key={`${option.client}|${option.clientCode}`} value={option.clientCode}>
+                      {[option.product || option.uniqueCode, option.client].join(" · ")}
+                    </option>
+                  ))}
+                </datalist>
+              ))}
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex gap-2">

@@ -244,3 +244,21 @@ export function markStockShortages(rows: ResolvedRow[], available: Map<string, n
     return { ...row, status: "warning", messages: [...row.messages, message] };
   });
 }
+
+export type ShipperCodeOption = { client: string; clientCode: string; uniqueCode: string; product: string };
+
+// Códigos que se ofrecen en la grilla para el shipper elegido: los de sus clientes. En el origen entran también
+// los no vigentes (el SKU viejo puede estar dado de baja); en el destino, solo los vigentes.
+export function shipperCodeOptions(
+  shipper: Pick<ShipperRecord, "clients"> | undefined,
+  mappings: { client: string; clientCode: string; uniqueCode: string; active: boolean }[],
+  side: "origen" | "destino",
+  productName: (uniqueCode: string) => string,
+): ShipperCodeOption[] {
+  if (!shipper) return [];
+  const clients = new Set(shipper.clients.map(normalize));
+  return mappings
+    .filter((m) => m.clientCode && clients.has(normalize(m.client)) && (side === "origen" || m.active))
+    .map((m) => ({ client: m.client, clientCode: m.clientCode, uniqueCode: m.uniqueCode, product: productName(m.uniqueCode) }))
+    .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
+}

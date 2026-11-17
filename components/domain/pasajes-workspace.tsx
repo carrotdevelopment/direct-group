@@ -814,7 +814,7 @@ export function PasajesWorkspace({
         />
       )}
       {solicitudModalOpen && (
-        <PasajeSolicitudModal onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
+        <PasajeSolicitudModal mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
       )}
       {ajusteModalOpen && (
         <AjusteModal

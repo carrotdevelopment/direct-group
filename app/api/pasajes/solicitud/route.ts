@@ -1,9 +1,19 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
-import { createSolicitud, previewSolicitud } from "@/lib/pasaje-solicitud-db";
+import { createSolicitud, listUrbanoShippers, previewSolicitud } from "@/lib/pasaje-solicitud-db";
 
 export const runtime = "nodejs";
+
+// Shippers de Urbano con sus clientes: la grilla de carga ofrece, para cada SH, los códigos de esos clientes.
+export async function GET() {
+  const denied = await checkApiAccess(["pasajes"], false);
+  if (denied) return denied;
+  const shippers = await listUrbanoShippers();
+  return NextResponse.json({
+    shippers: shippers.filter((shipper) => shipper.active).map((shipper) => ({ code: shipper.code, name: shipper.name, clients: shipper.clients })),
+  });
+}
 
 // Solicitud de pasaje de stock a Urbano: con preview=true solo valida y resuelve las filas; si no,
 // crea el lote con las filas válidas.
