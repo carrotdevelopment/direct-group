@@ -467,7 +467,8 @@ export async function urbanoOutgoingsWithoutPasaje() {
     orderBy: [{ date: "desc" }, { id: "desc" }],
     select: { id: true, date: true, voucher: true, company: true, client: true, clientCode: true, product: true, outQuantity: true },
   });
-  return rows.map((row) => ({ ...row, outQuantity: Number(row.outQuantity) }));
+  // El id es BigInt en la base y JSON no lo serializa: sin pasarlo a número, la consulta daba error 500.
+  return rows.map((row) => ({ ...row, id: Number(row.id), outQuantity: Number(row.outQuantity) }));
 }
 
 // La encargada del cliente origen aprueba el pasaje: recién ahí egresa del origen y queda el ingreso
