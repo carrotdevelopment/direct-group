@@ -638,6 +638,9 @@ model PasajeRequest {
   egressImpacted    Boolean      @default(false) @map("egreso_impactado")
   // Comprobante de Urbano con el que se confirmó automáticamente.
   urbanoVoucher     String?      @map("comprobante_urbano") @db.VarChar(255)
+  // ID del pasaje en la planilla para Urbano (PAS2409PAMPA1): se asigna la primera vez que se exporta y no
+  // cambia ni se repite.
+  urbanoCertificate String?      @unique @map("certificado_urbano") @db.VarChar(40)
   // Pasajes cargados desde la solicitud de pasaje de stock a Urbano (Excel).
   batchId           String?      @map("lote_id") @db.Uuid
   requestDate       DateTime?    @map("fecha_solicitud") @db.Date

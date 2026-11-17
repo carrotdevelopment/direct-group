@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  certificate, draftRequestSheet, excelSerial, requestSheet, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
+  certificate, certificateBase, certificatePrefix, draftRequestSheet, nextCertificateNumber, excelSerial, requestSheet, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
   urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
 import { parseSolicitudSheet } from "@/lib/pasaje-solicitud";
@@ -112,6 +112,27 @@ describe("Excel de pasajes para Urbano", () => {
 
     it("un shipper sin planilla cargada no tiene formato propio", () => {
       expect(urbanoTemplate("9999")).toBeNull();
+    });
+  });
+
+  describe("ID de cada pasaje en Urbano", () => {
+    it("toma el siguiente número libre de su base y no confunde bases parecidas", () => {
+      const taken = ["PAS2409PAMPA1", "PAS2409PAMPA2", "PAS2409PAMPA7", "PAS2409PAMPAX", "PAS2409PR3", "PAS2409PRODUCTECA9"];
+      expect(nextCertificateNumber("PAS2409PAMPA", taken)).toBe(8);
+      expect(nextCertificateNumber("PAS2409PR", taken)).toBe(4);
+      expect(nextCertificateNumber("PAS2409AMEX", taken)).toBe(1);
+    });
+
+    it("la base lleva el prefijo del shipper", () => {
+      expect(certificateBase("2026-09-24", "Umiles", certificatePrefix("3102"))).toBe("PJE2409UMILES");
+      expect(certificateBase("2026-09-24", "Credicoop", certificatePrefix("1247"))).toBe("PAS2409CREDI");
+    });
+
+    it("un pasaje que ya tiene ID sale siempre con ese ID", () => {
+      const withId = { ...pasaje, certificate: "PAS1211AMEX5" };
+      expect(urbanoUploadSheet([withId], "2026-11-12")[1][3]).toBe("PAS1211AMEX5");
+      expect(urbanoIdSheet([withId], "2026-11-12")[1][0]).toBe("PAS1211AMEX5");
+      expect(urbanoTemplateSheet(urbanoTemplate("1258")!, [withId], "2026-11-12")[1][3]).toBe("PAS1211AMEX5");
     });
   });
 });

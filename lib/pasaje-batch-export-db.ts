@@ -5,7 +5,7 @@ import { excelPostgres } from "@/lib/excel-postgres-client";
 import { canSeePasaje, type PasajeActor } from "@/lib/module-access";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import {
-  requestFileName, requestSheet, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
+  certificateBase, certificatePrefix, nextCertificateNumber, requestFileName, requestSheet, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
   urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
 
@@ -33,7 +33,46 @@ function toExport(pasaje: PasajeRequest, shipperOf: (client: string) => string):
     toClientCode: pasaje.toClientCode,
     toDescription: pasaje.toDescription || description,
     quantity: Number(pasaje.quantity),
+    certificate: pasaje.urbanoCertificate,
   };
+}
+
+// Le da su ID de Urbano (PAS2409PAMPA1) a cada pasaje que todavía no tiene: el siguiente número libre de su
+// base entre todos los certificados ya asignados. Los que ya tienen ID lo conservan, así que volver a
+// exportar da el mismo ID y nunca se repite uno. El índice único frena dos exportaciones simultáneas: si
+// chocan, se vuelve a intentar con los números actualizados.
+async function assignUrbanoCertificates(pasajes: PasajeRequest[], requestDate: string, shipper: string) {
+  const missing = pasajes.filter((pasaje) => !pasaje.urbanoCertificate);
+  if (missing.length === 0) return pasajes;
+  const prefix = certificatePrefix(shipper);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const assigned = await excelPostgres.$transaction(async (tx) => {
+        const result = new Map<string, string>();
+        const taken = new Map<string, string[]>();
+        for (const pasaje of missing) {
+          const base = certificateBase(requestDate, pasaje.fromClient, prefix);
+          if (!taken.has(base)) {
+            const rows = await tx.pasajeRequest.findMany({
+              where: { urbanoCertificate: { startsWith: base } },
+              select: { urbanoCertificate: true },
+            });
+            taken.set(base, rows.map((row) => row.urbanoCertificate ?? ""));
+          }
+          const list = taken.get(base)!;
+          const cert = `${base}${nextCertificateNumber(base, list)}`;
+          list.push(cert);
+          await tx.pasajeRequest.update({ where: { id: pasaje.id }, data: { urbanoCertificate: cert } });
+          result.set(pasaje.id, cert);
+        }
+        return result;
+      });
+      return pasajes.map((pasaje) => (assigned.has(pasaje.id) ? { ...pasaje, urbanoCertificate: assigned.get(pasaje.id)! } : pasaje));
+    } catch (error) {
+      const duplicate = (error as { code?: string }).code === "P2002";
+      if (!duplicate || attempt >= 2) throw error;
+    }
+  }
 }
 
 const ACTIVE = { not: "rejected" };
@@ -105,29 +144,19 @@ export async function pasajeBatchExcel(batchId: string, format: string, shipper:
     return { fileName: requestFileName(requestDate), bytes: workbookFile(requestSheet(rows), "Solicitud") };
   }
   if (format !== "urbano" && format !== "urbano-id") throw new PasajeAjusteError("Formato inválido.");
-  const selected = rows.filter((row) => row.fromShipper === shipper && same(row.fromClient, client));
-  if (selected.length === 0) throw new PasajeAjusteError("Ese lote no tiene pasajes de ese shipper y cliente.", 404);
-
-  // El certificado sigue la numeración del día para ese cliente: cuenta los pasajes del mismo cliente y
-  // fecha cargados en lotes anteriores.
-  const earlier = await excelPostgres.pasajeRequest.count({
-    where: {
-      status: ACTIVE,
-      fromClient: { equals: client, mode: "insensitive" },
-      requestDate: new Date(`${requestDate}T00:00:00.000Z`),
-      batch: { createdAt: { lt: batch.createdAt } },
-    },
-  });
+  const chosen = batch.pasajes.filter((pasaje, index) => rows[index].fromShipper === shipper && same(pasaje.fromClient, client));
+  if (chosen.length === 0) throw new PasajeAjusteError("Ese lote no tiene pasajes de ese shipper y cliente.", 404);
+  const selected = (await assignUrbanoCertificates(chosen, requestDate, shipper)).map((pasaje) => toExport(pasaje, shipperOf));
   const template = format === "urbano" ? urbanoTemplate(shipper) : null;
   if (template) {
     return {
       fileName: urbanoTemplateFileName(requestDate, client, shipper),
-      bytes: workbookFile(urbanoTemplateSheet(template, selected, requestDate, earlier + 1), template.sheetName, template.dateColumns),
+      bytes: workbookFile(urbanoTemplateSheet(template, selected, requestDate), template.sheetName, template.dateColumns),
     };
   }
   const fileName = urbanoUploadFileName(requestDate, client, shipper);
   if (format === "urbano-id") {
-    return { fileName, bytes: workbookFile(urbanoIdSheet(selected, requestDate, earlier + 1), "Hoja1", { [URBANO_ID_DATE_COLUMN]: "d-mmm" }) };
+    return { fileName, bytes: workbookFile(urbanoIdSheet(selected, requestDate), "Hoja1", { [URBANO_ID_DATE_COLUMN]: "d-mmm" }) };
   }
-  return { fileName, bytes: workbookFile(urbanoUploadSheet(selected, requestDate, earlier + 1), "Hoja1") };
+  return { fileName, bytes: workbookFile(urbanoUploadSheet(selected, requestDate), "Hoja1") };
 }

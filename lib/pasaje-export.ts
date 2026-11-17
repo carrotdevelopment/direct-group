@@ -11,6 +11,7 @@ export type ExportPasaje = {
   toClientCode: string;
   toDescription: string;
   quantity: number;
+  certificate?: string | null; // ID ya asignado al pasaje (PAS2409PAMPA1); si falta se calcula.
 };
 
 const MONTHS = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
@@ -35,9 +36,31 @@ export function certificateClient(client: string) {
 }
 
 // N° de certificado de Urbano: PAS + día + mes + cliente + número (PAS1211AMEX1 = 12/11, Amex, primera fila).
-export function certificate(requestDate: string, client: string, number: number) {
+export function certificate(requestDate: string, client: string, number: number, prefix = "PAS") {
+  return `${certificateBase(requestDate, client, prefix)}${number}`;
+}
+
+// El certificado sin el número (PAS1211AMEX): los pasajes que lo comparten se numeran 1, 2, 3...
+export function certificateBase(requestDate: string, client: string, prefix = "PAS") {
   const { day, month } = parts(requestDate);
-  return `PAS${day}${month}${certificateClient(client)}${number}`;
+  return `${prefix}${day}${month}${certificateClient(client)}`;
+}
+
+// Prefijo del certificado según el shipper origen: PAS, salvo los que usan otro (Umiles: PJE).
+export function certificatePrefix(shipper: string) {
+  return URBANO_TEMPLATES[shipper.trim()]?.certificatePrefix ?? "PAS";
+}
+
+// Siguiente número libre para una base, mirando los certificados ya asignados (PAS2409PAMPA3 → 4). Así
+// un ID no se repite aunque se rechacen pasajes o se exporten en otro orden.
+export function nextCertificateNumber(base: string, taken: string[]) {
+  let max = 0;
+  for (const cert of taken) {
+    if (!cert.startsWith(base)) continue;
+    const rest = cert.slice(base.length);
+    if (/^\d+$/.test(rest)) max = Math.max(max, Number(rest));
+  }
+  return max + 1;
 }
 
 export const REQUEST_HEADER = ["FECHA", "SH", "SKU VIEJO", "DESCRIPCION", "CANT", "SH", "SKU NUEVO", "DESCRIPCION", "CANT"];
@@ -96,7 +119,7 @@ export function urbanoUploadSheet(pasajes: ExportPasaje[], requestDate: string, 
   return [
     URBANO_UPLOAD_HEADER,
     ...pasajes.map((p, index) => [
-      p.fromDescription, p.fromClientCode, "", certificate(requestDate, p.fromClient, firstNumber + index), "PASAJE DE STOCK",
+      p.fromDescription, p.fromClientCode, "", p.certificate || certificate(requestDate, p.fromClient, firstNumber + index), "PASAJE DE STOCK",
       "ASCASUBI 3380", "", "", "", "BSAS", 9996, "E", p.quantity,
     ]),
   ];
@@ -123,7 +146,7 @@ export function urbanoIdSheet(pasajes: ExportPasaje[], requestDate: string, firs
   return [
     URBANO_ID_HEADER,
     ...pasajes.map((p, index) => [
-      certificate(requestDate, p.fromClient, firstNumber + index), "PASAJE DE STOCK", "ASCASUBI 3380", 9996, "CABA", "BARRACAS",
+      p.certificate || certificate(requestDate, p.fromClient, firstNumber + index), "PASAJE DE STOCK", "ASCASUBI 3380", 9996, "CABA", "BARRACAS",
       codeCell(p.fromClientCode), p.quantity, "", excelSerial(requestDate), p.fromDescription, "E", "", "",
     ]),
   ];
@@ -245,7 +268,7 @@ export function urbanoTemplateSheet(template: UrbanoTemplate, pasajes: ExportPas
   return [
     template.header.map((cell) => cell ?? ""),
     ...pasajes.map((p, index) => {
-      const cert = certificate(requestDate, p.fromClient, firstNumber + index).replace(/^PAS/, template.certificatePrefix ?? "PAS");
+      const cert = p.certificate || certificate(requestDate, p.fromClient, firstNumber + index, template.certificatePrefix);
       return template.row({ cert, p, date, client: plainClient(p.fromClient) });
     }),
   ];

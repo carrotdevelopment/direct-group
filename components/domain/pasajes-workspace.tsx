@@ -29,6 +29,7 @@ type Pasaje = {
   confirmedBy: string | null;
   confirmedAt: string | null;
   urbanoVoucher: string | null;
+  urbanoCertificate?: string | null;
   urbanoInformed: { received: number; vouchers: string[]; exact: boolean } | null;
   requestDate: string | null;
   warning: string | null;
@@ -719,6 +720,7 @@ export function PasajesWorkspace({
                       {p.status === "confirmed" && p.confirmedAt
                         ? ` · Confirmado por ${p.confirmedBy} el ${formatDateTime(p.confirmedAt)}: ${Number(p.confirmedQuantity) === 0 ? "no llegó" : `llegaron ${Number(p.confirmedQuantity)} de ${Number(p.quantity)}`}`
                         : ""}
+                      {p.urbanoCertificate ? ` · ID Urbano ${p.urbanoCertificate}` : ""}
                       {p.urbanoVoucher ? ` · Comprobante de Urbano ${p.urbanoVoucher}` : ""}
                       {requestLabel(p)}
                     </div>
