@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeftRight, CheckCircle2, Download, FileSpreadsheet, Plus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BatchDownloads, type PasajeBatch } from "@/components/domain/pasaje-batches";
 import { draftRequestSheet, REQUEST_HEADER, requestFileName } from "@/lib/pasaje-export";
-import { parseSolicitudSheet, shipperCodeOptions, type ResolvedRow, type ShipperCodeOption, type SolicitudRow } from "@/lib/pasaje-solicitud";
+import {
+  autofillGridRow,
+  GRID_SIDES,
+  gridCodeOptions,
+  gridProductMismatch,
+  gridShipperKey,
+  parseSolicitudSheet,
+  resolveGridCode,
+  type GridContext,
+  type ResolvedRow,
+  type ShipperCodeOption,
+  type SolicitudRow,
+} from "@/lib/pasaje-solicitud";
 
 type CreateResult = {
   batchId: string;
@@ -20,7 +32,7 @@ const COLUMNS = [
   { label: "SH origen", width: "w-[64px]", placeholder: "1258" },
   { label: "SKU viejo", width: "w-[96px]", placeholder: "DG99-3026" },
   { label: "Descripción origen", width: "", placeholder: "" },
-  { label: "Cant.", width: "w-[56px]", placeholder: "" },
+  { label: "Cant.", width: "w-[72px]", placeholder: "" },
   { label: "SH destino", width: "w-[64px]", placeholder: "1955" },
   { label: "SKU nuevo", width: "w-[96px]", placeholder: "" },
   { label: "Descripción destino", width: "", placeholder: "" },
@@ -30,13 +42,11 @@ const COLUMNS = [
 type GridRow = string[];
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
 type Shipper = { code: string; name: string; clients: string[] };
+type CodeStock = { real: number; reserved: number; available: number };
 
-// Columnas de cada lado: shipper, código y descripción (origen 1-3, destino 5-7).
-const SIDES = [
-  { side: "origen" as const, shipper: 1, code: 2, description: 3 },
-  { side: "destino" as const, shipper: 5, code: 6, description: 7 },
-];
-const shipperKey = (value: string) => value.trim().toLowerCase();
+const SIDES = GRID_SIDES;
+const shipperKey = gridShipperKey;
+const stockKey = (client: string, code: string) => `${client}|${code}`;
 const emptyRow = (): GridRow => COLUMNS.map(() => "");
 const blankGrid = (n = 8) => Array.from({ length: n }, emptyRow);
 const filled = (row: GridRow) => row.some((cell, index) => index > 0 && cell.trim());
@@ -99,38 +109,101 @@ export function PasajeSolicitudModal({
     return (uniqueCode: string) => names.get(uniqueCode.toLowerCase()) ?? "";
   }, [products]);
 
-  // Códigos que se ofrecen para cada shipper y lado que aparece en la grilla.
+  const ctx: GridContext = useMemo(() => ({ shippers: shipperByCode, mappings, productName }), [shipperByCode, mappings, productName]);
+
+  // Lista de códigos que ofrece cada celda de SKU: los del shipper de esa fila; en el destino, solo los del
+  // mismo producto que el SKU viejo.
+  function listIdFor(row: GridRow, side: (typeof SIDES)[number]) {
+    const key = shipperKey(row[side.shipper]);
+    if (!key || !shipperByCode.has(key)) return null;
+    const origin = side.side === "destino" ? resolveGridCode(ctx, "origen", row[SIDES[0].shipper], row[SIDES[0].code]) : null;
+    return { id: `pasaje-codes-${side.side}-${key}-${origin?.uniqueCode.toLowerCase() ?? ""}`, uniqueCode: origin?.uniqueCode };
+  }
+
   const optionsByList = useMemo(() => {
     const lists = new Map<string, ShipperCodeOption[]>();
     for (const row of grid) {
-      for (const { side, shipper } of SIDES) {
-        const key = shipperKey(row[shipper]);
-        const id = `pasaje-codes-${side}-${key}`;
-        if (!key || lists.has(id) || !shipperByCode.has(key)) continue;
-        lists.set(id, shipperCodeOptions(shipperByCode.get(key), mappings, side, productName));
+      for (const side of SIDES) {
+        const list = listIdFor(row, side);
+        if (!list || lists.has(list.id)) continue;
+        lists.set(list.id, gridCodeOptions(ctx, side.side, row[side.shipper], list.uniqueCode));
       }
     }
     return lists;
-  }, [grid, shipperByCode, mappings, productName]);
+    // listIdFor solo depende de ctx y shipperByCode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid, ctx, shipperByCode]);
 
   function codeListId(row: GridRow, col: number) {
     const side = SIDES.find((item) => item.code === col);
-    if (!side) return undefined;
-    const id = `pasaje-codes-${side.side}-${shipperKey(row[side.shipper])}`;
-    return optionsByList.has(id) ? id : undefined;
+    return side ? listIdFor(row, side)?.id : undefined;
   }
 
-  // Aviso en la celda: shipper que no está en la tabla, o código que no es de los clientes del shipper.
+  // Stock disponible de cada código origen de la grilla (stock real menos pasajes abiertos que no egresaron).
+  const [stockByCode, setStockByCode] = useState<Record<string, CodeStock>>({});
+  const requestedStock = useRef(new Set<string>());
+  const originKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const row of grid) {
+      const from = resolveGridCode(ctx, "origen", row[SIDES[0].shipper], row[SIDES[0].code]);
+      if (from) keys.add(stockKey(from.client, from.clientCode));
+    }
+    return [...keys];
+  }, [grid, ctx]);
+  useEffect(() => {
+    const missing = originKeys.filter((key) => !requestedStock.current.has(key));
+    for (const key of missing) {
+      requestedStock.current.add(key);
+      const [client, code] = key.split("|");
+      fetch(`/api/pasajes/stock?client=${encodeURIComponent(client)}&code=${encodeURIComponent(code)}`, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: CodeStock | null) => { if (data) setStockByCode((current) => ({ ...current, [key]: data })); })
+        .catch(() => undefined);
+    }
+  }, [originKeys]);
+
+  // Cantidad pedida de cada código origen sumando todas las filas de la grilla.
+  const requestedByCode = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const row of grid) {
+      const from = resolveGridCode(ctx, "origen", row[SIDES[0].shipper], row[SIDES[0].code]);
+      const quantity = Number(row[SIDES[0].quantity].replace(",", "."));
+      if (!from || !Number.isFinite(quantity) || quantity <= 0) continue;
+      const key = stockKey(from.client, from.clientCode);
+      totals.set(key, (totals.get(key) ?? 0) + quantity);
+    }
+    return totals;
+  }, [grid, ctx]);
+
+  function originStock(row: GridRow) {
+    const from = resolveGridCode(ctx, "origen", row[SIDES[0].shipper], row[SIDES[0].code]);
+    if (!from) return null;
+    const key = stockKey(from.client, from.clientCode);
+    const stock = stockByCode[key];
+    if (!stock) return null;
+    return { stock, requested: requestedByCode.get(key) ?? 0, client: from.client, code: from.clientCode };
+  }
+
+  // Aviso en la celda: shipper que no está en la tabla, código que no es de los clientes del shipper, SKU nuevo
+  // que no es el mismo producto o cantidad mayor al stock disponible del origen.
   function cellWarning(row: GridRow, col: number) {
+    if (col === SIDES[0].quantity) {
+      const info = originStock(row);
+      if (!info || info.requested <= info.stock.available) return "";
+      return `Stock insuficiente: ${info.code} de ${info.client} tiene ${info.stock.available} disponibles y la grilla pide ${info.requested}.`;
+    }
     const side = SIDES.find((item) => item.shipper === col || item.code === col);
     if (!side || !shippers.length) return "";
     const key = shipperKey(row[side.shipper]);
     if (col === side.shipper) return key && !shipperByCode.has(key) ? `El shipper ${row[col]} no está en la tabla de shippers.` : "";
+    if (side.side === "destino") {
+      const mismatch = gridProductMismatch(ctx, row);
+      if (mismatch) return mismatch;
+    }
     const code = row[col].trim().toLowerCase();
-    const options = optionsByList.get(`pasaje-codes-${side.side}-${key}`);
-    if (!code || !options) return "";
+    if (!code || !key || !shipperByCode.has(key)) return "";
     const shipper = shipperByCode.get(key);
-    return options.some((option) => option.clientCode.toLowerCase() === code)
+    return gridCodeOptions(ctx, side.side, row[side.shipper]).some((option) => option.clientCode.toLowerCase() === code)
       ? ""
       : `El código ${row[col]} no es de ${shipper?.clients.join(" / ") || "los clientes"} del shipper ${shipper?.code}.`;
   }
@@ -147,15 +220,8 @@ export function PasajeSolicitudModal({
   function editCell(rowIndex: number, col: number, value: string) {
     setGrid((current) => current.map((row, index) => {
       if (index !== rowIndex) return row;
-      const next = row.map((cell, c) => (c === col ? value : cell));
-      // Al elegir un código del shipper, completa la descripción si está vacía.
-      const side = SIDES.find((item) => item.code === col);
-      if (side && !next[side.description].trim()) {
-        const options = optionsByList.get(`pasaje-codes-${side.side}-${shipperKey(next[side.shipper])}`) ?? [];
-        const match = options.find((option) => option.clientCode.toLowerCase() === value.trim().toLowerCase());
-        if (match?.product) next[side.description] = match.product;
-      }
-      return next;
+      // Completa descripción, SKU nuevo del mismo producto y cantidad destino.
+      return autofillGridRow(ctx, row, row.map((cell, c) => (c === col ? value : cell)), col);
     }));
     // Un cambio en la grilla deja de ser el archivo subido tal cual.
     setFileHash("");
@@ -281,7 +347,7 @@ export function PasajeSolicitudModal({
                 {fileName ? `Cambiar archivo (${fileName})` : "Subir el Excel de la solicitud"}
                 <input type="file" accept=".xls,.xlsx,.xlsm" className="sr-only" onChange={onFile} />
               </label>
-              <span className="text-[10px] font-semibold text-[#8a99ad]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper y completa la descripción.</span>
+              <span className="text-[10px] font-semibold text-[#8a99ad]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper; el SKU nuevo, solo los del mismo producto. Se completan descripción y cantidad destino, y abajo de la cantidad se ve el stock disponible.</span>
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full min-w-[1080px] table-fixed text-left text-[11px]">
@@ -320,6 +386,18 @@ export function PasajeSolicitudModal({
                             }}
                             className={`h-8 w-full rounded-md border px-1.5 text-[11px] outline-none focus:bg-white ${warning ? "border-[#e0a23a] bg-[#fff7e6] focus:border-[#c98a1e]" : "border-transparent hover:border-[#dbe4ef] focus:border-[#7da4d3]"} ${col === 4 || col === 8 ? "text-right" : ""}`}
                           />
+                          {col === SIDES[0].quantity && (() => {
+                            const info = originStock(row);
+                            if (!info) return null;
+                            return (
+                              <div
+                                className={`px-1.5 text-right text-[9px] font-bold ${info.requested > info.stock.available ? "text-[#b7433f]" : "text-[#8a99ad]"}`}
+                                title={`Stock real ${info.stock.real} − pasajes abiertos ${info.stock.reserved}`}
+                              >
+                                Disp. {info.stock.available}
+                              </div>
+                            );
+                          })()}
                         </td>
                         );
                       })}

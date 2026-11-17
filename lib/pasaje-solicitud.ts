@@ -262,3 +262,72 @@ export function shipperCodeOptions(
     .map((m) => ({ client: m.client, clientCode: m.clientCode, uniqueCode: m.uniqueCode, product: productName(m.uniqueCode) }))
     .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
 }
+
+// ── Ayudas de la grilla de carga ────────────────────────────────────────────────────────────────────────
+// Columnas: 0 fecha · 1 SH · 2 SKU viejo · 3 descripción · 4 cantidad (origen) · 5 SH · 6 SKU nuevo ·
+// 7 descripción · 8 cantidad (destino).
+export const GRID_SIDES = [
+  { side: "origen" as const, shipper: 1, code: 2, description: 3, quantity: 4 },
+  { side: "destino" as const, shipper: 5, code: 6, description: 7, quantity: 8 },
+];
+type GridMapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
+export type GridContext = {
+  shippers: Map<string, Pick<ShipperRecord, "code" | "clients">>;
+  mappings: GridMapping[];
+  productName: (uniqueCode: string) => string;
+};
+export const gridShipperKey = (value: string) => value.trim().toLowerCase();
+
+// Códigos que se ofrecen para un lado según su shipper. En el destino, si ya se sabe el producto del origen,
+// solo los del mismo código único (si el shipper no tiene ninguno, se ofrecen todos para no dejar la lista vacía).
+export function gridCodeOptions(ctx: GridContext, side: "origen" | "destino", shipperCode: string, uniqueCode?: string) {
+  const options = shipperCodeOptions(ctx.shippers.get(gridShipperKey(shipperCode)), ctx.mappings, side, ctx.productName);
+  if (!uniqueCode) return options;
+  const same = options.filter((option) => normalize(option.uniqueCode) === normalize(uniqueCode));
+  return same.length ? same : options;
+}
+
+// Cliente y producto de un código de la grilla: primero entre los clientes del shipper; si no, el código
+// en Códigos cliente cuando es de un solo producto.
+export function resolveGridCode(ctx: GridContext, side: "origen" | "destino", shipperCode: string, clientCode: string) {
+  const code = normalize(clientCode);
+  if (!code) return null;
+  const fromShipper = gridCodeOptions(ctx, side, shipperCode).find((option) => normalize(option.clientCode) === code);
+  if (fromShipper) return fromShipper;
+  const any = ctx.mappings.filter((m) => normalize(m.clientCode) === code && (side === "origen" || m.active));
+  if (!any.length || new Set(any.map((m) => normalize(m.uniqueCode))).size > 1) return null;
+  return { client: any[0].client, clientCode: any[0].clientCode, uniqueCode: any[0].uniqueCode, product: ctx.productName(any[0].uniqueCode) };
+}
+
+// Completa lo que se deduce después de editar la columna col: descripción del código elegido, SKU nuevo
+// cuando el shipper destino tiene un solo código del mismo producto y cantidad destino igual a la del origen.
+export function autofillGridRow(ctx: GridContext, before: string[], after: string[], col: number): string[] {
+  const next = [...after];
+  const [origin, destination] = GRID_SIDES;
+  if (col === origin.quantity && (!before[destination.quantity].trim() || before[destination.quantity] === before[origin.quantity])) {
+    next[destination.quantity] = next[origin.quantity];
+  }
+  const from = resolveGridCode(ctx, "origen", next[origin.shipper], next[origin.code]);
+  if ([origin.shipper, origin.code, destination.shipper].includes(col) && from && !next[destination.code].trim()) {
+    const same = gridCodeOptions(ctx, "destino", next[destination.shipper]).filter(
+      (option) => normalize(option.uniqueCode) === normalize(from.uniqueCode),
+    );
+    if (same.length === 1) next[destination.code] = same[0].clientCode;
+  }
+  for (const side of GRID_SIDES) {
+    if (next[side.description].trim() || !next[side.code].trim()) continue;
+    if (next[side.code] === before[side.code] && col !== side.shipper) continue;
+    const resolved = resolveGridCode(ctx, side.side, next[side.shipper], next[side.code]);
+    if (resolved?.product) next[side.description] = resolved.product;
+  }
+  return next;
+}
+
+// Aviso si el SKU nuevo no es el mismo producto que el SKU viejo.
+export function gridProductMismatch(ctx: GridContext, row: string[]) {
+  const [origin, destination] = GRID_SIDES;
+  const from = resolveGridCode(ctx, "origen", row[origin.shipper], row[origin.code]);
+  const to = resolveGridCode(ctx, "destino", row[destination.shipper], row[destination.code]);
+  if (!from || !to || normalize(from.uniqueCode) === normalize(to.uniqueCode)) return "";
+  return `No es el mismo producto: ${from.clientCode} = ${from.uniqueCode}${from.product ? ` (${from.product})` : ""} y ${to.clientCode} = ${to.uniqueCode}${to.product ? ` (${to.product})` : ""}.`;
+}

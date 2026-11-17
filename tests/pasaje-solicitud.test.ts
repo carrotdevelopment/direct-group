@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markDuplicates, parseSolicitudSheet, resolveSolicitud, shipperCodeOptions, type ClientCodeRecord, type ShipperRecord } from "@/lib/pasaje-solicitud";
+import { markDuplicates, parseSolicitudSheet, resolveSolicitud, shipperCodeOptions, autofillGridRow, gridCodeOptions, gridProductMismatch, type GridContext, type ClientCodeRecord, type ShipperRecord } from "@/lib/pasaje-solicitud";
 
 const header = ["FECHA", "SH", "SKU VIEJO", "DESCRIPCION", "CANT ", "", "SH", "SKU NUEVO", "DESCRIPCION", "CANT", "", "COSTO $"];
 const sheet = [
@@ -169,5 +169,49 @@ describe("shipperCodeOptions", () => {
 
   it("sin shipper no ofrece nada", () => {
     expect(shipperCodeOptions(undefined, mappings, "origen", name)).toEqual([]);
+  });
+});
+
+describe("ayudas de la grilla de carga", () => {
+  const ctx: GridContext = {
+    shippers: new Map([
+      ["1315", { code: "1315", clients: ["Amex"] }],
+      ["1955", { code: "1955", clients: ["Macro"] }],
+    ]),
+    mappings: [
+      { client: "Amex", clientCode: "75-5030", uniqueCode: "U1", active: false },
+      { client: "Macro", clientCode: "M-5030", uniqueCode: "U1", active: true },
+      { client: "Macro", clientCode: "M-9999", uniqueCode: "U2", active: true },
+    ],
+    productName: (code) => ({ U1: "Cortador", U2: "Licuadora" })[code] ?? "",
+  };
+  const empty = () => ["", "", "", "", "", "", "", "", ""];
+
+  it("al elegir el SKU viejo completa descripción y el único SKU nuevo del mismo producto", () => {
+    const before = ["", "1315", "", "", "", "1955", "", "", ""];
+    const after = autofillGridRow(ctx, before, ["", "1315", "75-5030", "", "", "1955", "", "", ""], 2);
+    expect(after[3]).toBe("Cortador");
+    expect(after[6]).toBe("M-5030");
+    expect(after[7]).toBe("Cortador");
+  });
+
+  it("filtra el SKU nuevo por el producto del origen", () => {
+    expect(gridCodeOptions(ctx, "destino", "1955", "U1").map((o) => o.clientCode)).toEqual(["M-5030"]);
+    expect(gridCodeOptions(ctx, "destino", "1955").map((o) => o.clientCode)).toEqual(["M-5030", "M-9999"]);
+  });
+
+  it("la cantidad destino sigue a la del origen mientras no se cambie a mano", () => {
+    const first = autofillGridRow(ctx, empty(), ["", "", "", "", "30", "", "", "", ""], 4);
+    expect(first[8]).toBe("30");
+    const second = autofillGridRow(ctx, first, [...first.slice(0, 4), "40", ...first.slice(5)], 4);
+    expect(second[8]).toBe("40");
+    const manual = [...second.slice(0, 8), "35"];
+    const third = autofillGridRow(ctx, manual, [...manual.slice(0, 4), "50", ...manual.slice(5)], 4);
+    expect(third[8]).toBe("35");
+  });
+
+  it("avisa si el SKU nuevo no es el mismo producto", () => {
+    expect(gridProductMismatch(ctx, ["", "1315", "75-5030", "", "", "1955", "M-9999", "", ""])).toContain("No es el mismo producto");
+    expect(gridProductMismatch(ctx, ["", "1315", "75-5030", "", "", "1955", "M-5030", "", ""])).toBe("");
   });
 });
