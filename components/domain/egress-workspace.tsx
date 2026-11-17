@@ -335,7 +335,7 @@ function PreviewTable({ cols, rows }: { cols: string[]; rows: Fila[] }) {
       </div>
       <div className="overflow-auto rounded-xl border border-[#dbe4ef]">
         <table className="w-full text-left text-[10px]" style={{ borderSpacing: 0 }}>
-          <thead><tr className="bg-[#edf4fc]">{maxCols.map((c) => <th key={c} className="whitespace-nowrap border-b border-[#dbe4ef] px-3 py-2 text-[9px] font-black uppercase text-[#2557d4]">{c}</th>)}</tr></thead>
+          <thead><tr className="bg-[#edf4fc]">{maxCols.map((c) => <th key={c} className="whitespace-nowrap border-b border-[#dbe4ef] px-3 py-2 text-[9px] font-bold uppercase text-[#334b6b]">{c}</th>)}</tr></thead>
           <tbody>
             {rows.slice(0, 5).map((row, i) => (
               <tr key={i} className={i % 2 ? "bg-[#f8fafd]" : "bg-white"}>
@@ -1175,7 +1175,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
 
   const selectedRows = filtered.filter((r) => selected.has(r.key));
 
-  const thS = "border-b border-[#dbe4ef] px-3 py-3 text-[9px] font-black uppercase tracking-wide text-[#62728a] whitespace-nowrap";
+  const thS = "border-b border-[#dbe4ef] px-3 py-3 text-[9px] font-bold uppercase tracking-wide text-[#334b6b] whitespace-nowrap";
   function SortTh({ col, label }: { col: string; label: string }) {
     const a = sortCol === col;
     return (
@@ -1278,8 +1278,8 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
         <div className="max-h-[calc(100vh-400px)] min-h-[240px] overflow-auto overscroll-contain bg-white">
           <table className="w-full border-separate text-left text-[11px]" style={{ borderSpacing: 0 }}>
             <thead>
-              <tr className="sticky top-0 z-10 bg-[#f8fafd]">
-                <th className={`${thS} sticky left-0 z-20 w-8 bg-[#f8fafd]`}>
+              <tr className="sticky top-0 z-10 bg-[#edf4fc]">
+                <th className={`${thS} sticky left-0 z-20 w-8 bg-[#edf4fc]`}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-[#0b5bbb]" />
                 </th>
                 <th className={`${thS} sticky left-8 z-20 w-16 bg-[#f8fafd]`}>Acciones</th>

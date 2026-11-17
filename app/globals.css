@@ -41,6 +41,18 @@ button, input, select, textarea { font: inherit; }
 
 button, a { -webkit-tap-highlight-color: transparent; }
 
+/* Campos y filtros: el mismo foco en toda la app (antes solo cambiaba apenas el borde y no se veía
+   dónde estaba el cursor), el mismo gris para los textos de ejemplo y casillas con el azul de la marca. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgb(11 91 187 / 0.14);
+  outline: none;
+}
+input::placeholder, textarea::placeholder { color: #8a99ad; opacity: 1; }
+input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--green); }
+
 ::selection { background: #cfe0f5; color: var(--green-dark); }
 
 .scrollbar-none { scrollbar-width: none; }

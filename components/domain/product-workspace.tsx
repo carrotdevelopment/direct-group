@@ -1172,7 +1172,7 @@ export function ProductWorkspace() {
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e9ece9] bg-[#fafbfa] px-5 py-3 text-[10px] font-semibold text-[#7e8780]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[10px] font-semibold text-[#62728a]">
           <span>
             Mostrando {visibleProducts.length} de {filtered.length} filtrados ·{" "}
             {products.filter((product) => product.active).length} activos ·{" "}
@@ -1333,7 +1333,7 @@ export function ProductWorkspace() {
             {bulkError}
           </div>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e9ece9] bg-[#fafbfa] px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-4 py-3">
           <div className="flex gap-2">
             <Button
               type="button"

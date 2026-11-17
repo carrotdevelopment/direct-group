@@ -73,7 +73,7 @@ export function UrbanoMovementsCard() {
       {error && <div className="m-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
       <div className="max-h-[60vh] overflow-auto">
         <table className="w-full text-left text-[11px]">
-          <thead className="sticky top-0 bg-[#f4f7fb] text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+          <thead className="sticky top-0 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
             <tr>
               <th className="px-4 py-2">Fecha</th>
               <th className="px-4 py-2">Tipo</th>

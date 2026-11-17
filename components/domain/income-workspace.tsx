@@ -799,7 +799,7 @@ export function IncomeWorkspace() {
         <div className="max-h-[calc(100vh-280px)] min-h-[360px] overflow-auto overscroll-contain bg-white">
           <table className="min-w-[1420px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
             <thead>
-              <tr className="sticky top-0 z-10 bg-[#eaf1df] text-[10px] font-black uppercase text-[#34452f]">
+              <tr className="sticky top-0 z-10 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
                 <th className="w-28 px-3 py-3">Estado</th>
                 <th className="w-28 px-3 py-3">Cliente</th>
                 <th className="w-44 px-3 py-3">Operación</th>

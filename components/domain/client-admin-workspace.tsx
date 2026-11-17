@@ -500,7 +500,7 @@ export function ClientAdminWorkspace() {
               <div className="overflow-x-auto rounded-xl border border-[#dbe4ef]">
                 <table className="w-full min-w-[560px] text-[11px]">
                   <thead>
-                    <tr className="border-b border-[#dbe4ef] bg-[#f8fafd] text-left font-bold text-[#425979]">
+                    <tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-left font-bold text-[#334b6b]">
                       <th className="px-3 py-2">Nombre</th>
                       <th className="px-2 py-2 text-center">¿Aplica?</th>
                       <th className="px-2 py-2 text-right">Valor %</th>
@@ -598,7 +598,7 @@ function RateTable({ items, muted = false }: { items: RateItem[]; muted?: boolea
     <div className={`overflow-x-auto rounded-xl border border-[#dbe4ef] ${muted ? "opacity-60" : ""}`}>
       <table className="w-full min-w-[480px] text-[11px]">
         <thead>
-          <tr className="border-b border-[#dbe4ef] bg-[#f8fafd] text-left font-bold text-[#425979]">
+          <tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-left font-bold text-[#334b6b]">
             <th className="px-3 py-2">Tasa</th>
             <th className="px-2 py-2 text-right">Valor %</th>
             <th className="px-2 py-2">Base de cálculo</th>

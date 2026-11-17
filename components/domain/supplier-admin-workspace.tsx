@@ -315,7 +315,7 @@ function AdminList({
           </ul>
         )}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e9ece9] bg-[#fafbfa] px-5 py-3 text-[10px] font-semibold text-[#7e8780]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[10px] font-semibold text-[#62728a]">
         <span>
           {items.filter((item) => item.active).length} activos · {items.length}{" "}
           total

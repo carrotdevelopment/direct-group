@@ -53,7 +53,7 @@ export function ImportCenter() {
             return <li key={String(num)} className="relative flex gap-4 pb-6 last:pb-0">{index < 3 && <span className="absolute left-[19px] top-10 h-[calc(100%-32px)] w-px bg-[#dbe4ef]" />}<div className="z-10 grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#dbe4ef] bg-white text-[#0b5bbb]"><I size={16} /></div><div><div className="flex items-center gap-2"><span className="text-[9px] font-black text-[#8a99ad]">{String(num)}</span><span className="text-xs font-black">{String(title)}</span></div><p className="mt-1.5 text-[11px] leading-5 text-[#62728a]">{String(copy)}</p></div></li>;
           })}
         </ol>
-        <button className="mt-6 flex w-full items-center justify-between rounded-xl border border-[#e3e7e3] bg-[#fafbfa] px-4 py-3 text-left text-[11px] font-bold text-[#536057] hover:border-[#b8c9bd]"><span>Ver guía de formatos admitidos</span><ArrowRight size={14} /></button>
+        <button className="mt-6 flex w-full items-center justify-between rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-3 text-left text-[11px] font-bold text-[#425979] hover:border-[#b8c9bd]"><span>Ver guía de formatos admitidos</span><ArrowRight size={14} /></button>
       </section>
     </div>
   );

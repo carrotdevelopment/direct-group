@@ -352,7 +352,7 @@ export function PasajeSolicitudModal({
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full min-w-[1080px] table-fixed text-left text-[11px]">
                 <thead className="sticky top-0 z-[1]">
-                  <tr className="bg-[#edf4fc] text-[10px] font-extrabold uppercase text-[#334b6b]">
+                  <tr className="bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
                     <th colSpan={5} className="border-b border-r border-[#dbe4ef] px-2 py-1">Origen</th>
                     <th colSpan={4} className="border-b border-[#dbe4ef] px-2 py-1">Destino</th>
                   </tr>
@@ -483,7 +483,7 @@ export function PasajeSolicitudModal({
             )}
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full text-left text-[11px]">
-                <thead className="sticky top-0 bg-[#f4f7fb] text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+                <thead className="sticky top-0 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
                   <tr>
                     <th className="px-3 py-2">Fila</th>
                     <th className="px-3 py-2">Origen</th>

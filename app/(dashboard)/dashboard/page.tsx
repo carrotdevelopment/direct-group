@@ -67,7 +67,7 @@ export default async function DashboardPage() {
 
         <article className="card animate-enter p-5 sm:p-6" style={{ animationDelay: "275ms" }}>
           <div className="flex items-center justify-between"><div><div className="text-base font-black">Centro de atención</div><div className="mt-1 text-xs text-[#7b847d]">Prioridades y novedades</div></div><Badge tone="warning">8 pendientes</Badge></div>
-          <div className="mt-4 divide-y divide-[#edf0ed]">
+          <div className="mt-4 divide-y divide-[#edf1f6]">
             {alerts.map((alert) => (
               <div key={alert.title} className="group flex items-center gap-3 py-3.5 first:pt-1">
                 <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white ${alert.color}`}><alert.icon size={16} /></div>
@@ -80,16 +80,16 @@ export default async function DashboardPage() {
       </section>
 
       <section className="card mt-4 animate-enter overflow-hidden" style={{ animationDelay: "330ms" }}>
-        <div className="flex items-center justify-between border-b border-[#e9ece9] px-5 py-5 sm:px-6">
+        <div className="flex items-center justify-between border-b border-[#e4eaf2] px-5 py-5 sm:px-6">
           <div><div className="text-base font-black">Movimientos recientes</div><div className="mt-1 text-xs text-[#7b847d]">Últimas operaciones que afectaron el stock</div></div>
           <Button variant="ghost" size="sm">Ver todos <ArrowRight size={14} /></Button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left">
-            <thead><tr className="border-b border-[#edf0ed] bg-[#fafbfa] text-[9px] font-black uppercase tracking-[.12em] text-[#929a94]"><th className="px-6 py-3">Producto</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Movimiento</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-6 py-3 text-right">Actualización</th></tr></thead>
+            <thead><tr className="border-b border-[#edf1f6] bg-[#edf4fc] text-[9px] font-bold uppercase tracking-wide text-[#334b6b]"><th className="px-6 py-3">Producto</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Movimiento</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-6 py-3 text-right">Actualización</th></tr></thead>
             <tbody className="divide-y divide-[#eff1ef]">
               {movements.map((item) => (
-                <tr key={item.code} className="text-xs transition hover:bg-[#fafbfa]">
+                <tr key={item.code} className="text-xs transition hover:bg-[#f8fafd]">
                   <td className="px-6 py-4"><div className="font-extrabold">{item.product}</div><div className="mt-1 font-mono text-[10px] text-[#909892]">{item.code}</div></td>
                   <td className="px-4 py-4 font-semibold text-[#566159]">{item.client}</td>
                   <td className="px-4 py-4"><Badge tone={item.tone}>{item.type}</Badge></td>
@@ -100,7 +100,7 @@ export default async function DashboardPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-[#edf0ed] bg-[#fafbfa] px-6 py-3 text-[10px] font-semibold text-[#7c857e]">{formatNumber(12_849)} movimientos registrados este año</div>
+        <div className="border-t border-[#edf1f6] bg-[#f8fafd] px-6 py-3 text-[10px] font-semibold text-[#62728a]">{formatNumber(12_849)} movimientos registrados este año</div>
       </section>
     </div>
   );

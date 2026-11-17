@@ -36,21 +36,21 @@ export function DataList({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[840px] text-left">
-          <thead><tr className="border-b border-[#e9ece9] bg-[#fafbfa] text-[9px] font-black uppercase tracking-[.11em] text-[#929a94]"><th className="px-5 py-3.5">{columns[0]}</th>{columns.slice(1).map((column) => <th key={column} className="px-4 py-3.5">{column}</th>)}<th className="px-4 py-3.5">Estado</th><th className="w-12 px-4 py-3.5" /></tr></thead>
-          <tbody className="divide-y divide-[#edf0ed]">
+          <thead><tr className="border-b border-[#e4eaf2] bg-[#edf4fc] text-[9px] font-bold uppercase tracking-wide text-[#334b6b]"><th className="px-5 py-3.5">{columns[0]}</th>{columns.slice(1).map((column) => <th key={column} className="px-4 py-3.5">{column}</th>)}<th className="px-4 py-3.5">Estado</th><th className="w-12 px-4 py-3.5" /></tr></thead>
+          <tbody className="divide-y divide-[#edf1f6]">
             {filtered.map((row) => (
-              <tr key={row.id} className="group text-xs transition hover:bg-[#fafbfa]">
+              <tr key={row.id} className="group text-xs transition hover:bg-[#f8fafd]">
                 <td className="px-5 py-4"><div className="font-extrabold text-[#273129]">{row.primary}</div><div className="mt-1 font-mono text-[10px] text-[#909892]">{row.secondary}</div></td>
                 {row.values.map((value, index) => <td key={index} className="px-4 py-4 font-semibold text-[#5e6961]">{value}</td>)}
                 <td className="px-4 py-4"><Badge tone={row.status.tone} dot>{row.status.label}</Badge></td>
-                <td className="px-4 py-4"><button aria-label={`Acciones para ${row.primary}`} className="grid h-8 w-8 place-items-center rounded-lg text-[#929a94] hover:bg-[#edf0ed] hover:text-[#273129]"><MoreHorizontal size={16} /></button></td>
+                <td className="px-4 py-4"><button aria-label={`Acciones para ${row.primary}`} className="grid h-8 w-8 place-items-center rounded-lg text-[#74849a] hover:bg-[#edf1f6] hover:text-[#273129]"><MoreHorizontal size={16} /></button></td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={columns.length + 2} className="px-6 py-16 text-center text-sm text-[#7e8780]">No encontramos resultados para “{query}”.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={columns.length + 2} className="px-6 py-16 text-center text-sm text-[#62728a]">No encontramos resultados para “{query}”.</td></tr>}
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between border-t border-[#e9ece9] bg-[#fafbfa] px-5 py-3 text-[10px] font-semibold text-[#7e8780]"><span>Mostrando {filtered.length} de {rows.length} registros</span><span>Página 1 de 1</span></div>
+      <div className="flex items-center justify-between border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[10px] font-semibold text-[#62728a]"><span>Mostrando {filtered.length} de {rows.length} registros</span><span>Página 1 de 1</span></div>
     </section>
   );
 }

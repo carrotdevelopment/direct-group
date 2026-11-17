@@ -385,7 +385,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           </div>
           <div className="overflow-auto p-4">
             <table className="w-full min-w-[650px] table-fixed text-[10px]">
-              <thead><tr className="bg-[#123f78] text-white">{columns.map((column) => <th key={column.key} className="px-2 py-2 text-center font-bold">{column.label}</th>)}</tr></thead>
+              <thead><tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-[#334b6b]">{columns.map((column) => <th key={column.key} className="px-2 py-2 text-center font-bold">{column.label}</th>)}</tr></thead>
               <tbody className="divide-y divide-[#e7edf4] border border-[#dbe4ef]">
                 {rows.map((row, index) => {
                   const unknownCode = unknownCodes.some(
@@ -458,7 +458,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           <div className="min-h-48 overflow-auto p-4">
             {searchResults.length > 0 ? (
               <table className="w-full min-w-[560px] text-[10px]">
-                <thead><tr className="bg-[#123f78] text-white"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
+                <thead><tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-[#334b6b]"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
                 <tbody>
                   {searchResults.map((record) => {
                     const [year, month, day] = record.informedAt.split("-");
@@ -474,7 +474,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
               </table>
             ) : shown ? (
               <table className="w-full min-w-[560px] text-[10px]">
-                <thead><tr className="bg-[#123f78] text-white"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
+                <thead><tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-[#334b6b]"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
                 <tbody><tr className="border border-[#dbe4ef]">
                   <td className="px-2 py-2 font-mono font-bold">{shown.uniqueCode}</td>
                   <td className="text-center">{shownDate[2]}/{shownDate[1]}/{shownDate[0]}</td>
