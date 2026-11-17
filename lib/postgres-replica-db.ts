@@ -345,8 +345,16 @@ export async function writeClientCodesToPostgres(items: ExcelClientCodeMapping[]
   return readClientCodesFromPostgres();
 }
 
-export async function readPricesFromPostgres(): Promise<ExcelPrice[]> {
-  const rows = await excelPostgres.excelPrice.findMany({ orderBy: { id: "asc" } });
+// Con uniqueCodes, trae solo los precios de esos productos (el código se compara sin distinguir mayúsculas).
+export async function readPricesFromPostgres(uniqueCodes?: string[]): Promise<ExcelPrice[]> {
+  const variants = uniqueCodes
+    ? [...new Set(uniqueCodes.flatMap((code) => [code.trim(), code.trim().toUpperCase(), code.trim().toLowerCase()]))]
+    : null;
+  if (variants && variants.length === 0) return [];
+  const rows = await excelPostgres.excelPrice.findMany({
+    where: variants ? { uniqueCode: { in: variants } } : undefined,
+    orderBy: { id: "asc" },
+  });
   return rows.map((row) => ({
     id: row.id.toString(),
     supplier: text(row.supplier),

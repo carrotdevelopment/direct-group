@@ -478,7 +478,7 @@ export function StockWorkspace() {
           </div>
         </div>
 
-        <div className="max-h-[calc(100vh-390px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
+        <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
           <table
             style={{ zoom: zoom / 100 }}
             className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[8px]"

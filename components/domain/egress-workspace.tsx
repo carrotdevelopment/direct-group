@@ -1275,7 +1275,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
           {allFlat.length > 0 && <div className="text-[10px] text-[#b0bec9]">{allFlat.length.toLocaleString()} filas disponibles</div>}
         </div>
       ) : (
-        <div className="max-h-[calc(100vh-460px)] min-h-[240px] overflow-auto overscroll-contain bg-white">
+        <div className="max-h-[calc(100vh-400px)] min-h-[240px] overflow-auto overscroll-contain bg-white">
           <table className="w-full border-separate text-left text-[11px]" style={{ borderSpacing: 0 }}>
             <thead>
               <tr className="sticky top-0 z-10 bg-[#f8fafd]">

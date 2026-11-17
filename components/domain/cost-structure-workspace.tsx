@@ -191,16 +191,14 @@ export function CostStructureWorkspace() {
       .then((data: { clients: ClientData[] }) => {
         const list = data.clients ?? [];
         setClientList(list);
-        let remembered = "";
+        // No se elige un cliente de entrada: la estructura se carga recién cuando se elige uno.
         try {
-          remembered = localStorage.getItem("dg:cost-structure:client") ?? "";
           const period = localStorage.getItem("dg:cost-structure:period") ?? "";
           if (/^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= `${currentYear}-${String(currentMonth).padStart(2, "0")}`) {
             const [year, month] = period.split("-");
             setSaveYear(year); setSaveMonth(String(Number(month)));
           }
         } catch { /* Storage may be unavailable. */ }
-        if (list.length > 0) setClient(list.find(c => c.name === remembered)?.name ?? list[0].name);
       })
       .catch(() => setStatus("No se pudieron cargar los clientes."))
       .finally(() => setClientsLoading(false));
@@ -664,7 +662,6 @@ export function CostStructureWorkspace() {
               onChange={(e) => {
                 if (pendingChanges().length > 0 && !window.confirm("Hay cambios sin guardar. ¿Cambiar de cliente y descartarlos?")) return;
                 setClient(e.target.value);
-                try { localStorage.setItem("dg:cost-structure:client", e.target.value); } catch { /* Keep selection usable without storage. */ }
                 setSaved(false);
                 setSaveError(null);
                 setRows([]);
@@ -672,6 +669,7 @@ export function CostStructureWorkspace() {
               disabled={clientsLoading}
               className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
             >
+              <option value="" disabled>Elegí un cliente</option>
               {clientList.map((c) => (
                 <option key={c.id}>{c.name}</option>
               ))}
@@ -918,7 +916,7 @@ export function CostStructureWorkspace() {
         </div>
 
         {/* Table */}
-        <div className="max-h-[calc(100vh-330px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
+        <div className="max-h-[calc(100vh-270px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
           <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[8px]" style={{ borderSpacing: 0 }}>
             <colgroup>
               <col style={{ width: 36 }} />

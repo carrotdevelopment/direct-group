@@ -6,12 +6,9 @@ import {
   ChevronDown,
   CheckCircle2,
   Clock3,
-  Database,
-  PackageCheck,
   PlusCircle,
   RefreshCw,
   Search,
-  Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -222,45 +219,6 @@ function SelectField({
   );
 }
 
-function KpiCard({
-  icon,
-  label,
-  value,
-  meta,
-  tone = "blue",
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  meta: string;
-  tone?: "blue" | "green" | "amber";
-}) {
-  const tones = {
-    blue: "bg-[#e8f2ff] text-[#0b5bbb]",
-    green: "bg-[#e7f7eb] text-[#23783a]",
-    amber: "bg-[#fff0d9] text-[#985b00]",
-  };
-
-  return (
-    <div className="card flex items-center gap-4 p-5">
-      <div
-        className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl ${tones[tone]}`}
-      >
-        {icon}
-      </div>
-      <div>
-        <div className="text-[10px] font-black uppercase tracking-[.12em] text-[#8a9584]">
-          {label}
-        </div>
-        <div className="mt-1 text-2xl font-black tracking-[-.04em] text-[#10233f]">
-          {value}
-        </div>
-        <div className="mt-1 text-[11px] font-bold text-[#8a9584]">{meta}</div>
-      </div>
-    </div>
-  );
-}
-
 function selectedSummary<T extends string | number>(
   selected: T[],
   options: { label: string; value: T }[],
@@ -401,7 +359,7 @@ export function IncomeWorkspace() {
   const [rows, setRows] = useState<TangoIncomeRow[]>([]);
   const [totalFiltered, setTotalFiltered] = useState(0);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
-  const [viewSummary, setViewSummary] =
+  const [, setViewSummary] =
     useState<TangoIncomeViewSummary>(defaultViewSummary);
   const [operationFilter, setOperationFilter] = useState("");
   // Por defecto se muestran los ingresos de todos los clientes del mes y año
@@ -711,39 +669,6 @@ export function IncomeWorkspace() {
         </section>
       ) : null}
 
-      <section className="mb-4 grid gap-4 xl:grid-cols-4">
-        <KpiCard
-          icon={<Users size={20} />}
-          label="Clientes elegidos"
-          value={formatNumber(selectedClients.length)}
-          meta={`${formatNumber(options.clients.length)} disponibles en Tango`}
-        />
-        <KpiCard
-          icon={<Database size={20} />}
-          label="Filas consultadas"
-          value={formatNumber(viewSummary.totalRows)}
-          meta={`${formatNumber(summary.totalRows)} filas en la consulta`}
-        />
-        <KpiCard
-          icon={<PackageCheck size={20} />}
-          label="Unidades pendientes"
-          value={formatNumber(viewSummary.pendingQuantity)}
-          meta={`${formatNumber(viewSummary.pendingRows)} filas con saldo`}
-          tone="amber"
-        />
-        <KpiCard
-          icon={<AlertTriangle size={20} />}
-          label="A revisar"
-          value={formatNumber(
-            viewSummary.pendingRows + viewSummary.unmatchedRows,
-          )}
-          meta={`${formatNumber(
-            viewSummary.pendingRows,
-          )} pendientes · ${formatNumber(viewSummary.unmatchedRows)} sin match`}
-          tone="amber"
-        />
-      </section>
-
       <section className="card mb-4 overflow-visible">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dbe4ef] bg-white px-5 py-4">
           <div>
@@ -754,9 +679,6 @@ export function IncomeWorkspace() {
               <span className="inline-flex items-center gap-1">
                 <Clock3 size={13} />
                 Última lectura: {formatLastUpdated(summary.lastUpdated)}
-              </span>
-              <span className="truncate">
-                Fuente: {summary.filePath || "Consulta ingresos Tango.xlsx"}
               </span>
               {connectorConfigured ? (
                 <span
@@ -774,9 +696,10 @@ export function IncomeWorkspace() {
               onClick={() => void loadRows()}
               disabled={loading}
               className="h-10"
+              title="Vuelve a leer los ingresos que ya trajo el conector de Tango. No consulta Tango en el momento."
             >
               <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-              {loading ? "Actualizando..." : "Actualizar vista"}
+              {loading ? "Recargando..." : "Recargar"}
             </Button>
             <Button variant="secondary" onClick={() => setManualModalOpen(true)} className="h-10">
               <PlusCircle size={15} />
@@ -873,7 +796,7 @@ export function IncomeWorkspace() {
             Solo lectura
           </div>
         </div>
-        <div className="max-h-[calc(100vh-430px)] min-h-[360px] overflow-auto overscroll-contain bg-white">
+        <div className="max-h-[calc(100vh-280px)] min-h-[360px] overflow-auto overscroll-contain bg-white">
           <table className="min-w-[1420px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
             <thead>
               <tr className="sticky top-0 z-10 bg-[#eaf1df] text-[10px] font-black uppercase text-[#34452f]">

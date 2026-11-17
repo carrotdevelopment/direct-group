@@ -190,14 +190,11 @@ export async function GET(request: Request) {
   }
   const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 
-  const [assignmentSource, productSource, priceSource, storedCostRows, freightCriteriaStore] =
-    await Promise.all([
-          readClientCodesFromPostgres(),
-          readProductsFromPostgres(),
-          readPricesFromPostgres(),
-          readSantanderCostsFromPostgres(),
-          readFreightCriteriaFromPostgres(),
-        ]);
+  // Solo los códigos y costos guardados del cliente: traer los de todos los clientes hacía lenta la carga.
+  const [assignmentSource, storedCostRows] = await Promise.all([
+    readClientCodesFromPostgres(clientName),
+    readSantanderCostsFromPostgres(clientName),
+  ]);
   const allCostRows = storedCostRows.filter((row) => sameClient(row.client));
 
   // Period filter — default to current month/year
@@ -234,6 +231,17 @@ export async function GET(request: Request) {
       message: `${matched.length} registro${matched.length !== 1 ? "s" : ""} encontrado${matched.length !== 1 ? "s" : ""}.`,
     });
   }
+
+  // Precios solo de los productos del cliente.
+  const clientUniqueCodes = [...new Set([
+    ...assignmentSource.map((mapping) => mapping.uniqueCode),
+    ...allCostRows.map((row) => row.uniqueCode),
+  ].filter(Boolean))];
+  const [productSource, priceSource, freightCriteriaStore] = await Promise.all([
+    readProductsFromPostgres(),
+    readPricesFromPostgres(clientUniqueCodes),
+    readFreightCriteriaFromPostgres(),
+  ]);
 
   const allAssignments = assignmentSource.filter(
     (mapping) => sameClient(mapping.client) &&
