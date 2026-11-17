@@ -19,7 +19,7 @@ const sections = [
 ] as const;
 type SectionKey = (typeof sections)[number]["key"];
 
-const ROLE_LABELS: Record<string, string> = { ADMIN: "Administrador", VENDEDOR: "Operador", DEPOSITO: "Depósito", LECTURA: "Solo lectura" };
+const ROLE_LABELS: Record<string, string> = { ADMIN: "Administrador", VENDEDOR: "Operador", LECTURA: "Solo lectura" };
 
 export const metadata = { title: "Configuración" };
 export default async function ConfiguracionPage({ searchParams }: { searchParams: Promise<{ seccion?: string }> }) {
