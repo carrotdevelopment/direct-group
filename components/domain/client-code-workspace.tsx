@@ -469,7 +469,7 @@ export function ClientCodeWorkspace() {
         title={`Ordenar por ${label.toLowerCase()}`}
       >
         {label}
-        <span className={active ? "text-[#0b5bbb]" : "text-[#9aa9bc]"}>
+        <span className={active ? "text-[#0b5bbb]" : "text-[#5a6a82]"}>
           {active ? (historySort.direction === "asc" ? "↑" : "↓") : "↕"}
         </span>
       </button>
@@ -969,7 +969,7 @@ export function ClientCodeWorkspace() {
     <>
       {/* Solo aparece mientras carga, guarda o si hubo un error; si no, quedaba una barra blanca vacía. */}
       {(isLoadingDb || dbStatus) && (
-        <div className="mb-3 rounded-xl border border-[#dbe4ef] bg-white px-4 py-2 text-[10px] font-bold text-[#62728a]">
+        <div className="mb-3 rounded-xl border border-[#dbe4ef] bg-white px-4 py-2 text-[11px] font-bold text-[#5a6a82]">
           <span className="inline-flex items-center gap-2">
             {isLoadingDb && (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#b7c9df] border-t-[#0b5bbb]" />
@@ -1073,7 +1073,7 @@ export function ClientCodeWorkspace() {
                           : "↕"}
                       </button>
                     </th>
-                    <th className="w-40 px-2 py-2 text-center text-[10px]">
+                    <th className="w-40 px-2 py-2 text-center text-[11px]">
                       Estado
                     </th>
                   </tr>
@@ -1134,7 +1134,7 @@ export function ClientCodeWorkspace() {
                               readOnly
                               className="h-3.5 w-3.5 accent-[#0b5bbb]"
                             />
-                            <span className="text-[9px] font-bold text-[#8a99ad]">
+                            <span className="text-[11px] font-bold text-[#5a6a82]">
                               #{originalIndex + 1}
                             </span>
                           </span>
@@ -1165,6 +1165,7 @@ export function ClientCodeWorkspace() {
                                 }
                                 onPaste={(e) => pasteRows(e, originalIndex)}
                                 autoFocus={originalIndex === 0 && isBlank}
+                                aria-label={`Fila ${originalIndex + 1}: código único`}
                                 placeholder={isBlank ? "Pegá códigos de producto acá" : ""}
                                 className={`h-8 w-full select-text border-0 bg-transparent px-3 pr-24 font-mono text-[11px] outline-none focus:bg-[#edf4fc] ${
                                   unknownUniqueCode || duplicateUniqueCode
@@ -1173,16 +1174,16 @@ export function ClientCodeWorkspace() {
                                 }`}
                               />
                               {duplicateUniqueCode ? (
-                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#b42318]">
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-[#b42318]">
                                   Repetido
                                 </span>
                               ) : unknownUniqueCode ? (
-                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#b42318]">
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-[#b42318]">
                                   No existe
                                 </span>
                               ) : activeAssignment ? (
                                 <span
-                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fff3cd] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#9a5c00]"
+                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fff3cd] px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-[#9a5c00]"
                                   title="Este producto ya tiene una asignación activa"
                                 >
                                   Ya asignado
@@ -1209,6 +1210,7 @@ export function ClientCodeWorkspace() {
                                 )
                               }
                               onPaste={(e) => pasteRows(e, originalIndex)}
+                              aria-label={`Fila ${originalIndex + 1}: código cliente`}
                               placeholder={
                                 row.uniqueCode && !row.clientCode
                                   ? "Ingresá el código cliente"
@@ -1221,7 +1223,7 @@ export function ClientCodeWorkspace() {
                               }`}
                             />
                             {duplicateClientCode && (
-                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#b42318]">
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-[#b42318]">
                                 Repetido
                               </span>
                             )}
@@ -1229,7 +1231,7 @@ export function ClientCodeWorkspace() {
                         </td>
 
                         {/* Assigned period */}
-                        <td className="border-r border-[#e7edf4] px-3 py-1 font-medium text-[#62728a]">
+                        <td className="border-r border-[#e7edf4] px-3 py-1 font-medium text-[#5a6a82]">
                           {periodLabel(selectedMonth, selectedYear)}
                         </td>
 
@@ -1237,21 +1239,21 @@ export function ClientCodeWorkspace() {
                         <td className="px-2 py-1 text-center">
                           {isUpdate ? (
                             <span
-                              className="rounded-full bg-[#fff3cd] px-2 py-1 text-[9px] font-extrabold text-[#9a5c00]"
+                              className="rounded-full bg-[#fff3cd] px-2 py-1 text-[11px] font-extrabold text-[#9a5c00]"
                               title={`Código vigente: ${activeAssignment?.clientCode}`}
                             >
                               Actualización
                             </span>
                           ) : isUnchanged ? (
-                            <span className="rounded-full bg-[#f3f4f6] px-2 py-1 text-[9px] font-extrabold text-[#62728a]">
+                            <span className="rounded-full bg-[#f3f4f6] px-2 py-1 text-[11px] font-extrabold text-[#5a6a82]">
                               Sin cambios
                             </span>
                           ) : activeAssignment ? (
-                            <span className="rounded-full bg-[#fff3cd] px-2 py-1 text-[9px] font-extrabold text-[#9a5c00]">
+                            <span className="rounded-full bg-[#fff3cd] px-2 py-1 text-[11px] font-extrabold text-[#9a5c00]">
                               Ya asignado
                             </span>
                           ) : row.uniqueCode.trim() ? (
-                            <span className="rounded-full bg-[#e6f4ea] px-2 py-1 text-[9px] font-extrabold text-[#2d7a3a]">
+                            <span className="rounded-full bg-[#e6f4ea] px-2 py-1 text-[11px] font-extrabold text-[#2d7a3a]">
                               Nueva
                             </span>
                           ) : null}
@@ -1277,7 +1279,7 @@ export function ClientCodeWorkspace() {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-[10px] font-semibold text-[#8a6a27]">
+                <p className="mt-1 text-[11px] font-semibold text-[#8a6a27]">
                   Al guardar, el código anterior quedará inactivo y la nueva asignación quedará activa.
                 </p>
               </div>
@@ -1285,9 +1287,9 @@ export function ClientCodeWorkspace() {
 
             {/* Assignment controls */}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-[10px] font-semibold text-[#62728a]">
+              <div className="text-[11px] font-semibold text-[#5a6a82]">
                 {selectedNewRows.size} fila{selectedNewRows.size !== 1 ? "s" : ""} seleccionada{selectedNewRows.size !== 1 ? "s" : ""}
-                <span className="ml-2 text-[#8a99ad]">
+                <span className="ml-2 text-[#5a6a82]">
                   Las asignaciones existentes se identifican antes de guardar.
                 </span>
               </div>
@@ -1368,7 +1370,7 @@ export function ClientCodeWorkspace() {
               Guardar asignaciones
             </Button>
             {saveDisabledReason && (
-              <p className="max-w-sm text-right text-[10px] font-bold text-[#62728a]">
+              <p className="max-w-sm text-right text-[11px] font-bold text-[#5a6a82]">
                 {saveDisabledReason}
               </p>
             )}
@@ -1486,7 +1488,7 @@ export function ClientCodeWorkspace() {
               </div>
             </div>
           )}
-          <table className="w-full min-w-[920px] text-left text-[10.5px]">
+          <table className="w-full min-w-[920px] text-left text-[11px]">
             <thead className="sticky top-0 z-[1]">
               <tr className="bg-[#edf4fc] font-bold text-[#334b6b]">
                 <th className="px-5 py-2">
@@ -1518,7 +1520,7 @@ export function ClientCodeWorkspace() {
                   </td>
                   <td className="px-4 py-2 font-mono text-[#425979]">
                     {m.uniqueCode}
-                    <div className="mt-1 max-w-64 font-sans text-[10px] text-[#62728a]">
+                    <div className="mt-1 max-w-64 font-sans text-[11px] text-[#5a6a82]">
                       {productNames.get(codeKey(m.uniqueCode))}
                     </div>
                   </td>
@@ -1533,12 +1535,12 @@ export function ClientCodeWorkspace() {
                   </td>
                   <td className="px-4 py-2">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold ${
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold ${
                         m.voidedAt
                           ? "bg-[#fff3cd] text-[#9a5c00]"
                           : m.active
                             ? "bg-[#e6f4ea] text-[#2d7a3a]"
-                            : "bg-[#f3f4f6] text-[#9aa3ad]"
+                            : "bg-[#f3f4f6] text-[#5a6a82]"
                       }`}
                       title={m.voidedAt ? m.voidReason || "Anulada" : undefined}
                     >
@@ -1547,22 +1549,22 @@ export function ClientCodeWorkspace() {
                   </td>
                   <td className="px-4 py-2 text-center">
                     {m.voidedAt ? (
-                      <span className="text-[9px] font-bold text-[#9aa3ad]">Sin acciones</span>
+                      <span className="text-[11px] font-bold text-[#5a6a82]">Sin acciones</span>
                     ) : m.active ? (
                       <button
                         type="button"
                         onClick={() => reviewHistoryDeactivation(m)}
-                        className="rounded-lg bg-[#fce9e8] px-2.5 py-1 text-[9px] font-extrabold text-[#a43d39] transition hover:bg-[#f5c2c1]"
+                        className="rounded-lg bg-[#fce9e8] px-2.5 py-1 text-[11px] font-extrabold text-[#a43d39] transition hover:bg-[#f5c2c1]"
                       >
                         Desactivar
                       </button>
                     ) : hasActiveEquivalent(m) ? (
-                      <span className="text-[9px] font-bold text-[#9aa3ad]">Ya reactivada</span>
+                      <span className="text-[11px] font-bold text-[#5a6a82]">Ya reactivada</span>
                     ) : (
                       <button
                         type="button"
                         onClick={() => reviewHistoryReactivation(m)}
-                        className="rounded-lg bg-[#e9f1fb] px-2.5 py-1 text-[9px] font-extrabold text-[#0b5bbb] transition hover:bg-[#d3e3f7]"
+                        className="rounded-lg bg-[#e9f1fb] px-2.5 py-1 text-[11px] font-extrabold text-[#0b5bbb] transition hover:bg-[#d3e3f7]"
                         title={`Se reactivará para ${periodLabel(currentMonth, currentYear)}`}
                       >
                         Reactivar
@@ -1575,7 +1577,7 @@ export function ClientCodeWorkspace() {
                 <tr>
                   <td
                     colSpan={7}
-                    className="px-5 py-8 text-center text-xs font-bold text-[#8a99ad]"
+                    className="px-5 py-8 text-center text-xs font-bold text-[#5a6a82]"
                   >
                     {mappings.length === 0
                       ? "La base está vacía."
@@ -1586,7 +1588,7 @@ export function ClientCodeWorkspace() {
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[10px] font-semibold text-[#62728a]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[11px] font-semibold text-[#5a6a82]">
           <span>
             {filteredHistory.length > 0
               ? `Mostrando ${historyPage * HISTORY_PAGE_SIZE + 1}–${Math.min(
@@ -1600,7 +1602,7 @@ export function ClientCodeWorkspace() {
               <Button
                 variant="secondary"
                 size="sm"
-                className="h-7 px-3 text-[10px]"
+                className="h-7 px-3 text-[11px]"
                 disabled={historyPage === 0}
                 onClick={() => setHistoryPage((p) => p - 1)}
               >
@@ -1609,7 +1611,7 @@ export function ClientCodeWorkspace() {
               <Button
                 variant="secondary"
                 size="sm"
-                className="h-7 px-3 text-[10px]"
+                className="h-7 px-3 text-[11px]"
                 disabled={
                   (historyPage + 1) * HISTORY_PAGE_SIZE >=
                   filteredHistory.length
@@ -1640,7 +1642,7 @@ export function ClientCodeWorkspace() {
         >
           <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[#dbe4ef] bg-white shadow-2xl">
             <div className="border-b border-[#e1e8f1] bg-[#edf4fc] px-6 py-4">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#3a6ea8]">
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#3a6ea8]">
                 Confirmar cambios
               </p>
               <h3 className="mt-0.5 text-base font-black text-[#10233f]">
@@ -1678,7 +1680,7 @@ export function ClientCodeWorkspace() {
                         <span className="text-[#9a5c00]">{vo} anulada{vo !== 1 ? "s" : ""}</span>
                       )}
                       {pending.unchangedCount > 0 && (
-                        <span className="text-[#62728a]">
+                        <span className="text-[#5a6a82]">
                           {pending.unchangedCount} sin cambios
                         </span>
                       )}
@@ -1730,32 +1732,32 @@ export function ClientCodeWorkspace() {
                       </td>
                       <td className="px-4 py-2">
                         {change.kind === "new" && (
-                          <span className="rounded-full bg-[#e6f4ea] px-2 py-0.5 text-[9px] font-extrabold text-[#2d7a3a]">
+                          <span className="rounded-full bg-[#e6f4ea] px-2 py-0.5 text-[11px] font-extrabold text-[#2d7a3a]">
                             Nueva
                           </span>
                         )}
                         {change.kind === "updated" && (
-                          <span className="rounded-full bg-[#fff3cd] px-2 py-0.5 text-[9px] font-extrabold text-[#9a5c00]">
+                          <span className="rounded-full bg-[#fff3cd] px-2 py-0.5 text-[11px] font-extrabold text-[#9a5c00]">
                             Actualizada
                           </span>
                         )}
                         {change.kind === "corrected" && (
-                          <span className="rounded-full bg-[#fff3cd] px-2 py-0.5 text-[9px] font-extrabold text-[#9a5c00]">
+                          <span className="rounded-full bg-[#fff3cd] px-2 py-0.5 text-[11px] font-extrabold text-[#9a5c00]">
                             Corregida
                           </span>
                         )}
                         {change.kind === "deactivated" && (
-                          <span className="rounded-full bg-[#fce9e8] px-2 py-0.5 text-[9px] font-extrabold text-[#a43d39]">
+                          <span className="rounded-full bg-[#fce9e8] px-2 py-0.5 text-[11px] font-extrabold text-[#a43d39]">
                             Desactivada
                           </span>
                         )}
                         {change.kind === "reactivated" && (
-                          <span className="rounded-full bg-[#e9f1fb] px-2 py-0.5 text-[9px] font-extrabold text-[#0b5bbb]">
+                          <span className="rounded-full bg-[#e9f1fb] px-2 py-0.5 text-[11px] font-extrabold text-[#0b5bbb]">
                             Reactivada
                           </span>
                         )}
                         {change.kind === "voided" && (
-                          <span className="rounded-full bg-[#fff3cd] px-2 py-0.5 text-[9px] font-extrabold text-[#9a5c00]">
+                          <span className="rounded-full bg-[#fff3cd] px-2 py-0.5 text-[11px] font-extrabold text-[#9a5c00]">
                             Anulada
                           </span>
                         )}

@@ -129,12 +129,12 @@ export function EgressProductChangeModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
       <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
       <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]">
+        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]">
           <X size={18} />
         </button>
         <div className="eyebrow">Egresos · {client}</div>
         <h2 className="mt-2 text-xl font-black">Cambiar producto del canje</h2>
-        <p className="mt-1 text-xs text-[#62728a]">
+        <p className="mt-1 text-xs text-[#5a6a82]">
           Si el producto del canje no se pudo entregar, elegí el que se entrega en su lugar. El código original recupera las
           unidades y el nuevo las descuenta del stock.
         </p>
@@ -189,7 +189,7 @@ export function EgressProductChangeModal({
           />
         </label>
 
-        {unchanged && <p className="mt-4 text-xs text-[#8a99ad]">Elegí otro producto u otra cantidad para ver cómo impacta en el stock.</p>}
+        {unchanged && <p className="mt-4 text-xs text-[#5a6a82]">Elegí otro producto u otra cantidad para ver cómo impacta en el stock.</p>}
         {!unchanged && previewError && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{previewError}</div>}
         {shownImpact && !previewError && (
           <div className="mt-4 rounded-xl border border-[#cfe0f5] bg-[#f3f8fe] px-4 py-3 text-xs text-[#16365f]">
@@ -204,13 +204,13 @@ export function EgressProductChangeModal({
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {warning}
               </div>
             ))}
-            <p className="mt-2 text-[11px] text-[#62728a]">El cambio queda en los comentarios del canje y en su historial.</p>
+            <p className="mt-2 text-[11px] text-[#5a6a82]">El cambio queda en los comentarios del canje y en su historial.</p>
           </div>
         )}
         {error && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
 
         {history.length > 0 && (
-          <div className="mt-4 text-[11px] text-[#62728a]">
+          <div className="mt-4 text-[11px] text-[#5a6a82]">
             <div className="font-black text-[#334b6b]">Cambios anteriores de este canje</div>
             {history.map((change) => (
               <div key={change.createdAt}>

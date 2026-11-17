@@ -22,9 +22,9 @@ export function SummaryStrip({ items }: { items: SummaryItem[] }) {
               <item.icon size={17} />
             </div>
             <div className="min-w-0">
-              <div className="truncate text-[10px] font-bold uppercase tracking-[.08em] text-[#62728a]">{item.label}</div>
+              <div className="truncate text-[11px] font-bold uppercase tracking-[.08em] text-[#5a6a82]">{item.label}</div>
               <div className="tabular text-lg font-black leading-tight tracking-tight text-[#10233f]">{item.value}</div>
-              <div className="truncate text-[10px] text-[#74849a]">{item.meta}</div>
+              <div className="truncate text-[11px] text-[#5a6a82]">{item.meta}</div>
             </div>
           </>
         );

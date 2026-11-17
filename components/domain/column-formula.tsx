@@ -17,7 +17,7 @@ export function ColumnFormula({ text }: { text: string }) {
       aria-label={`Ver fórmula u origen: ${text}`}
       aria-haspopup="dialog"
       title="Ver fórmula u origen de esta columna"
-      className="mx-auto mt-1 flex h-4 w-4 items-center justify-center rounded-full border border-[#8aafd6] bg-white/90 text-[10px] font-bold normal-case leading-none tracking-normal text-[#0b5bbb] hover:border-[#0b5bbb] hover:bg-[#e8f3ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0b5bbb]"
+      className="mx-auto mt-1 flex h-4 w-4 items-center justify-center rounded-full border border-[#8aafd6] bg-white/90 text-[11px] font-bold normal-case leading-none tracking-normal text-[#0b5bbb] hover:border-[#0b5bbb] hover:bg-[#e8f3ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0b5bbb]"
       onClick={event => { event.stopPropagation(); setOpen(true); }}
     >?</button>
     {open && createPortal(

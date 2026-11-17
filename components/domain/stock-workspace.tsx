@@ -261,13 +261,13 @@ export function StockWorkspace() {
   // ── Styles ────────────────────────────────────────────────────────────────
 
   // Group header row cells (sticky top-0, h-7 = 28px fixed height)
-  const grpBase = "sticky top-0 h-7 border-b border-[#c8d6e5] px-2 text-center text-[8.5px] font-black uppercase tracking-wide";
+  const grpBase = "sticky top-0 h-7 border-b border-[#c8d6e5] px-2 text-center text-[11px] font-black uppercase tracking-wide";
   // Column header cells (sticky top-7 = below group row)
-  const colHdr = "sticky top-7 z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[9px] font-black text-[#334b6b]";
+  const colHdr = "sticky top-7 z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[11px] font-black text-[#334b6b]";
   // Sticky column header cells (also left-pinned)
-  const colHdrSticky = "sticky top-7 z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[9px] font-black text-[#334b6b]";
+  const colHdrSticky = "sticky top-7 z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[11px] font-black text-[#334b6b]";
   // Body number cells
-  const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[9px] text-right tabular-nums";
+  const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[11px] text-right tabular-nums";
 
   // ── Row renderer ──────────────────────────────────────────────────────────
 
@@ -285,21 +285,21 @@ export function StockWorkspace() {
       <tr key={row.id} className={rowBg}>
         {/* Sticky col 1: Código cliente */}
         <td
-          className={`sticky left-0 z-30 w-[80px] min-w-[80px] max-w-[80px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[9px] ${stickyBg}`}
+          className={`sticky left-0 z-30 w-[80px] min-w-[80px] max-w-[80px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[11px] ${stickyBg}`}
           title={row.clientCode}
         >
           <div className="truncate">{row.clientCode}</div>
         </td>
         {/* Sticky col 2: Código único */}
         <td
-          className={`sticky left-[80px] z-30 w-[90px] min-w-[90px] max-w-[90px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[9px] ${stickyBg}`}
+          className={`sticky left-[80px] z-30 w-[90px] min-w-[90px] max-w-[90px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[11px] ${stickyBg}`}
           title={row.uniqueCode}
         >
           <div className="truncate">{row.uniqueCode}</div>
         </td>
         {/* Sticky col 3: Producto */}
         <td
-          className={`sticky left-[170px] z-30 w-[180px] min-w-[180px] max-w-[180px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[9px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
+          className={`sticky left-[170px] z-30 w-[180px] min-w-[180px] max-w-[180px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[11px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
           title={row.product}
         >
           <div className="truncate">{row.product || "—"}</div>
@@ -317,7 +317,7 @@ export function StockWorkspace() {
         {/* Stock Urbano */}
         <td className={`${td} bg-[#eef8f7] font-bold text-[#0f5e57]`}>{row.urbanoStock === null ? "—" : fmt(row.urbanoStock)}</td>
         <td
-          className={`${td} bg-[#eef8f7] font-bold ${row.urbanoDifference === null || row.urbanoDifference === 0 ? "text-[#62728a]" : row.urbanoDifference < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
+          className={`${td} bg-[#eef8f7] font-bold ${row.urbanoDifference === null || row.urbanoDifference === 0 ? "text-[#5a6a82]" : row.urbanoDifference < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
         >
           {row.urbanoDifference === null ? "—" : fmt(row.urbanoDifference)}
         </td>
@@ -389,7 +389,7 @@ export function StockWorkspace() {
           </label>
         </div>
         {(status || loading) && (
-          <div className="mt-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-2.5 text-[11px] font-bold text-[#62728a]">
+          <div className="mt-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-2.5 text-[11px] font-bold text-[#5a6a82]">
             {loading ? "Cargando..." : status}
           </div>
         )}
@@ -404,7 +404,7 @@ export function StockWorkspace() {
           { label: "Stock valorizado", value: `$${money(totals.stockValue)}` },
         ].map(({ label, value }) => (
           <div key={label} className="card min-w-0 px-3 py-2.5">
-            <div className="truncate text-[10px] font-black uppercase text-[#62728a]">{label}</div>
+            <div className="truncate text-[11px] font-black uppercase text-[#5a6a82]">{label}</div>
             <div className="truncate text-lg font-black leading-tight text-[#10233f]">{value}</div>
           </div>
         ))}
@@ -419,13 +419,13 @@ export function StockWorkspace() {
               {client} · {MONTH_LABEL} {YEAR}
             </div>
             {totals.sinDatos > 0 && (
-              <div className="mt-0.5 text-[10px] text-[#b76a18]">
+              <div className="mt-0.5 text-[11px] text-[#b76a18]">
                 {totals.sinDatos} código{totals.sinDatos !== 1 ? "s" : ""} sin datos en la base de stock
               </div>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-[#62728a]">
+          <div className="flex items-center gap-1.5 text-[11px] font-black uppercase text-[#5a6a82]">
             Zoom
             <button
               type="button"
@@ -464,7 +464,7 @@ export function StockWorkspace() {
               {zoom}%
             </button>
           </div>
-          <label className="flex items-center gap-2 text-[10px] font-black uppercase text-[#62728a]">
+          <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
             Meses stock
             <input
               type="number"
@@ -481,7 +481,7 @@ export function StockWorkspace() {
         <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
           <table
             style={{ zoom: zoom / 100 }}
-            className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[9px]"
+            className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[11px]"
           >
             <thead>
               {/* Row 1 – group headers */}
@@ -491,7 +491,7 @@ export function StockWorkspace() {
                 <th className={`${grpBase} sticky left-[80px] z-50 w-[90px] min-w-[90px] bg-[#e4ecf5]`} />
                 <th className={`${grpBase} sticky left-[170px] z-50 w-[180px] min-w-[180px] bg-[#e4ecf5]`} />
                 {/* Info (no label) */}
-                <th colSpan={2} className={`${grpBase} z-20 bg-[#edf3f9] text-[#62728a]`} />
+                <th colSpan={2} className={`${grpBase} z-20 bg-[#edf3f9] text-[#5a6a82]`} />
                 {/* Movimientos */}
                 <th colSpan={6} className={`${grpBase} z-20 bg-[#dceafe] text-[#1e4db7]`}>
                   Movimientos
@@ -524,12 +524,12 @@ export function StockWorkspace() {
                 <th className={`${colHdrSticky} left-0 w-[80px] min-w-[80px] text-left`}>
                   <div className="mb-1 pl-0.5">Código</div>
                   <div className="relative">
-                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#7b8da6]" />
+                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                     <input
                       value={codeSearch}
                       onChange={(e) => setCodeSearch(e.target.value)}
                       aria-label="Buscar código cliente"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -537,12 +537,12 @@ export function StockWorkspace() {
                 <th className={`${colHdrSticky} left-[80px] w-[90px] min-w-[90px] text-left`}>
                   <div className="mb-1 pl-0.5">Código único</div>
                   <div className="relative">
-                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#7b8da6]" />
+                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                     <input
                       value={uniqueSearch}
                       onChange={(e) => setUniqueSearch(e.target.value)}
                       aria-label="Buscar código único"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -550,12 +550,12 @@ export function StockWorkspace() {
                 <th className={`${colHdrSticky} left-[170px] w-[180px] min-w-[180px] text-left shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]`}>
                   <div className="mb-1 pl-0.5">Producto</div>
                   <div className="relative">
-                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#7b8da6]" />
+                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                     <input
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
                       aria-label="Buscar producto"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -600,13 +600,13 @@ export function StockWorkspace() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={TOTAL_COLS} className="py-16 text-center text-[10px] font-bold text-[#62728a]">
+                  <td colSpan={TOTAL_COLS} className="py-16 text-center text-[11px] font-bold text-[#5a6a82]">
                     Cargando stock...
                   </td>
                 </tr>
               ) : activeRows.length === 0 && inactiveRows.length === 0 ? (
                 <tr>
-                  <td colSpan={TOTAL_COLS} className="py-16 text-center text-[10px] font-bold text-[#62728a]">
+                  <td colSpan={TOTAL_COLS} className="py-16 text-center text-[11px] font-bold text-[#5a6a82]">
                     {rows.length === 0 ? "Sin datos de stock para este cliente." : "Sin resultados para la búsqueda."}
                   </td>
                 </tr>
@@ -619,7 +619,7 @@ export function StockWorkspace() {
                       <tr>
                         <td
                           colSpan={TOTAL_COLS}
-                          className="border-y border-[#d5ccf0] bg-[#f2eefa] py-2 pl-4 text-[9px] font-black uppercase tracking-widest text-[#5f3da0]"
+                          className="border-y border-[#d5ccf0] bg-[#f2eefa] py-2 pl-4 text-[11px] font-black uppercase tracking-widest text-[#5f3da0]"
                         >
                           No vigentes con stock restante · {inactiveRows.length} código
                           {inactiveRows.length !== 1 ? "s" : ""}
@@ -634,7 +634,7 @@ export function StockWorkspace() {
           </table>
         </div>
 
-        <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-2.5 text-[10px] text-[#62728a]">
+        <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-2.5 text-[11px] text-[#5a6a82]">
           {activeRows.length} vigentes
           {inactiveRows.length > 0
             ? ` · ${inactiveRows.length} no vigentes con stock`

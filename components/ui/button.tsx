@@ -14,7 +14,7 @@ export function Button({ className, variant = "primary", size = "md", ...props }
         size === "sm" ? "h-9 px-3 text-xs" : "h-11 px-4 text-sm",
         variant === "primary" && "bg-[#0b5bbb] text-white shadow-sm hover:bg-[#062b5b]",
         variant === "secondary" && "border border-[#d8e2ee] bg-white text-[#16365f] hover:bg-[#edf4fc]",
-        variant === "ghost" && "text-[#60738d] hover:bg-[#e9f1fb] hover:text-[#062b5b]",
+        variant === "ghost" && "text-[#5a6a82] hover:bg-[#e9f1fb] hover:text-[#062b5b]",
         variant === "danger" && "bg-[#b7433f] text-white hover:bg-[#963632]",
         className,
       )}

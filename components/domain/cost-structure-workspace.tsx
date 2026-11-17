@@ -638,7 +638,7 @@ export function CostStructureWorkspace() {
   const formulaCell = "whitespace-nowrap bg-[#f3f7fc] px-2 py-1 text-right tabular-nums text-[#334b6b]";
   const sourceCell = "bg-[#f8fafd] px-2 py-1 text-[#425979]";
   const numberInput =
-    "h-7 w-full min-w-[52px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[9px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]";
+    "h-7 w-full min-w-[52px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[11px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]";
   const stickyTh =
     "sticky top-0 z-40 border-b border-r border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]";
 
@@ -689,7 +689,7 @@ export function CostStructureWorkspace() {
 
         {/* Status + rates toggle */}
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-3">
-          <div className="flex-1 text-[11px] font-bold text-[#62728a]">
+          <div className="flex-1 text-[11px] font-bold text-[#5a6a82]">
             {status}
             {alertCount > 0 && (
               <span className="ml-2 font-extrabold text-[#b7433f]">
@@ -701,7 +701,7 @@ export function CostStructureWorkspace() {
             <button
               type="button"
               onClick={() => setShowRates((p) => !p)}
-              className="flex items-center gap-1 text-[10px] font-bold text-[#0b5bbb] hover:underline"
+              className="flex items-center gap-1 text-[11px] font-bold text-[#0b5bbb] hover:underline"
             >
               <Calculator size={12} />
               {showRates ? "Ocultar tasas" : `Tasas vigentes · desde ${activeRateConfig.effectiveFrom}`}
@@ -721,7 +721,7 @@ export function CostStructureWorkspace() {
                 </div>
                 <details className="mt-2 rounded-lg border border-[#efcfcd] bg-white/70 px-3 py-2">
                   <summary className="cursor-pointer font-bold">Ver detalle técnico</summary>
-                  <div className="mt-1 break-words font-mono text-[10px] text-[#694542]">
+                  <div className="mt-1 break-words font-mono text-[11px] text-[#694542]">
                     {saveError.technical}
                   </div>
                 </details>
@@ -733,7 +733,7 @@ export function CostStructureWorkspace() {
         {/* Rates panel */}
         {showRates && activeRateConfig && (
           <div className="mt-3 rounded-xl border border-[#dbe4ef] bg-white p-4">
-            <div className="mb-3 text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+            <div className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
               {client} — tasas desde {activeRateConfig.effectiveFrom}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -743,7 +743,7 @@ export function CostStructureWorkspace() {
                   className={`rounded-xl border px-3 py-2 text-[11px] ${r.applies ? "border-[#dbe4ef] bg-[#f8fafd]" : "border-[#eee] bg-[#fafafa] opacity-50"}`}
                 >
                   <div className="font-bold text-[#10233f]">{r.rateName}</div>
-                  <div className="mt-0.5 text-[10px] text-[#74849a]">
+                  <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                     {r.applies
                       ? `${r.valuePct}% sobre ${r.appliesTo === "COSTO" ? "Costo DG" : "PVC s/IVA"}`
                       : "No aplica"}
@@ -766,7 +766,7 @@ export function CostStructureWorkspace() {
             <select
               value={supplierFilter}
               onChange={(e) => setSupplierFilter(e.target.value)}
-              className="h-7 rounded-lg border border-[#dbe4ef] bg-white px-2 text-[10px]"
+              className="h-7 rounded-lg border border-[#dbe4ef] bg-white px-2 text-[11px]"
             >
               <option value="">Todos los proveedores</option>
               {suppliers.map((s) => (
@@ -781,22 +781,22 @@ export function CostStructureWorkspace() {
               <button
                 type="button"
                 onClick={selectAlerted}
-                className="flex items-center gap-1 rounded-lg border border-[#f0c4c2] bg-[#fce9e8] px-3 py-1.5 text-[10px] font-bold text-[#b7433f] hover:bg-[#fbdad8]"
+                className="flex items-center gap-1 rounded-lg border border-[#f0c4c2] bg-[#fce9e8] px-3 py-1.5 text-[11px] font-bold text-[#b7433f] hover:bg-[#fbdad8]"
               >
                 <AlertTriangle size={12} /> Seleccionar {alertCount} alertas
               </button>
             )}
             {/* Bulk freight panel — always visible, editable only con selección */}
             <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 transition ${someSelected ? "border-[#dbe4ef] bg-[#f4f8fc]" : "border-[#edf0f4] bg-[#f9fafc] opacity-60"}`}>
-              <span className="text-[9px] font-bold text-[#62728a]">
+              <span className="text-[11px] font-bold text-[#5a6a82]">
                 {someSelected ? `Flete · ${selectedIds.size} sel.` : "Flete"}
               </span>
-              <div className="flex overflow-hidden rounded border border-[#dbe4ef] bg-white text-[10px]">
+              <div className="flex overflow-hidden rounded border border-[#dbe4ef] bg-white text-[11px]">
                 <button
                   type="button"
                   disabled={!someSelected}
                   onClick={() => setFreightMode("pct")}
-                  className={`px-2 py-0.5 font-bold transition ${freightMode === "pct" ? "bg-[#0b5bbb] text-white" : "text-[#62728a] hover:bg-[#edf4fc]"} disabled:cursor-default`}
+                  className={`px-2 py-0.5 font-bold transition ${freightMode === "pct" ? "bg-[#0b5bbb] text-white" : "text-[#5a6a82] hover:bg-[#edf4fc]"} disabled:cursor-default`}
                 >
                   %
                 </button>
@@ -804,7 +804,7 @@ export function CostStructureWorkspace() {
                   type="button"
                   disabled={!someSelected}
                   onClick={() => setFreightMode("fixed")}
-                  className={`px-2 py-0.5 font-bold transition ${freightMode === "fixed" ? "bg-[#0b5bbb] text-white" : "text-[#62728a] hover:bg-[#edf4fc]"} disabled:cursor-default`}
+                  className={`px-2 py-0.5 font-bold transition ${freightMode === "fixed" ? "bg-[#0b5bbb] text-white" : "text-[#5a6a82] hover:bg-[#edf4fc]"} disabled:cursor-default`}
                 >
                   $
                 </button>
@@ -817,13 +817,13 @@ export function CostStructureWorkspace() {
                 disabled={!someSelected}
                 onChange={(e) => setFreightBulkValue(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && applyBulkFreight()}
-                className="h-6 w-28 rounded border border-[#dbe4ef] bg-white px-1.5 text-[10px] outline-none focus:border-[#0b5bbb] disabled:bg-[#f4f6f8] disabled:cursor-default"
+                className="h-6 w-28 rounded border border-[#dbe4ef] bg-white px-1.5 text-[11px] outline-none focus:border-[#0b5bbb] disabled:bg-[#f4f6f8] disabled:cursor-default"
               />
               <button
                 type="button"
                 onClick={applyBulkFreight}
                 disabled={!someSelected || !freightBulkValue}
-                className="h-6 rounded bg-[#0b5bbb] px-2 text-[10px] font-bold text-white hover:bg-[#0a4fa8] disabled:opacity-40"
+                className="h-6 rounded bg-[#0b5bbb] px-2 text-[11px] font-bold text-white hover:bg-[#0a4fa8] disabled:opacity-40"
               >
                 Aplicar
               </button>
@@ -833,12 +833,12 @@ export function CostStructureWorkspace() {
               variant="secondary"
               disabled={!someSelected}
               onClick={applyPvcProposal}
-              className="h-8 shrink-0 whitespace-nowrap px-3 text-[10px]"
+              className="h-8 shrink-0 whitespace-nowrap px-3 text-[11px]"
             >
               <Calculator size={13} className="shrink-0" /> Proponer PVC · mantener margen
             </Button>
             <div className="flex items-center gap-1 rounded-lg border border-[#dbe4ef] bg-[#f4f8fc] px-2 py-1">
-              <span className="text-[9px] font-bold text-[#62728a]">Período PVC</span>
+              <span className="text-[11px] font-bold text-[#5a6a82]">Período PVC</span>
               <select
                 value={saveMonth}
                 onChange={(e) => {
@@ -850,7 +850,7 @@ export function CostStructureWorkspace() {
                     setSaveMonth(newMonth);
                   }
                 }}
-                className="h-6 rounded border border-[#dbe4ef] bg-white px-1 text-[10px]"
+                className="h-6 rounded border border-[#dbe4ef] bg-white px-1 text-[11px]"
               >
                 {months.map((m, i) => {
                   const monthNum = i + 1;
@@ -874,7 +874,7 @@ export function CostStructureWorkspace() {
                     setSaveMonth(newMonth);
                   }
                 }}
-                className="h-6 rounded border border-[#dbe4ef] bg-white px-1 text-[10px]"
+                className="h-6 rounded border border-[#dbe4ef] bg-white px-1 text-[11px]"
               >
                 {Array.from({ length: 4 }, (_, i) => currentYear - 3 + i).map((y) => (
                   <option key={y}>{y}</option>
@@ -887,7 +887,7 @@ export function CostStructureWorkspace() {
               size="sm"
               disabled={rows.every((row) => row.segment !== "active")}
               onClick={() => void exportExcel()}
-              className="h-8 text-[10px]"
+              className="h-8 text-[11px]"
               title="Descargar precios activos en Excel"
             >
               <Download size={13} /> Excel
@@ -898,7 +898,7 @@ export function CostStructureWorkspace() {
               size="sm"
               disabled={rows.every((row) => row.segment !== "active")}
               onClick={exportPdf}
-              className="h-8 text-[10px]"
+              className="h-8 text-[11px]"
               title="Descargar precios activos en PDF"
             >
               <Download size={13} /> PDF
@@ -907,7 +907,7 @@ export function CostStructureWorkspace() {
               onClick={() => setShowConfirmModal(true)}
               disabled={pendingChanges().length === 0 || saving || loading}
               size="sm"
-              className="h-8 text-[10px]"
+              className="h-8 text-[11px]"
             >
               <Save size={13} />
               {saving ? "Guardando..." : saved ? "Guardado ✓" : "Guardar"}
@@ -917,7 +917,7 @@ export function CostStructureWorkspace() {
 
         {/* Table */}
         <div className="max-h-[calc(100vh-270px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
-          <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[9px]" style={{ borderSpacing: 0 }}>
+          <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[11px]" style={{ borderSpacing: 0 }}>
             <colgroup>
               <col style={{ width: 36 }} />
               <col style={{ width: 64 }} />
@@ -983,7 +983,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Fecha costo
-                    <span className="text-[9px]">
+                    <span className="text-[11px]">
                       {sortKey === "costDgUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1004,7 +1004,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Fecha PVC ant
-                    <span className="text-[9px]">
+                    <span className="text-[11px]">
                       {sortKey === "pvcUpdatedAt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1037,7 +1037,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Utilidad $
-                    <span className="text-[9px]">
+                    <span className="text-[11px]">
                       {sortKey === "profitAmt" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1048,7 +1048,7 @@ export function CostStructureWorkspace() {
                 >
                   <span className="inline-flex items-center justify-center gap-0.5">
                     Util. %
-                    <span className="text-[9px]">
+                    <span className="text-[11px]">
                       {sortKey === "profitPct" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
@@ -1082,14 +1082,14 @@ export function CostStructureWorkspace() {
                     ? "bg-[#eaf1df] text-[#34452f]"
                     : seg === "inactive_with_stock"
                       ? "bg-[#fff4e8] text-[#7a4a1a]"
-                      : "bg-[#f2f4f7] text-[#62728a]";
+                      : "bg-[#f2f4f7] text-[#5a6a82]";
 
                 return (
                   <Fragment key={seg}>
                     <tr>
                       <td
                         colSpan={22}
-                        className={`border-b border-t border-[#d0dbe8] px-4 py-1.5 text-[9px] font-extrabold uppercase tracking-wider ${labelBg}`}
+                        className={`border-b border-t border-[#d0dbe8] px-4 py-1.5 text-[11px] font-extrabold uppercase tracking-wider ${labelBg}`}
                       >
                         {isCollapsible ? (
                           <button
@@ -1150,7 +1150,7 @@ export function CostStructureWorkspace() {
                               <AlertTriangle size={9} className="text-[#b7433f]" />
                             </span>
                           ) : isProposed ? (
-                            <span title="PVC propuesto" className="text-[9px] font-black text-[#0b5bbb]">✓</span>
+                            <span title="PVC propuesto" className="text-[11px] font-black text-[#0b5bbb]">✓</span>
                           ) : <span className="w-[9px]" />}
                         </div>
                       </td>
@@ -1263,7 +1263,7 @@ export function CostStructureWorkspace() {
                               return next;
                             })
                           }
-                          className="grid h-5 w-5 place-items-center rounded text-[#62728a] hover:bg-[#edf4fc]"
+                          className="grid h-5 w-5 place-items-center rounded text-[#5a6a82] hover:bg-[#edf4fc]"
                         >
                           {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                         </button>
@@ -1278,10 +1278,10 @@ export function CostStructureWorkspace() {
                           className="border-b border-[#dbe4ef] px-8 py-4"
                         >
 
-                          <div className="grid gap-5 text-[10px] sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="grid gap-5 text-[11px] sm:grid-cols-2 lg:grid-cols-3">
                             {/* Costos sobre Costo DG */}
                             <div>
-                              <div className="mb-2 font-extrabold uppercase tracking-wide text-[#62728a]">
+                              <div className="mb-2 font-extrabold uppercase tracking-wide text-[#5a6a82]">
                                 Costos sobre Costo DG
                               </div>
                               {costoRates.length > 0 ? (
@@ -1299,7 +1299,7 @@ export function CostStructureWorkspace() {
                                   </div>
                                 ))
                               ) : (
-                                <div className="text-[#74849a]">Sin tasas sobre costo</div>
+                                <div className="text-[#5a6a82]">Sin tasas sobre costo</div>
                               )}
                               <div className="mt-1 flex justify-between border-t border-[#dbe4ef] pt-1 font-bold text-[#10233f]">
                                 <span>
@@ -1310,7 +1310,7 @@ export function CostStructureWorkspace() {
                                       : row.freightCriterion;
                                     if (!c) return null;
                                     return (
-                                      <span className="ml-1.5 rounded bg-[#edf4fc] px-1.5 py-0.5 text-[9px] font-semibold text-[#0b5bbb]">
+                                      <span className="ml-1.5 rounded bg-[#edf4fc] px-1.5 py-0.5 text-[11px] font-semibold text-[#0b5bbb]">
                                         {c.mode === "pct"
                                           ? `${c.value}% Costo DG`
                                           : `$${money(c.value)} fijo`}
@@ -1334,13 +1334,13 @@ export function CostStructureWorkspace() {
                                 <li>4. PVC sin IVA: ${money(row.pvcNoVat)}. Utilidad: ${money(row.pvcNoVat)} − ${money(calc.totalCost)} = <strong>${money(calc.profit)}</strong> ({calc.profitPct}% sobre costo).</li>
                                 <li>5. IVA ({row.vatRate}%): ${money(round2(row.pvcNoVat * row.vatRate / 100))}. PVC con IVA calculado: <strong>${money(round2(row.pvcNoVat * (1 + row.vatRate / 100)))}</strong>.</li>
                               </ol>
-                              <p className="mt-2 text-[#62728a]">El PVC se carga manualmente o se propone por rentabilidad. El precio público es una referencia. Los valores anteriores conservan la referencia cargada.</p>
+                              <p className="mt-2 text-[#5a6a82]">El PVC se carga manualmente o se propone por rentabilidad. El precio público es una referencia. Los valores anteriores conservan la referencia cargada.</p>
                               {Math.abs(row.pvcWithVat - round2(row.pvcNoVat * (1 + row.vatRate / 100))) > 0.02 && <p className="mt-2 font-bold text-[#b7433f]">El PVC con IVA mostrado (${money(row.pvcWithVat)}) difiere del cálculo con la alícuota actual. Revisá el precio antes de guardar.</p>}
                             </div>
 
                             {/* Costos sobre PVC */}
                             <div>
-                              <div className="mb-2 font-extrabold uppercase tracking-wide text-[#62728a]">
+                              <div className="mb-2 font-extrabold uppercase tracking-wide text-[#5a6a82]">
                                 Costos sobre PVC
                               </div>
                               {precioRates.length > 0 ? (
@@ -1358,7 +1358,7 @@ export function CostStructureWorkspace() {
                                   </div>
                                 ))
                               ) : (
-                                <div className="text-[#74849a]">Sin tasas sobre precio</div>
+                                <div className="text-[#5a6a82]">Sin tasas sobre precio</div>
                               )}
                               <div className="mt-1 flex justify-between border-t border-[#dbe4ef] pt-1 font-bold text-[#10233f]">
                                 <span>Costo total</span>
@@ -1368,7 +1368,7 @@ export function CostStructureWorkspace() {
 
                             {/* Precio público y alerta */}
                             <div>
-                              <div className="mb-2 font-extrabold uppercase tracking-wide text-[#62728a]">
+                              <div className="mb-2 font-extrabold uppercase tracking-wide text-[#5a6a82]">
                                 Precio público
                               </div>
                               <div className="flex justify-between py-0.5 text-[#334b6b]">
@@ -1388,7 +1388,7 @@ export function CostStructureWorkspace() {
                                 <span>{row.markup}%</span>
                               </div>
                               {row.costDgUpdatedAt && (
-                                <div className="mt-1 text-[9px] text-[#74849a]">
+                                <div className="mt-1 text-[11px] text-[#5a6a82]">
                                   Precio proveedor al {row.costDgUpdatedAt}
                                 </div>
                               )}
@@ -1409,7 +1409,7 @@ export function CostStructureWorkspace() {
                                         <> · {row.supplierCostDgDate}</>
                                       )}
                                     </div>
-                                    <div className="mt-1 text-[9px]">
+                                    <div className="mt-1 text-[11px]">
                                       Seleccioná esta fila y usá &quot;Proponer PVC&quot; para
                                       actualizar el precio manteniendo el margen.
                                     </div>
@@ -1426,12 +1426,12 @@ export function CostStructureWorkspace() {
                             {/* Historial PVC */}
                             {row.pvcHistory.length > 0 && (
                               <div>
-                                <div className="mb-2 font-extrabold uppercase tracking-wide text-[#62728a]">
+                                <div className="mb-2 font-extrabold uppercase tracking-wide text-[#5a6a82]">
                                   Historial PVC
                                 </div>
-                                <table className="w-full text-[10px]">
+                                <table className="w-full text-[11px]">
                                   <thead>
-                                    <tr className="border-b border-[#dbe4ef] text-[9px] font-extrabold text-[#8190a4]">
+                                    <tr className="border-b border-[#dbe4ef] text-[11px] font-extrabold text-[#5a6a82]">
                                       <th className="pb-1 text-left">Período</th>
                                       <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="pb-1 text-right">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
                                     </tr>
@@ -1461,7 +1461,7 @@ export function CostStructureWorkspace() {
           </table>
 
           {rows.length === 0 && !loading && (
-            <div className="py-20 text-center text-xs text-[#74849a]">
+            <div className="py-20 text-center text-xs text-[#5a6a82]">
               {client
                 ? "Cargá la estructura para ver todos los códigos del cliente."
                 : "Seleccioná un cliente para comenzar."}
@@ -1469,7 +1469,7 @@ export function CostStructureWorkspace() {
           )}
         </div>
 
-        <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[10px] text-[#62728a]">
+        <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] text-[#5a6a82]">
           Mostrando {filteredRows.length} de {rows.length} productos · Gris: último guardado (referencia) · Rosa: PVC editable (s/IVA y c/IVA se sincronizan) · Celeste: datos archivo de precios
           {someSelected && (
             <span className="ml-2 font-bold text-[#10233f]">
@@ -1488,7 +1488,7 @@ export function CostStructureWorkspace() {
         >
           {historyOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           <span className="text-xs font-extrabold text-[#10233f]">Historial de registros</span>
-          <span className="ml-auto text-[10px] text-[#74849a]">
+          <span className="ml-auto text-[11px] text-[#5a6a82]">
             Consultá, editá o eliminá registros de períodos anteriores
           </span>
         </button>
@@ -1517,7 +1517,7 @@ export function CostStructureWorkspace() {
             </div>
 
             {historyStatus && (
-              <div className="mb-3 text-[11px] font-semibold text-[#62728a]">{historyStatus}</div>
+              <div className="mb-3 text-[11px] font-semibold text-[#5a6a82]">{historyStatus}</div>
             )}
 
             {historyRows.length > 0 && (
@@ -1525,15 +1525,15 @@ export function CostStructureWorkspace() {
                 <table className="w-full border-separate border-spacing-0 text-[11px]">
                   <thead>
                     <tr>
-                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Período</th>
-                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Cód.</th>
-                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Cód.Único</th>
-                      <th title="Descripción guardada en estructura; si falta, maestro de productos." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Producto<ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
-                      <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Flete s/IVA<ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
-                      <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC s/IVA<ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
-                      <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[9px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
-                      <th title="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Util.%<ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
-                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-center text-[9px] font-bold uppercase tracking-wide text-[#334b6b]">Acciones</th>
+                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Período</th>
+                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Cód.</th>
+                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Cód.Único</th>
+                      <th title="Descripción guardada en estructura; si falta, maestro de productos." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Producto<ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
+                      <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Flete s/IVA<ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
+                      <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[11px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC s/IVA<ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
+                      <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[11px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
+                      <th title="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Util.%<ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
+                      <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1542,13 +1542,13 @@ export function CostStructureWorkspace() {
                       const isEditing = historyEditId === key;
                       const isDeleting = historyDeleteConfirm === key;
                       const hInput =
-                        "h-6 w-[88px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[10px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-1 focus:ring-[#dce9f8]";
+                        "h-6 w-[88px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[11px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-1 focus:ring-[#dce9f8]";
                       return (
                         <tr
                           key={key}
                           className={`border-b border-[#e1e8f1] transition-colors ${isEditing ? "bg-[#f0f7ff]" : isDeleting ? "bg-[#fff5f3]" : "bg-white hover:bg-[#f8fafd]"}`}
                         >
-                          <td className="px-3 py-1.5 tabular-nums text-[#62728a]">{displayPeriod(row.period)}</td>
+                          <td className="px-3 py-1.5 tabular-nums text-[#5a6a82]">{displayPeriod(row.period)}</td>
                           <td className="px-3 py-1.5 font-mono text-[#425979]">{row.clientCode}</td>
                           <td className="px-3 py-1.5 font-mono text-[#425979]">{row.uniqueCode}</td>
                           <td className="max-w-[200px] truncate px-3 py-1.5 text-[#334b6b]" title={row.product}>{row.product}</td>
@@ -1596,18 +1596,18 @@ export function CostStructureWorkspace() {
                           <td className="px-3 py-1.5 text-center">
                             {isDeleting ? (
                               <div className="flex items-center justify-center gap-1">
-                                <span className="text-[9px] font-bold text-[#b7433f]">¿Eliminar?</span>
+                                <span className="text-[11px] font-bold text-[#b7433f]">¿Eliminar?</span>
                                 <button
                                   type="button"
                                   onClick={() => deleteHistoryRow(row)}
-                                  className="rounded bg-[#b7433f] px-1.5 py-0.5 text-[9px] font-bold text-white hover:bg-[#9e3935]"
+                                  className="rounded bg-[#b7433f] px-1.5 py-0.5 text-[11px] font-bold text-white hover:bg-[#9e3935]"
                                 >
                                   Sí
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setHistoryDeleteConfirm(null)}
-                                  className="rounded bg-[#e9f1fb] px-1.5 py-0.5 text-[9px] font-bold text-[#334b6b] hover:bg-[#dbe4ef]"
+                                  className="rounded bg-[#e9f1fb] px-1.5 py-0.5 text-[11px] font-bold text-[#334b6b] hover:bg-[#dbe4ef]"
                                 >
                                   No
                                 </button>
@@ -1617,14 +1617,14 @@ export function CostStructureWorkspace() {
                                 <button
                                   type="button"
                                   onClick={() => saveHistoryEdit(row)}
-                                  className="rounded bg-[#0b5bbb] px-2 py-0.5 text-[9px] font-bold text-white hover:bg-[#0a4fa8]"
+                                  className="rounded bg-[#0b5bbb] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#0a4fa8]"
                                 >
                                   Guardar
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => { setHistoryEditId(null); setHistoryEditValues(null); }}
-                                  className="rounded bg-[#e9f1fb] px-2 py-0.5 text-[9px] font-bold text-[#334b6b] hover:bg-[#dbe4ef]"
+                                  className="rounded bg-[#e9f1fb] px-2 py-0.5 text-[11px] font-bold text-[#334b6b] hover:bg-[#dbe4ef]"
                                 >
                                   Cancelar
                                 </button>
@@ -1642,14 +1642,14 @@ export function CostStructureWorkspace() {
                                       pvcWithVat: row.pvcWithVat,
                                     });
                                   }}
-                                  className="rounded border border-[#dbe4ef] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#334b6b] hover:bg-[#edf4fc]"
+                                  className="rounded border border-[#dbe4ef] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#334b6b] hover:bg-[#edf4fc]"
                                 >
                                   Editar
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => { setHistoryDeleteConfirm(key); setHistoryEditId(null); setHistoryEditValues(null); }}
-                                  className="rounded border border-[#f0c4c2] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#b7433f] hover:bg-[#fce9e8]"
+                                  className="rounded border border-[#f0c4c2] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#b7433f] hover:bg-[#fce9e8]"
                                 >
                                   Eliminar
                                 </button>
@@ -1676,20 +1676,20 @@ export function CostStructureWorkspace() {
             <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
               <div className="border-b border-[#dbe4ef] px-6 py-4">
                 <div className="text-sm font-extrabold text-[#10233f]">Confirmar cambios</div>
-                <div className="mt-0.5 text-[11px] text-[#62728a]">
+                <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                   Período a guardar: <span className="font-bold">{months[Number(saveMonth) - 1]} {saveYear}</span>
                 </div>
               </div>
 
               <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
                 {changes.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-[#74849a]">
+                  <div className="py-8 text-center text-xs text-[#5a6a82]">
                     No hay cambios respecto a la última carga.
                   </div>
                 ) : (
                   <table className="w-full text-[11px]">
                     <thead>
-                      <tr className="border-b border-[#dbe4ef] text-[9px] font-extrabold uppercase tracking-wide text-[#8190a4]">
+                      <tr className="border-b border-[#dbe4ef] text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
                         <th className="pb-2 text-left">Cód.</th>
                         <th title="Descripción guardada en estructura; si falta, maestro de productos." className="pb-2 text-left">Producto<ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
                         <th title="Flete de referencia al cargar, incluyendo el criterio vigente si existe." className="pb-2 text-right">Flete antes<ColumnFormula text="Flete de referencia al cargar, incluyendo el criterio vigente si existe." /></th>
@@ -1707,16 +1707,16 @@ export function CostStructureWorkspace() {
                           <tr key={row.id} className="border-b border-[#f0f4f8]">
                             <td className="py-1.5 font-mono text-[#425979]">{row.clientCode}</td>
                             <td className="py-1.5 text-[#334b6b]">{row.product}</td>
-                            <td className={`py-1.5 text-right tabular-nums ${freightChanged ? "text-[#74849a] line-through" : "text-[#74849a]"}`}>
+                            <td className={`py-1.5 text-right tabular-nums ${freightChanged ? "text-[#5a6a82] line-through" : "text-[#5a6a82]"}`}>
                               ${money(orig.freightNoVat)}
                             </td>
-                            <td className={`py-1.5 text-right tabular-nums font-bold ${freightChanged ? "text-[#0b5bbb]" : "text-[#74849a]"}`}>
+                            <td className={`py-1.5 text-right tabular-nums font-bold ${freightChanged ? "text-[#0b5bbb]" : "text-[#5a6a82]"}`}>
                               ${money(row.freightNoVat)}
                             </td>
-                            <td className={`py-1.5 text-right tabular-nums ${pvcChanged ? "text-[#74849a] line-through" : "text-[#74849a]"}`}>
+                            <td className={`py-1.5 text-right tabular-nums ${pvcChanged ? "text-[#5a6a82] line-through" : "text-[#5a6a82]"}`}>
                               ${money(orig.pvcWithVat)}
                             </td>
-                            <td className={`py-1.5 text-right tabular-nums font-bold ${pvcChanged ? "text-[#0b5bbb]" : "text-[#74849a]"}`}>
+                            <td className={`py-1.5 text-right tabular-nums font-bold ${pvcChanged ? "text-[#0b5bbb]" : "text-[#5a6a82]"}`}>
                               ${money(row.pvcWithVat)}
                             </td>
                           </tr>
@@ -1728,7 +1728,7 @@ export function CostStructureWorkspace() {
               </div>
 
               <div className="flex items-center justify-between border-t border-[#dbe4ef] px-6 py-4">
-                <div className="text-[11px] text-[#62728a]">
+                <div className="text-[11px] text-[#5a6a82]">
                   {changes.length > 0
                     ? `${changes.length} fila${changes.length > 1 ? "s" : ""} con cambios`
                     : "Sin cambios detectados"}
@@ -1876,12 +1876,12 @@ function InlineSearch({
     <div className="relative mt-1">
       <Search
         size={9}
-        className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#7b8da6]"
+        className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]"
       />
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-5 w-full rounded-md border border-[#b8c8d8] bg-white py-0.5 pl-4 pr-1 text-[9px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+        className="h-5 w-full rounded-md border border-[#b8c8d8] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
       />
     </div>
   );

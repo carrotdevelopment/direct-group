@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRightLeft, Check, ChevronDown, Columns3, Download, Layers, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Download, Layers, Pencil, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
@@ -89,12 +89,13 @@ const INITIAL_CONFIGS: ClienteConfig[] = [
 const TIPO_LABELS: Record<TipoEgreso, string> = {
   PASAJE: "Pasaje", ROBO_AJUSTE: "Robo / Ajuste", CAMBIO: "Cambio", REENVIO: "Reenvío", CANJE: "Canje",
 };
+const EGRESS_PAGE = 200;
 const TIPO_COLORS: Record<TipoEgreso, string> = {
   PASAJE:      "bg-[#e8f0fd] text-[#2557d4]",
-  ROBO_AJUSTE: "bg-[#fdf0e8] text-[#c0520e]",
+  ROBO_AJUSTE: "bg-[#fdf0e8] text-[#a2440a]",
   CAMBIO:      "bg-[#f0e8fd] text-[#7c2dd4]",
-  REENVIO:     "bg-[#e8fdf0] text-[#1a8a4a]",
-  CANJE:       "bg-[#fde8f0] text-[#d42579]",
+  REENVIO:     "bg-[#e8fdf0] text-[#15703c]",
+  CANJE:       "bg-[#fde8f0] text-[#a8195c]",
 };
 const ALL_TIPOS = ["CANJE","PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as TipoEgreso[];
 const TIPOS_STD  = ["PASAJE","ROBO_AJUSTE","CAMBIO","REENVIO"] as const;
@@ -298,7 +299,7 @@ function validateRow(row: GridRow, cols: ColDef[], validCodes: Set<string>): { m
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const L = "text-[10px] font-black uppercase tracking-wide text-[#62728a]";
+const L = "text-[11px] font-black uppercase tracking-wide text-[#5a6a82]";
 const I = "h-8 w-full rounded-md border border-[#dbe4ef] bg-white px-2 text-xs outline-none focus:border-[#0b5bbb] focus:ring-1 focus:ring-[#e5eef9]";
 const STORAGE_KEY = (c: string) => `egress-col-config-v4-${c}`;
 
@@ -313,7 +314,7 @@ function Modal({ title, children, onClose, maxW = "max-w-lg" }: {
       <div className={`card relative w-full ${maxW} animate-enter p-6`}>
         <div className="mb-4 flex items-center justify-between">
           <div className="text-sm font-black text-[#10233f]">{title}</div>
-          <button onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#60738d] hover:bg-[#f4f7fb]"><X size={14} /></button>
+          <button onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#5a6a82] hover:bg-[#f4f7fb]"><X size={14} /></button>
         </div>
         {children}
       </div>
@@ -330,19 +331,19 @@ function PreviewTable({ cols, rows }: { cols: string[]; rows: Fila[] }) {
     <div className="mt-4">
       <div className="mb-2 flex items-center gap-3">
         <span className={L}>Preview</span>
-        <span className="rounded-full bg-[#0b5bbb] px-2 py-0.5 text-[9px] font-black text-white">{rows.length} filas</span>
-        {cols.length > 8 && <span className="text-[9px] text-[#9aabb8]">{maxCols.length} de {cols.length} cols</span>}
+        <span className="rounded-full bg-[#0b5bbb] px-2 py-0.5 text-[11px] font-black text-white">{rows.length} filas</span>
+        {cols.length > 8 && <span className="text-[11px] text-[#5a6a82]">{maxCols.length} de {cols.length} cols</span>}
       </div>
       <div className="overflow-auto rounded-xl border border-[#dbe4ef]">
-        <table className="w-full text-left text-[10px]" style={{ borderSpacing: 0 }}>
-          <thead><tr className="bg-[#edf4fc]">{maxCols.map((c) => <th key={c} className="whitespace-nowrap border-b border-[#dbe4ef] px-3 py-2 text-[9px] font-bold uppercase text-[#334b6b]">{c}</th>)}</tr></thead>
+        <table className="w-full text-left text-[11px]" style={{ borderSpacing: 0 }}>
+          <thead><tr className="bg-[#edf4fc]">{maxCols.map((c) => <th key={c} className="whitespace-nowrap border-b border-[#dbe4ef] px-3 py-2 text-[11px] font-bold uppercase text-[#334b6b]">{c}</th>)}</tr></thead>
           <tbody>
             {rows.slice(0, 5).map((row, i) => (
               <tr key={i} className={i % 2 ? "bg-[#f8fafd]" : "bg-white"}>
                 {maxCols.map((c) => <td key={c} className="max-w-[140px] truncate border-b border-[#e1e8f1] px-3 py-1.5" title={row[c]}>{row[c] || "—"}</td>)}
               </tr>
             ))}
-            {rows.length > 5 && <tr><td colSpan={maxCols.length} className="px-3 py-2 text-[9px] italic text-[#9aabb8]">…y {rows.length - 5} filas más</td></tr>}
+            {rows.length > 5 && <tr><td colSpan={maxCols.length} className="px-3 py-2 text-[11px] italic text-[#5a6a82]">…y {rows.length - 5} filas más</td></tr>}
           </tbody>
         </table>
       </div>
@@ -392,9 +393,9 @@ function ConfigPanel({ config, onChange, onClose }: {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="text-xs font-black text-[#10233f]">Configurar importación CANJE — {config.nombre}</div>
-          <div className="mt-0.5 text-[10px] text-[#62728a]">Definí las columnas del archivo y cuál corresponde a cada campo canónico.</div>
+          <div className="mt-0.5 text-[11px] text-[#5a6a82]">Definí las columnas del archivo y cuál corresponde a cada campo canónico.</div>
         </div>
-        <button type="button" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#60738d] hover:bg-[#f4f7fb]"><X size={14} /></button>
+        <button type="button" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#5a6a82] hover:bg-[#f4f7fb]"><X size={14} /></button>
       </div>
 
       {/* Part 1: columns */}
@@ -402,15 +403,15 @@ function ConfigPanel({ config, onChange, onClose }: {
         <div>
           <div className={`${L} mb-2`}>Columnas del archivo (una por línea, o pegá el encabezado del Excel)</div>
           <textarea value={colsText} onChange={(e) => setColsText(e.target.value)} onPaste={handlePaste} rows={8}
-            className="w-full resize-none rounded-lg border border-[#dbe4ef] bg-white px-3 py-2 font-mono text-[10px] outline-none focus:border-[#7c2dd4] focus:ring-2 focus:ring-[#e5d8fd]" />
-          <div className="mt-1 text-[9px] text-[#9aabb8]">{parsedCols.length} columnas</div>
+            className="w-full resize-none rounded-lg border border-[#dbe4ef] bg-white px-3 py-2 font-mono text-[11px] outline-none focus:border-[#7c2dd4] focus:ring-2 focus:ring-[#e5d8fd]" />
+          <div className="mt-1 text-[11px] text-[#5a6a82]">{parsedCols.length} columnas</div>
         </div>
         <div>
           <label className={L}>Fila de inicio (si no se encuentran los títulos)
             <input type="number" value={filaInicio} onChange={(e) => setFilaInicio(e.target.value)}
               className="mt-1 h-9 w-full rounded-lg border border-[#dbe4ef] bg-white px-3 text-center text-xs normal-case outline-none" />
           </label>
-          <p className="mt-2 text-[9px] text-[#9aabb8]">La plataforma busca sola la fila con los títulos de estas columnas y lee los datos desde la fila siguiente. Este número se usa solo si no la encuentra: cuenta desde 0, así que si los títulos están en la fila 1 de Excel, los datos empiezan en 1.</p>
+          <p className="mt-2 text-[11px] text-[#5a6a82]">La plataforma busca sola la fila con los títulos de estas columnas y lee los datos desde la fila siguiente. Este número se usa solo si no la encuentra: cuenta desde 0, así que si los títulos están en la fila 1 de Excel, los datos empiezan en 1.</p>
         </div>
       </div>
 
@@ -426,7 +427,7 @@ function ConfigPanel({ config, onChange, onClose }: {
                   onClick={() => setMapping((m) => mode === "single"
                     ? { ...m, fechaDia: "", fechaMes: "", fechaAno: "", fecha: m.fecha || m.fechaDia }
                     : { ...m, fecha: "", fechaDia: m.fechaDia || m.fecha })}
-                  className={`rounded-md px-2 py-0.5 text-[9px] normal-case ${(mode === "single") === dateSingle ? "bg-[#7c2dd4] text-white" : "border border-[#dbe4ef] text-[#62728a]"}`}>
+                  className={`rounded-md px-2 py-0.5 text-[11px] normal-case ${(mode === "single") === dateSingle ? "bg-[#7c2dd4] text-white" : "border border-[#dbe4ef] text-[#5a6a82]"}`}>
                   {label}
                 </button>
               ))}
@@ -438,7 +439,7 @@ function ConfigPanel({ config, onChange, onClose }: {
                     <option value="">—</option>
                     {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
+                  <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                 </div>
               </label>
             ) : (
@@ -450,7 +451,7 @@ function ConfigPanel({ config, onChange, onClose }: {
                       <option value="">—</option>
                       {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
-                    <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
+                    <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                   </div>
                 </label>
               ))}
@@ -465,7 +466,7 @@ function ConfigPanel({ config, onChange, onClose }: {
                   <option value="">— sin mapear —</option>
                   {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
+                <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
               </div>
             </label>
           </div>
@@ -477,7 +478,7 @@ function ConfigPanel({ config, onChange, onClose }: {
                   <option value="">— sin mapear —</option>
                   {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
+                <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
               </div>
             </label>
           </div>
@@ -489,14 +490,14 @@ function ConfigPanel({ config, onChange, onClose }: {
                   <option value="">— sin columna: 1 por fila —</option>
                   {parsedCols.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62728a]" />
+                <ChevronDown size={11} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
               </div>
             </label>
           </div>
         </div>
         {/* Preview of current mapping */}
         {parsedCols.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-[#62728a]">
+          <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-[#5a6a82]">
             <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">{dateSingle ? `Fecha → ${mapping.fecha || "—"}` : `Día → ${mapping.fechaDia || "—"} · Mes → ${mapping.fechaMes || "—"} · Año → ${mapping.fechaAno || "—"}`}</span>
             <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Código → {mapping.codigo || "—"}</span>
             <span className="rounded bg-[#f0e8fd] px-2 py-0.5 text-[#7c2dd4]">Desc → {mapping.desc || "—"}</span>
@@ -604,16 +605,16 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
     onSave({ tipo, cliente, fecha: TODAY, filas });
   }
 
-  const thCls = "border-b border-[#dbe4ef] bg-[#f8fafd] px-2 py-2 text-[9px] font-black uppercase whitespace-nowrap text-[#62728a]";
+  const thCls = "border-b border-[#dbe4ef] bg-[#f8fafd] px-2 py-2 text-[11px] font-black uppercase whitespace-nowrap text-[#5a6a82]";
 
   return (
     <div className="card mb-5 animate-enter p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="text-xs font-black text-[#10233f]">Cargar otras operaciones — {cliente}</div>
-          <div className="mt-0.5 text-[10px] text-[#62728a]">Podés escribir o pegar celdas del Excel. La fecha de filas vacías se copia de la primera fila, y si cambiás la fecha en la primera fila se actualiza en todas.</div>
+          <div className="mt-0.5 text-[11px] text-[#5a6a82]">Podés escribir o pegar celdas del Excel. La fecha de filas vacías se copia de la primera fila, y si cambiás la fecha en la primera fila se actualiza en todas.</div>
         </div>
-        <button type="button" onClick={onCancel} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#60738d] hover:bg-[#f4f7fb]"><X size={14} /></button>
+        <button type="button" onClick={onCancel} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#5a6a82] hover:bg-[#f4f7fb]"><X size={14} /></button>
       </div>
 
       <div className="mb-5">
@@ -625,7 +626,7 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
               <option value="">— Seleccioná un tipo —</option>
               {TIPOS_STD.map((t) => <option key={t} value={t}>{TIPO_LABELS[t]}</option>)}
             </select>
-            <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#62728a]" />
+            <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
           </div>
         </label>
       </div>
@@ -635,7 +636,7 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
           {selected.size > 0 && (
             <div className="mb-2">
               <button type="button" onClick={delSelected}
-                className="flex items-center gap-1.5 rounded-md border border-[#f0cfcc] bg-white px-2.5 py-1 text-[10px] font-black text-[#b7433f] hover:bg-[#fff0ef]">
+                className="flex items-center gap-1.5 rounded-md border border-[#f0cfcc] bg-white px-2.5 py-1 text-[11px] font-black text-[#b7433f] hover:bg-[#fff0ef]">
                 <Trash2 size={11} /> Eliminar {selected.size} {selected.size === 1 ? "fila" : "filas"}
               </button>
             </div>
@@ -662,7 +663,7 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
                       <td className="border-b border-[#e1e8f1] px-2 py-1">
                         <input type="checkbox" checked={selected.has(row._id)} onChange={() => toggleRow(row._id)} className="accent-[#0b5bbb]" />
                       </td>
-                      <td className="border-b border-[#e1e8f1] px-2 py-1 text-center text-[9px] text-[#9aabb8]">{ri + 1}</td>
+                      <td className="border-b border-[#e1e8f1] px-2 py-1 text-center text-[11px] text-[#5a6a82]">{ri + 1}</td>
                       {cols.map((col, ci) => {
                         const isInvalidCode = showErrors && col.key === "codigo_cliente" && invalidCode;
                         const isMissing     = showErrors && missing && col.required && col.key !== "fecha" && !row[col.key]?.trim();
@@ -759,9 +760,9 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="text-xs font-black text-[#10233f]">Cargar CANJE — {config.nombre}</div>
-          <div className="mt-0.5 text-[10px] text-[#62728a]">Pegá las filas del Excel o subí el archivo directamente.</div>
+          <div className="mt-0.5 text-[11px] text-[#5a6a82]">Pegá las filas del Excel o subí el archivo directamente.</div>
         </div>
-        <button type="button" onClick={onCancel} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#60738d] hover:bg-[#f4f7fb]"><X size={14} /></button>
+        <button type="button" onClick={onCancel} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#5a6a82] hover:bg-[#f4f7fb]"><X size={14} /></button>
       </div>
       {!cols.length ? (
         <div className="rounded-xl border border-[#f5d4d4] bg-[#fff5f5] px-4 py-4 text-[11px] text-[#b7433f]">
@@ -772,7 +773,7 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
           <div className="mb-4 grid gap-4 sm:grid-cols-[180px_1fr]">
             <label className={L}>Fecha <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`mt-1 ${I}`} /></label>
             <div className={L}>Columnas ({cols.length})
-              <div className="mt-1 overflow-hidden rounded-lg border border-[#dbe4ef] bg-[#f8fafd] px-3 py-2 text-[9px] font-normal normal-case leading-5 text-[#425979]">
+              <div className="mt-1 overflow-hidden rounded-lg border border-[#dbe4ef] bg-[#f8fafd] px-3 py-2 text-[11px] font-normal normal-case leading-5 text-[#425979]">
                 {cols.slice(0, 14).join(" · ")}{cols.length > 14 ? ` · +${cols.length - 14} más` : ""}
               </div>
             </div>
@@ -780,7 +781,7 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
           <div className="mb-3 flex w-fit gap-1 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] p-1">
             {(["paste","excel"] as const).map((m) => (
               <button key={m} type="button" onClick={() => setMode(m)}
-                className={`rounded-lg px-4 py-1.5 text-xs font-black transition ${mode === m ? "border border-[#dbe4ef] bg-white text-[#0b5bbb] shadow-sm" : "text-[#62728a] hover:text-[#10233f]"}`}>
+                className={`rounded-lg px-4 py-1.5 text-xs font-black transition ${mode === m ? "border border-[#dbe4ef] bg-white text-[#0b5bbb] shadow-sm" : "text-[#5a6a82] hover:text-[#10233f]"}`}>
                 {m === "paste" ? "Pegar texto" : "Subir Excel"}
               </button>
             ))}
@@ -807,7 +808,7 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
                   </select>
                 </label>
               )}
-              {xlLoading && <span className="text-[11px] text-[#62728a]">Leyendo…</span>}
+              {xlLoading && <span className="text-[11px] text-[#5a6a82]">Leyendo…</span>}
             </div>
           )}
           <PreviewTable cols={cols} rows={active} />
@@ -875,7 +876,7 @@ function TipoFilterDropdown({ selected, onChange }: {
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen((o) => !o)}
         className={`flex h-9 w-full min-w-[170px] items-center justify-between gap-2 rounded-lg border bg-white px-3 text-xs outline-none transition
-          ${selected.size > 0 ? "border-[#0b5bbb] text-[#0b5bbb] font-medium" : "border-[#dbe4ef] text-[#62728a]"}`}>
+          ${selected.size > 0 ? "border-[#0b5bbb] text-[#0b5bbb] font-medium" : "border-[#dbe4ef] text-[#5a6a82]"}`}>
         <span className="truncate">{label}</span>
         <ChevronDown size={13} className="shrink-0" />
       </button>
@@ -884,12 +885,12 @@ function TipoFilterDropdown({ selected, onChange }: {
           {ALL_TIPOS.map((t) => (
             <label key={t} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-[#f4f7fb]">
               <input type="checkbox" checked={selected.has(t)} onChange={() => toggle(t)} className="accent-[#0b5bbb]" />
-              <span className={`rounded-md px-2 py-0.5 text-[9px] font-black ${TIPO_COLORS[t]}`}>{TIPO_LABELS[t]}</span>
+              <span className={`rounded-md px-2 py-0.5 text-[11px] font-black ${TIPO_COLORS[t]}`}>{TIPO_LABELS[t]}</span>
             </label>
           ))}
           {selected.size > 0 && (
             <button type="button" onClick={() => onChange(new Set())}
-              className="mt-1 w-full rounded px-2 py-1 text-center text-[10px] text-[#62728a] hover:bg-[#f4f7fb]">
+              className="mt-1 w-full rounded px-2 py-1 text-center text-[11px] text-[#5a6a82] hover:bg-[#f4f7fb]">
               Mostrar todos
             </button>
           )}
@@ -910,22 +911,22 @@ function ColPicker({ visibleCols, allKeys, onAdd, onRemove, onMove, onClose }: {
   return (
     <div className="absolute right-0 top-9 z-30 w-64 overflow-hidden rounded-xl border border-[#dbe4ef] bg-white shadow-xl">
       <div className="flex items-center justify-between border-b border-[#dbe4ef] px-3 py-2">
-        <span className="text-[10px] font-black uppercase tracking-wide text-[#62728a]">Columnas</span>
-        <button onClick={onClose} className="grid h-5 w-5 place-items-center rounded text-[#9aabb8] hover:text-[#10233f]"><X size={11} /></button>
+        <span className="text-[11px] font-black uppercase tracking-wide text-[#5a6a82]">Columnas</span>
+        <button onClick={onClose} className="grid h-5 w-5 place-items-center rounded text-[#5a6a82] hover:text-[#10233f]"><X size={11} /></button>
       </div>
       <div className="max-h-72 overflow-auto p-2">
         {visibleCols.length > 0 && (
           <div className="mb-1">
-            <div className="mb-1 px-1 text-[9px] font-bold uppercase text-[#9aabb8]">Visibles ({visibleCols.length})</div>
+            <div className="mb-1 px-1 text-[11px] font-bold uppercase text-[#5a6a82]">Visibles ({visibleCols.length})</div>
             {visibleCols.map((k, i) => (
               <div key={k} className="flex items-center gap-1 rounded px-1 py-0.5 bg-[#edf4fc] mb-0.5">
                 <div className="flex flex-col">
                   <button type="button" disabled={i === 0} onClick={() => onMove(k, -1)}
-                    className="text-[9px] leading-tight text-[#62728a] disabled:opacity-20 hover:text-[#0b5bbb]">▲</button>
+                    className="text-[11px] leading-tight text-[#5a6a82] disabled:opacity-20 hover:text-[#0b5bbb]">▲</button>
                   <button type="button" disabled={i === visibleCols.length - 1} onClick={() => onMove(k, 1)}
-                    className="text-[9px] leading-tight text-[#62728a] disabled:opacity-20 hover:text-[#0b5bbb]">▼</button>
+                    className="text-[11px] leading-tight text-[#5a6a82] disabled:opacity-20 hover:text-[#0b5bbb]">▼</button>
                 </div>
-                <span className="flex-1 truncate text-[10px] text-[#10233f]">{k}</span>
+                <span className="flex-1 truncate text-[11px] text-[#10233f]">{k}</span>
                 <button type="button" onClick={() => onRemove(k)}
                   className="rounded px-1 text-[11px] text-[#b7433f] hover:bg-[#fff0ef]" title="Ocultar">×</button>
               </div>
@@ -934,17 +935,17 @@ function ColPicker({ visibleCols, allKeys, onAdd, onRemove, onMove, onClose }: {
         )}
         {hidden.length > 0 && (
           <div>
-            <div className="mb-1 px-1 text-[9px] font-bold uppercase text-[#9aabb8]">Ocultas ({hidden.length})</div>
+            <div className="mb-1 px-1 text-[11px] font-bold uppercase text-[#5a6a82]">Ocultas ({hidden.length})</div>
             {hidden.map((k) => (
               <button key={k} type="button" onClick={() => onAdd(k)}
-                className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-[10px] text-[#62728a] hover:bg-[#f4f7fb]">
+                className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-[11px] text-[#5a6a82] hover:bg-[#f4f7fb]">
                 <Plus size={10} className="shrink-0 text-[#0b5bbb]" /> {k}
               </button>
             ))}
           </div>
         )}
         {visibleCols.length === 0 && hidden.length === 0 && (
-          <div className="py-4 text-center text-[10px] text-[#9aabb8]">Sin columnas disponibles.</div>
+          <div className="py-4 text-center text-[11px] text-[#5a6a82]">Sin columnas disponibles.</div>
         )}
       </div>
     </div>
@@ -1113,6 +1114,12 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   }, [tipoFilter, desde, hasta, search, sortCol, sortDir, dateParts]);
 
   const filtered = useMemo(() => (hasFilter ? applyFilters(allFlat) : []), [hasFilter, applyFilters, allFlat]);
+  // Se dibujan de a EGRESS_PAGE filas: con miles de filas juntas la página se ponía lenta.
+  const [page, setPage] = useState(0);
+  const [pageOf, setPageOf] = useState(filtered);
+  if (pageOf !== filtered) { setPageOf(filtered); setPage(0); } // filtros nuevos: vuelve a la primera página
+  const pageCount = Math.max(1, Math.ceil(filtered.length / EGRESS_PAGE));
+  const pageRows = filtered.slice(page * EGRESS_PAGE, (page + 1) * EGRESS_PAGE);
 
   // Se vuelve a pedir el rango al servidor porque la grilla carga como máximo 5.000 filas.
   async function exportHistory() {
@@ -1175,7 +1182,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
 
   const selectedRows = filtered.filter((r) => selected.has(r.key));
 
-  const thS = "border-b border-[#dbe4ef] px-3 py-3 text-[9px] font-bold uppercase tracking-wide text-[#334b6b] whitespace-nowrap";
+  const thS = "border-b border-[#dbe4ef] px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-[#334b6b] whitespace-nowrap";
   function SortTh({ col, label }: { col: string; label: string }) {
     const a = sortCol === col;
     return (
@@ -1191,7 +1198,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
       <div className="flex items-center justify-between border-b border-[#dbe4ef] bg-white px-5 py-4">
         <div>
           <div className="text-sm font-black text-[#10233f]">Historial de egresos</div>
-          <div className="mt-0.5 text-[10px] text-[#62728a]">{cliente} · {allFlat.length.toLocaleString()} filas totales</div>
+          <div className="mt-0.5 text-[11px] text-[#5a6a82]">{cliente} · {allFlat.length.toLocaleString()} filas totales</div>
         </div>
       </div>
 
@@ -1215,7 +1222,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
             <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
               className="h-9 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs normal-case outline-none focus:border-[#0b5bbb]" />
           </label>
-          <span className="text-[10px] text-[#9aabb8]">—</span>
+          <span className="text-[11px] text-[#5a6a82]">—</span>
           <label className={`${L} flex items-center gap-1.5`}>
             Hasta
             <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
@@ -1227,11 +1234,11 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
         <TipoFilterDropdown selected={tipoFilter} onChange={setTipoFilter} />
 
         {/* Free-text search */}
-        <input value={search} onChange={(e) => setSearch(e.target.value)}
+        <input value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar egresos"
           placeholder="Buscar código, descripción, ID, provincia…"
           className="h-9 min-w-[220px] flex-1 rounded-lg border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#0b5bbb]" />
 
-        <div className="ml-auto text-[10px] text-[#62728a]">
+        <div className="ml-auto text-[11px] text-[#5a6a82]">
           {hasFilter ? <>{filtered.length.toLocaleString()} filas</> : <span className="italic opacity-60">sin filtros</span>}
         </div>
       </div>
@@ -1240,23 +1247,23 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
       <div className="flex items-center gap-2 border-b border-[#dbe4ef] bg-white px-5 py-2">
         {selectedRows.length > 0 && (
           <button type="button" onClick={() => setDeleteTarget(selectedRows)}
-            className="flex items-center gap-1.5 rounded-md border border-[#f0cfcc] bg-white px-2.5 py-1.5 text-[10px] font-black text-[#b7433f] hover:bg-[#fff0ef]">
+            className="flex items-center gap-1.5 rounded-md border border-[#f0cfcc] bg-white px-2.5 py-1.5 text-[11px] font-black text-[#b7433f] hover:bg-[#fff0ef]">
             <Trash2 size={11} /> Inactivar {selectedRows.length} {selectedRows.length === 1 ? "fila" : "filas"}
           </button>
         )}
-        {exportError && <span role="alert" className="ml-auto text-[10px] font-bold text-[#b7433f]">{exportError}</span>}
+        {exportError && <span role="alert" className="ml-auto text-[11px] font-bold text-[#b7433f]">{exportError}</span>}
         <button type="button" disabled={exporting || !desde || !hasta} onClick={() => void exportHistory()}
           title="Descarga en Excel las filas de las fechas y filtros elegidos, con las columnas visibles"
-          className={`${exportError ? "" : "ml-auto "}flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#62728a] hover:border-[#0b5bbb] hover:text-[#0b5bbb] disabled:cursor-not-allowed disabled:opacity-50`}>
+          className={`${exportError ? "" : "ml-auto "}flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#5a6a82] hover:border-[#0b5bbb] hover:text-[#0b5bbb] disabled:cursor-not-allowed disabled:opacity-50`}>
           <Download size={12} />
           {exporting ? "Exportando…" : "Exportar Excel"}
         </button>
         <div className="relative" ref={colPickerRef}>
           <button type="button" onClick={() => setColPickerOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#62728a] hover:border-[#0b5bbb] hover:text-[#0b5bbb]">
+            className="flex items-center gap-1.5 rounded-md border border-[#dbe4ef] bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#5a6a82] hover:border-[#0b5bbb] hover:text-[#0b5bbb]">
             <Columns3 size={12} />
             Columnas
-            <span className={`rounded-full px-1.5 text-white text-[9px] font-black ${visibleCols.length > 0 ? "bg-[#0b5bbb]" : "bg-[#b0bec9]"}`}>{visibleCols.length}</span>
+            <span className={`rounded-full px-1.5 text-white text-[11px] font-black ${visibleCols.length > 0 ? "bg-[#0b5bbb]" : "bg-[#b0bec9]"}`}>{visibleCols.length}</span>
           </button>
           {colPickerOpen && (
             <ColPicker visibleCols={visibleCols} allKeys={allDisplayKeys}
@@ -1269,10 +1276,10 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
       {/* Table or empty state */}
       {!hasFilter ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <div className="text-5xl opacity-20">🔍</div>
-          <div className="text-sm font-bold text-[#62728a]">Definí un filtro para ver los egresos</div>
-          <div className="text-[11px] text-[#9aabb8]">Usá las fechas, el tipo de operación o la búsqueda libre.</div>
-          {allFlat.length > 0 && <div className="text-[10px] text-[#b0bec9]">{allFlat.length.toLocaleString()} filas disponibles</div>}
+          <Search size={36} className="text-[#c5d2e2]" aria-hidden />
+          <div className="text-sm font-bold text-[#5a6a82]">Definí un filtro para ver los egresos</div>
+          <div className="text-[11px] text-[#5a6a82]">Usá las fechas, el tipo de operación o la búsqueda libre.</div>
+          {allFlat.length > 0 && <div className="text-[11px] text-[#5a6a82]">{allFlat.length.toLocaleString()} filas disponibles</div>}
         </div>
       ) : (
         <div className="max-h-[calc(100vh-400px)] min-h-[240px] overflow-auto overscroll-contain bg-white">
@@ -1280,17 +1287,17 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
             <thead>
               <tr className="sticky top-0 z-10 bg-[#edf4fc]">
                 <th className={`${thS} sticky left-0 z-20 w-8 bg-[#edf4fc]`}>
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-[#0b5bbb]" />
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Seleccionar todas las filas filtradas" className="accent-[#0b5bbb]" />
                 </th>
                 <th className={`${thS} sticky left-8 z-20 w-16 bg-[#f8fafd]`}>Acciones</th>
                 {visibleCols.map((k) => <SortTh key={k} col={k} label={colLabel(k)} />)}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => (
+              {pageRows.map((row) => (
                 <tr key={row.key} className={selected.has(row.key) ? "bg-[#edf4fc]" : "hover:bg-[#f8fafd]"}>
                   <td className="sticky left-0 z-10 border-b border-[#e1e8f1] bg-inherit px-3 py-2">
-                    <input type="checkbox" checked={selected.has(row.key)} onChange={() => toggleRow(row.key)} className="accent-[#0b5bbb]" />
+                    <input type="checkbox" checked={selected.has(row.key)} onChange={() => toggleRow(row.key)} aria-label="Seleccionar fila" className="accent-[#0b5bbb]" />
                   </td>
                   <td className="sticky left-8 z-10 border-b border-[#e1e8f1] bg-inherit px-2 py-2">
                     <div className="flex items-center gap-1">
@@ -1314,7 +1321,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
                     const td = "border-b border-[#e1e8f1] px-3 py-2";
                     if (k === "tipo") return (
                       <td key={k} className={td}>
-                        <span className={`rounded-md px-2 py-0.5 text-[9px] font-black ${TIPO_COLORS[row.tipo]}`}>{TIPO_LABELS[row.tipo]}</span>
+                        <span className={`rounded-md px-2 py-0.5 text-[11px] font-black ${TIPO_COLORS[row.tipo]}`}>{TIPO_LABELS[row.tipo]}</span>
                       </td>
                     );
                     if (k === "cliente") return <td key={k} className={`${td} font-bold text-[#10233f]`}>{row.cliente}</td>;
@@ -1327,7 +1334,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={2 + visibleCols.length} className="px-4 py-12 text-center text-[11px] text-[#9aabb8]">
+                  <td colSpan={2 + visibleCols.length} className="px-4 py-12 text-center text-[11px] text-[#5a6a82]">
                     Sin filas para los filtros seleccionados.
                   </td>
                 </tr>
@@ -1337,20 +1344,37 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
         </div>
       )}
 
-      <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[10px] text-[#62728a]">
-        {hasFilter
-          ? `Mostrando ${filtered.length.toLocaleString()} de ${allFlat.length.toLocaleString()} filas.`
-          : `${allFlat.length.toLocaleString()} filas disponibles. Aplicá un filtro para verlas.`}
+      <div className="flex flex-wrap items-center gap-3 border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] text-[#5a6a82]">
+        <span>
+          {!hasFilter
+            ? `${allFlat.length.toLocaleString()} filas disponibles. Aplicá un filtro para verlas.`
+            : pageCount > 1
+              ? `Filas ${(page * EGRESS_PAGE + 1).toLocaleString()}–${Math.min(filtered.length, (page + 1) * EGRESS_PAGE).toLocaleString()} de ${filtered.length.toLocaleString()} (${allFlat.length.toLocaleString()} en total).`
+              : `Mostrando ${filtered.length.toLocaleString()} de ${allFlat.length.toLocaleString()} filas.`}
+        </span>
+        {hasFilter && pageCount > 1 && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <button type="button" disabled={page === 0} onClick={() => setPage((p) => p - 1)}
+              className="flex h-8 items-center gap-1 rounded-md border border-[#dbe4ef] bg-white px-2.5 font-bold text-[#334b6b] hover:border-[#0b5bbb] hover:text-[#0b5bbb] disabled:cursor-not-allowed disabled:opacity-40">
+              <ChevronLeft size={13} /> Anterior
+            </button>
+            <span className="px-1 font-bold text-[#334b6b]">Página {page + 1} de {pageCount}</span>
+            <button type="button" disabled={page >= pageCount - 1} onClick={() => setPage((p) => p + 1)}
+              className="flex h-8 items-center gap-1 rounded-md border border-[#dbe4ef] bg-white px-2.5 font-bold text-[#334b6b] hover:border-[#0b5bbb] hover:text-[#0b5bbb] disabled:cursor-not-allowed disabled:opacity-40">
+              Siguiente <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Delete confirm */}
       {deleteTarget !== null && (
         <Modal title={`Inactivar ${deleteTarget.length} ${deleteTarget.length === 1 ? "fila" : "filas"}`} onClose={() => setDeleteTarget(null)}>
-          <p className="text-[12px] text-[#62728a]">Los egresos dejarán de estar activos y de contar en Stock. Se conserva el respaldo original.</p>
-          <div className="mt-3 max-h-48 overflow-auto rounded-xl border border-[#dbe4ef] bg-[#f8fafd] p-3 text-[10px]">
+          <p className="text-[12px] text-[#5a6a82]">Los egresos dejarán de estar activos y de contar en Stock. Se conserva el respaldo original.</p>
+          <div className="mt-3 max-h-48 overflow-auto rounded-xl border border-[#dbe4ef] bg-[#f8fafd] p-3 text-[11px]">
             {deleteTarget.map((r) => (
               <div key={r.key} className="py-0.5">
-                <span className={`mr-2 rounded px-1.5 py-0.5 text-[9px] font-black ${TIPO_COLORS[r.tipo]}`}>{TIPO_LABELS[r.tipo]}</span>
+                <span className={`mr-2 rounded px-1.5 py-0.5 text-[11px] font-black ${TIPO_COLORS[r.tipo]}`}>{TIPO_LABELS[r.tipo]}</span>
                 {(() => { const [a,m,d] = r.fecha.split("-"); return `${d}/${m}/${a.slice(2)}`; })()} · <span className="font-mono">{r.codigo}</span> · {r.desc}
               </div>
             ))}
@@ -1675,29 +1699,29 @@ export function EgressWorkspace() {
 
       {/* Client bar */}
       <div className="card mb-5 flex flex-wrap items-center gap-3 p-4">
-        <span className="text-[11px] font-black uppercase tracking-wide text-[#62728a]">Cliente</span>
+        <span className="text-[11px] font-black uppercase tracking-wide text-[#5a6a82]">Cliente</span>
         <div className="relative">
-          <select value={cliente} onChange={(e) => changeCliente(e.target.value)}
+          <select value={cliente} onChange={(e) => changeCliente(e.target.value)} aria-label="Cliente"
             className="h-10 appearance-none rounded-xl border border-[#dbe4ef] bg-white pl-4 pr-9 text-sm font-black text-[#10233f] outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#e5eef9]">
             {configs.map((c) => <option key={c.nombre}>{c.nombre}</option>)}
           </select>
-          <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#62728a]" />
+          <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
         </div>
 
         <button type="button" onClick={() => setView(view === "config" ? "list" : "config")}
           className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition ${
             view === "config"
               ? "border-[#7c2dd4] bg-[#f0e8fd] text-[#7c2dd4]"
-              : "border-[#dbe4ef] bg-[#f8fafd] text-[#62728a] hover:border-[#7c2dd4] hover:text-[#7c2dd4]"
+              : "border-[#dbe4ef] bg-[#f8fafd] text-[#5a6a82] hover:border-[#7c2dd4] hover:text-[#7c2dd4]"
           }`}>
           <Settings size={14} /> Configurar importación CANJE
         </button>
 
         {cfg.configurado
-          ? <span className="rounded-full bg-[#e8fdf0] px-2 py-0.5 text-[9px] font-black text-[#1a8a4a]">configurado</span>
-          : <span className="rounded-full bg-[#fdf0e8] px-2 py-0.5 text-[9px] font-black text-[#c0520e]">sin configurar</span>}
+          ? <span className="rounded-full bg-[#e8fdf0] px-2 py-0.5 text-[11px] font-black text-[#15703c]">configurado</span>
+          : <span className="rounded-full bg-[#fdf0e8] px-2 py-0.5 text-[11px] font-black text-[#c0520e]">sin configurar</span>}
 
-        <span className="text-[10px] font-semibold text-[#62728a]">
+        <span className="text-[11px] font-semibold text-[#5a6a82]">
           {saving ? "Procesando egresos..." : status}
         </span>
 

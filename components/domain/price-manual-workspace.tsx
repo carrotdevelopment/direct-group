@@ -35,7 +35,7 @@ const blankRow = (): DraftRow => ({
 });
 
 const inputClass =
-  "h-8 w-full min-w-16 border-0 bg-transparent px-2 text-right text-[10px] outline-none focus:bg-[#edf4fc]";
+  "h-8 w-full min-w-16 border-0 bg-transparent px-2 text-right text-[11px] outline-none focus:bg-[#edf4fc]";
 const dateInputClass = `${inputClass} min-w-32 text-center`;
 
 function parseDecimal(value: string) {
@@ -379,12 +379,12 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           <div className="border-b border-[#dbe4ef] bg-[#edf4fc] px-5 py-4">
             <div className="eyebrow">Actualización de precios</div>
             <h2 className="mt-1 text-base font-black text-[#10233f]">Cargar precios nuevos</h2>
-            <p className="mt-1 text-[10px] font-semibold text-[#62728a]">
+            <p className="mt-1 text-[11px] font-semibold text-[#5a6a82]">
               Podés usar coma o punto decimal. IVA y mark up se ingresan como porcentaje: 21 = 21%, 25 = 25%.
             </p>
           </div>
           <div className="overflow-auto p-4">
-            <table className="w-full min-w-[650px] table-fixed text-[10px]">
+            <table className="w-full min-w-[650px] table-fixed text-[11px]">
               <thead><tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-[#334b6b]">{columns.map((column) => <th key={column.key} className="px-2 py-2 text-center font-bold">{column.label}</th>)}</tr></thead>
               <tbody className="divide-y divide-[#e7edf4] border border-[#dbe4ef]">
                 {rows.map((row, index) => {
@@ -399,6 +399,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
                           type={column.key === "informedAt" ? "date" : "text"}
                           lang="es-AR"
                           value={row[column.key]}
+                          aria-label={`Fila ${index + 1}: ${column.label}`}
                           placeholder={placeholders[column.key]}
                           onChange={(event) => updateRow(index, column.key, event.target.value)}
                           onBlur={column.key === "uniqueCode" ? () => setTouchedCodes((current) => new Set(current).add(index)) : undefined}
@@ -439,10 +440,10 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           <div className="border-b border-[#dbe4ef] bg-[#edf4fc] px-5 py-4">
             <div className="eyebrow">Corrección de carga</div>
             <h2 className="mt-1 text-base font-black text-[#10233f]">Editar o eliminar precios</h2>
-            <p className="mt-1 text-[10px] font-semibold text-[#62728a]">Buscá por código único, por fecha, o por ambos.</p>
+            <p className="mt-1 text-[11px] font-semibold text-[#5a6a82]">Buscá por código único, por fecha, o por ambos.</p>
           </div>
           <div className="grid items-center gap-2 border-b border-[#e7edf4] p-4 sm:grid-cols-[minmax(150px,1fr)_230px_auto]">
-            <input value={search.uniqueCode} onChange={(event) => setSearch({ ...search, uniqueCode: event.target.value })} onKeyDown={(event) => event.key === "Enter" && findPrice()} placeholder="Código único (opcional si hay fecha)" className="h-9 rounded-xl border border-[#dbe4ef] px-3 font-mono text-xs outline-none focus:border-[#7da4d3]" />
+            <input value={search.uniqueCode} onChange={(event) => setSearch({ ...search, uniqueCode: event.target.value })} onKeyDown={(event) => event.key === "Enter" && findPrice()} aria-label="Código único" placeholder="Código único (opcional si hay fecha)" className="h-9 rounded-xl border border-[#dbe4ef] px-3 font-mono text-xs outline-none focus:border-[#7da4d3]" />
             <input
               type="date"
               lang="es-AR"
@@ -457,7 +458,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
           {searchStatus && <div className={`border-b px-4 py-3 text-xs font-bold ${searchStatus.tone === "success" ? "bg-[#e9f1fb] text-[#0b5bbb]" : "bg-[#fce9e8] text-[#a43d39]"}`}>{searchStatus.text}</div>}
           <div className="min-h-48 overflow-auto p-4">
             {searchResults.length > 0 ? (
-              <table className="w-full min-w-[560px] text-[10px]">
+              <table className="w-full min-w-[560px] text-[11px]">
                 <thead><tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-[#334b6b]"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
                 <tbody>
                   {searchResults.map((record) => {
@@ -473,7 +474,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
                 </tbody>
               </table>
             ) : shown ? (
-              <table className="w-full min-w-[560px] text-[10px]">
+              <table className="w-full min-w-[560px] text-[11px]">
                 <thead><tr className="border-b border-[#dbe4ef] bg-[#edf4fc] text-[#334b6b]"><th className="px-2 py-2 text-left">Código único</th><th>Fecha (dd/mm/aaaa)</th><th>Costo DG</th><th>IVA (%)</th><th>Precio público</th><th>Mark up (%)</th></tr></thead>
                 <tbody><tr className="border border-[#dbe4ef]">
                   <td className="px-2 py-2 font-mono font-bold">{shown.uniqueCode}</td>
@@ -481,7 +482,7 @@ export function PriceManualWorkspace({ onPricesChanged }: { onPricesChanged?: ()
                   {(["costDg", "vatRate", "publicPrice", "markup"] as const).map((field) => <td key={field} className="border-l border-[#e7edf4] p-0">{editDraft ? <input defaultValue={formatDecimal(editDraft[field], field === "vatRate" ? 3 : 2)} onChange={(event) => updateEdit(field, event.target.value)} className={inputClass} /> : <div className="px-2 py-2 text-right">{formatDecimal(shown[field], field === "vatRate" ? 3 : 2)}</div>}</td>)}
                 </tr></tbody>
               </table>
-            ) : <div className="grid min-h-40 place-items-center text-xs font-semibold text-[#8a99ad]">Ingresá un código, una fecha, o ambos para buscar.</div>}
+            ) : <div className="grid min-h-40 place-items-center text-xs font-semibold text-[#5a6a82]">Ingresá un código, una fecha, o ambos para buscar.</div>}
           </div>
           {searchResult && <div className="flex justify-end gap-2 border-t border-[#e7edf4] bg-[#fafcff] px-4 py-3">{editDraft ? <><Button type="button" variant="secondary" size="sm" onClick={() => setEditDraft(null)}><X size={13} /> Cancelar</Button><Button type="button" size="sm" onClick={saveEdit}><Save size={13} /> Guardar cambios</Button></> : <><Button type="button" variant="secondary" size="sm" onClick={() => setEditDraft({ ...searchResult })}><Pencil size={13} /> Editar</Button><Button type="button" variant="danger" size="sm" onClick={deletePrice} disabled={deleting}><Trash2 size={13} /> Borrar</Button></>}</div>}
         </div>

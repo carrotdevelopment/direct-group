@@ -36,7 +36,7 @@ function MailEditor({
     <div className="grid gap-4 rounded-2xl border border-[#e1e8f1] p-4 2xl:grid-cols-2">
       <div>
         <div className="text-sm font-black text-[#10233f]">{title}</div>
-        <p className="mt-0.5 text-[11px] text-[#62728a]">{help}</p>
+        <p className="mt-0.5 text-[11px] text-[#5a6a82]">{help}</p>
         <label className="mt-3 block text-[11px] font-extrabold text-[#334b6b]">
           Asunto
           <input value={subject} onChange={(event) => onSubject(event.target.value)} className={`${inputClass} h-10`} />
@@ -116,7 +116,7 @@ export function SupplierMailForm({ initial, saved: initialSaved }: { initial: Su
       {error && <div className="rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
       {notice && <div className="rounded-xl bg-[#e7f7eb] px-4 py-3 text-xs font-bold text-[#23783a]">{notice}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e1e8f1] pt-5">
-        <span className="text-[11px] text-[#8a99ad]">
+        <span className="text-[11px] text-[#5a6a82]">
           {saved.updatedAt
             ? `Último cambio: ${saved.updatedBy ?? "—"}, ${new Date(saved.updatedAt).toLocaleString("es-AR", { hourCycle: "h23" })}`
             : "Se están usando los textos originales."}

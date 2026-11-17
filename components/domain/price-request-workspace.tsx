@@ -667,7 +667,7 @@ export function PriceRequestWorkspace() {
                 Proveedores y destinatarios
               </h2>
               <p
-                className="mt-0.5 text-[11px] font-semibold text-[#62728a]"
+                className="mt-0.5 text-[11px] font-semibold text-[#5a6a82]"
                 title={'Los proveedores activos reciben solos el pedido de catálogo el primer día hábil de cada mes. El botón de prueba envía ahora mismo a la casilla cargada. Las respuestas se revisan todos los días a las 14:00 o con "Revisar respuestas".'}
               >
                 {activeSupplierCount} activos · {repliedSupplierCount} contestaron · pedido el 1.er día hábil del mes
@@ -707,15 +707,16 @@ export function PriceRequestWorkspace() {
         <>
         <div className="flex flex-wrap items-center justify-between gap-2 border-y border-[#dbe4ef] bg-white px-4 py-2">
           <div className="relative w-full max-w-[280px]">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8a99ad]" />
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
             <input
               value={supplierQuery}
               onChange={(event) => setSupplierQuery(event.target.value)}
+              aria-label="Buscar proveedor, contacto o correo"
               placeholder="Buscar proveedor, contacto o correo"
               className="h-8 w-full rounded-lg border border-[#dbe4ef] bg-[#f8fafd] pl-8 pr-3 text-[11px] outline-none focus:border-[#7da4d3]"
             />
           </div>
-          <span className="text-[10px] font-semibold text-[#8a99ad]">
+          <span className="text-[11px] font-semibold text-[#5a6a82]">
             Casilla de salida: <span className="font-mono">SMTP_FROM</span> del servidor (o <span className="font-mono">SMTP_USER</span>).
           </span>
         </div>
@@ -741,7 +742,7 @@ export function PriceRequestWorkspace() {
                   </td>
                   <td className="px-2 py-1.5 text-[#425979]">
                     <div className="font-semibold">{config.contactName}</div>
-                    <span className="inline-flex items-center gap-1 text-[10px] text-[#62728a]">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-[#5a6a82]">
                       <Mail size={11} className="text-[#0b5bbb]" />
                       {config.email}
                     </span>
@@ -761,7 +762,7 @@ export function PriceRequestWorkspace() {
                         <div className="mt-0.5">
                           {replyAttachments[config.id] ? (
                             replyAttachments[config.id].map((attachment) => (
-                              <a key={attachment.url} href={attachment.url} className="block max-w-[160px] truncate text-[10px] font-bold text-[#0b5bbb] hover:underline" title={attachment.name}>
+                              <a key={attachment.url} href={attachment.url} className="block max-w-[160px] truncate text-[11px] font-bold text-[#0b5bbb] hover:underline" title={attachment.name}>
                                 {attachment.name}
                               </a>
                             ))
@@ -770,7 +771,7 @@ export function PriceRequestWorkspace() {
                               type="button"
                               onClick={() => void openReplyAttachment(config)}
                               disabled={openingAttachmentId === config.id}
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-[#0b5bbb] hover:underline disabled:text-[#8a99ad]"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0b5bbb] hover:underline disabled:text-[#8a99ad]"
                             >
                               {openingAttachmentId === config.id ? <LoaderCircle size={11} className="animate-spin" /> : <Paperclip size={11} />}
                               Ver adjunto
@@ -792,12 +793,12 @@ export function PriceRequestWorkspace() {
                       onClick={() => void sendFollowUp(config)}
                       disabled={!config.lastSent || followUpId === config.id}
                       title={!config.lastSent ? "Todavía no se mandó el pedido del mes" : config.lastFollowUpAt ? `Última reconsulta: ${formatDate(config.lastFollowUpAt)}` : undefined}
-                      className="h-7 px-2.5 text-[10px]"
+                      className="h-7 px-2.5 text-[11px]"
                     >
                       {followUpId === config.id ? <LoaderCircle size={13} className="animate-spin" /> : <Send size={13} />}
                       Reconsulta
                     </Button>
-                    {config.lastFollowUpAt && <div className="mt-0.5 text-[9px] text-[#8a99ad]">{formatDate(config.lastFollowUpAt)}</div>}
+                    {config.lastFollowUpAt && <div className="mt-0.5 text-[11px] text-[#5a6a82]">{formatDate(config.lastFollowUpAt)}</div>}
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     <button
@@ -814,7 +815,7 @@ export function PriceRequestWorkspace() {
                       size="sm"
                       onClick={() => sendTestRequest(config)}
                       disabled={sendingId === config.id}
-                      className="h-7 px-2.5 text-[10px]"
+                      className="h-7 px-2.5 text-[11px]"
                     >
                       {sendingId === config.id ? (
                         <LoaderCircle size={13} className="animate-spin" />
@@ -829,7 +830,7 @@ export function PriceRequestWorkspace() {
                       size="sm"
                       variant="secondary"
                       onClick={() => openSupplierEdit(config)}
-                      className="h-7 px-2.5 text-[10px]"
+                      className="h-7 px-2.5 text-[11px]"
                     >
                       <Pencil size={13} /> Editar
                     </Button>
@@ -837,7 +838,7 @@ export function PriceRequestWorkspace() {
                       size="sm"
                       variant="ghost"
                       onClick={() => deleteSupplier(config)}
-                      className="ml-1 h-7 px-2 text-[10px]"
+                      className="ml-1 h-7 px-2 text-[11px]"
                       aria-label={`Quitar ${config.supplier}`}
                     >
                       <Trash2 size={13} />
@@ -848,11 +849,11 @@ export function PriceRequestWorkspace() {
             </tbody>
           </table>
           {suppliers.length > 0 && visibleSuppliers.length === 0 && (
-            <div className="px-5 py-6 text-center text-xs text-[#74849a]">Ningún proveedor coincide con la búsqueda.</div>
+            <div className="px-5 py-6 text-center text-xs text-[#5a6a82]">Ningún proveedor coincide con la búsqueda.</div>
           )}
         </div>
         {suppliers.length === 0 && (
-          <div className="px-5 py-6 text-center text-xs text-[#74849a]">
+          <div className="px-5 py-6 text-center text-xs text-[#5a6a82]">
             Todavía no hay proveedores configurados.
           </div>
         )}
@@ -867,7 +868,7 @@ export function PriceRequestWorkspace() {
             <h2 className="mt-1 text-base font-black text-[#10233f]">
               Cargar lista de precios por archivo
             </h2>
-            <p className="mt-1 text-[11px] text-[#62728a]">
+            <p className="mt-1 text-[11px] text-[#5a6a82]">
               Procesá PDF o Excel, revisá la tabla resultante y confirmá recién
               cuando esté todo correcto.
             </p>
@@ -880,7 +881,7 @@ export function PriceRequestWorkspace() {
         </div>
 
         <div className="grid gap-3 border-b border-[#e7edf4] p-4 lg:grid-cols-[1fr_120px_120px_minmax(240px,1fr)_auto]">
-          <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+          <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
             Proveedor
             <div
               className="relative mt-2"
@@ -899,7 +900,7 @@ export function PriceRequestWorkspace() {
               <button
                 type="button"
                 onClick={() => setSupplierPickerOpen((open) => !open)}
-                className="absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-[#62728a] hover:bg-[#edf4fc] hover:text-[#0b5bbb]"
+                className="absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-[#5a6a82] hover:bg-[#edf4fc] hover:text-[#0b5bbb]"
                 aria-label="Abrir proveedores"
               >
                 <ChevronDown
@@ -925,7 +926,7 @@ export function PriceRequestWorkspace() {
                       </button>
                     ))
                   ) : (
-                    <div className="px-3 py-2 text-[11px] font-semibold normal-case tracking-normal text-[#74849a]">
+                    <div className="px-3 py-2 text-[11px] font-semibold normal-case tracking-normal text-[#5a6a82]">
                       Sin coincidencias. Podés escribirlo igual.
                     </div>
                   )}
@@ -933,7 +934,7 @@ export function PriceRequestWorkspace() {
               )}
             </div>
           </label>
-          <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+          <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
             Mes
             <select
               value={importMonth}
@@ -950,7 +951,7 @@ export function PriceRequestWorkspace() {
               })}
             </select>
           </label>
-          <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+          <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
             Año
             <input
               type="number"
@@ -959,7 +960,7 @@ export function PriceRequestWorkspace() {
               className="mt-2 h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs font-semibold normal-case tracking-normal text-[#10233f] outline-none focus:border-[#7da4d3]"
             />
           </label>
-          <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+          <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
             Archivo
             <input
               type="file"
@@ -967,7 +968,7 @@ export function PriceRequestWorkspace() {
               onChange={(event) =>
                 setImportFile(event.target.files?.[0] ?? null)
               }
-              className="mt-2 block h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 py-2 text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-[#e9f1fb] file:px-3 file:py-1 file:text-[10px] file:font-black file:text-[#0b5bbb]"
+              className="mt-2 block h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 py-2 text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-[#e9f1fb] file:px-3 file:py-1 file:text-[11px] file:font-black file:text-[#0b5bbb]"
             />
           </label>
           <div className="flex items-end">
@@ -988,7 +989,7 @@ export function PriceRequestWorkspace() {
         </div>
 
         {(importStatus || importWarnings.length > 0) && (
-          <div className="space-y-2 border-b border-[#e7edf4] px-5 py-3 text-[11px] font-semibold text-[#62728a]">
+          <div className="space-y-2 border-b border-[#e7edf4] px-5 py-3 text-[11px] font-semibold text-[#5a6a82]">
             {importStatus && <div>{importStatus}</div>}
             {importWarnings.map((warning) => (
               <div
@@ -1019,7 +1020,7 @@ export function PriceRequestWorkspace() {
                 <tbody className="divide-y divide-[#e7edf4]">
                   {importPreview.map((record) => {
                     const inputClass =
-                      "h-7 w-full rounded-md border border-[#b9cce3] bg-white px-2 text-right text-[10px] outline-none focus:border-[#0b5bbb]";
+                      "h-7 w-full rounded-md border border-[#b9cce3] bg-white px-2 text-right text-[11px] outline-none focus:border-[#0b5bbb]";
                     return (
                       <tr key={record.id} className="hover:bg-[#f8fafd]">
                         <td className="px-3 py-2">
@@ -1059,7 +1060,7 @@ export function PriceRequestWorkspace() {
                                 event.target.value,
                               )
                             }
-                            className="h-7 w-32 rounded-md border border-[#b9cce3] bg-white px-2 text-center text-[10px] outline-none focus:border-[#0b5bbb]"
+                            className="h-7 w-32 rounded-md border border-[#b9cce3] bg-white px-2 text-center text-[11px] outline-none focus:border-[#0b5bbb]"
                           />
                         </td>
                         <td className="px-2 py-2">
@@ -1106,7 +1107,7 @@ export function PriceRequestWorkspace() {
                           />
                         </td>
                         <td className="px-2 py-2">
-                          <div className="h-7 rounded-md border border-[#dbe4ef] bg-[#f8fafd] px-2 py-1 text-right text-[10px] font-bold text-[#425979]">
+                          <div className="h-7 rounded-md border border-[#dbe4ef] bg-[#f8fafd] px-2 py-1 text-right text-[11px] font-bold text-[#425979]">
                             {formatNumber(record.markup)}
                           </div>
                         </td>
@@ -1117,7 +1118,7 @@ export function PriceRequestWorkspace() {
               </table>
             </div>
             <div className="flex flex-col gap-2 border-t border-[#e7edf4] bg-[#f8fafd] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-[10px] font-semibold text-[#74849a]">
+              <div className="text-[11px] font-semibold text-[#5a6a82]">
                 Revisá y editá antes de confirmar. La carga se agrega a la base
                 histórica de precios.
               </div>
@@ -1151,7 +1152,7 @@ export function PriceRequestWorkspace() {
             <h2 className="mt-1 text-base font-black text-[#10233f]">
               Base histórica de precios
             </h2>
-            <p className="mt-1 text-[11px] text-[#62728a]">
+            <p className="mt-1 text-[11px] text-[#5a6a82]">
               Información recibida, estructurada y editable.
             </p>
           </div>
@@ -1159,7 +1160,7 @@ export function PriceRequestWorkspace() {
 
         <div className="border-b border-[#e7edf4] p-4">
           <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_0.8fr_auto]">
-            <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+            <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
               Proveedor
               <select
                 value={selectedSupplier}
@@ -1177,7 +1178,7 @@ export function PriceRequestWorkspace() {
                 ))}
               </select>
             </label>
-            <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+            <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
               Mes
               <select
                 value={selectedMonth}
@@ -1195,7 +1196,7 @@ export function PriceRequestWorkspace() {
                 ))}
               </select>
             </label>
-            <label className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+            <label className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
               Año
               <select
                 value={selectedYear}
@@ -1225,11 +1226,12 @@ export function PriceRequestWorkspace() {
           <div className="relative mt-3 max-w-sm">
             <Search
               size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8a99ad]"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5a6a82]"
             />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              aria-label="Buscar proveedor o código único"
               placeholder="Buscar proveedor o código único..."
               className="h-10 w-full rounded-xl border border-[#dbe4ef] bg-[#f8fafd] pl-9 pr-3 text-xs outline-none focus:border-[#7da4d3]"
             />
@@ -1245,7 +1247,7 @@ export function PriceRequestWorkspace() {
                   <div className="relative mt-1">
                     <Search
                       size={10}
-                      className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[#8a99ad]"
+                      className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[#5a6a82]"
                     />
                     <input
                       value={supplierSearch}
@@ -1253,7 +1255,7 @@ export function PriceRequestWorkspace() {
                         setSupplierSearch(event.target.value)
                       }
                       aria-label="Buscar proveedor"
-                      className="h-5 w-full rounded border border-[#b8c8d8] bg-white py-0 pl-5 pr-1 text-[10px] font-semibold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#b8c8d8] bg-white py-0 pl-5 pr-1 text-[11px] font-semibold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -1262,7 +1264,7 @@ export function PriceRequestWorkspace() {
                   <div className="relative mt-1">
                     <Search
                       size={10}
-                      className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[#8a99ad]"
+                      className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[#5a6a82]"
                     />
                     <input
                       value={uniqueCodeSearch}
@@ -1270,7 +1272,7 @@ export function PriceRequestWorkspace() {
                         setUniqueCodeSearch(event.target.value)
                       }
                       aria-label="Buscar código único"
-                      className="h-5 w-full rounded border border-[#b8c8d8] bg-white py-0 pl-5 pr-1 text-[10px] font-semibold text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                      className="h-5 w-full rounded border border-[#b8c8d8] bg-white py-0 pl-5 pr-1 text-[11px] font-semibold text-[#10233f] outline-none focus:border-[#0b5bbb]"
                     />
                   </div>
                 </th>
@@ -1291,9 +1293,9 @@ export function PriceRequestWorkspace() {
                   editing ? priceDraft.informedAt : record.informedAt
                 ).split("-");
                 const inputClass =
-                  "h-6 w-full min-w-16 rounded-md border border-[#b9cce3] bg-white px-1.5 text-right text-[10px] outline-none focus:border-[#0b5bbb]";
+                  "h-6 w-full min-w-16 rounded-md border border-[#b9cce3] bg-white px-1.5 text-right text-[11px] outline-none focus:border-[#0b5bbb]";
                 const dateInputClass =
-                  "h-6 w-11 rounded-md border border-[#b9cce3] bg-white px-1 text-center text-[10px] outline-none focus:border-[#0b5bbb]";
+                  "h-6 w-11 rounded-md border border-[#b9cce3] bg-white px-1 text-center text-[11px] outline-none focus:border-[#0b5bbb]";
 
                 return (
                   <tr
@@ -1371,7 +1373,7 @@ export function PriceRequestWorkspace() {
                           onChange={(event) =>
                             updatePriceDatePart("year", event.target.value)
                           }
-                          className="h-6 w-14 rounded-md border border-[#b9cce3] bg-white px-1 text-center text-[10px] outline-none focus:border-[#0b5bbb]"
+                          className="h-6 w-14 rounded-md border border-[#b9cce3] bg-white px-1 text-center text-[11px] outline-none focus:border-[#0b5bbb]"
                         />
                       ) : (
                         date[0]
@@ -1422,7 +1424,7 @@ export function PriceRequestWorkspace() {
                     </td>
                     <td className="px-2 py-2 text-right">
                       {editing ? (
-                        <div className="h-6 rounded-md border border-[#dbe4ef] bg-[#f8fafd] px-1.5 py-1 text-right text-[10px] font-bold text-[#425979]">
+                        <div className="h-6 rounded-md border border-[#dbe4ef] bg-[#f8fafd] px-1.5 py-1 text-right text-[11px] font-bold text-[#425979]">
                           {formatNumber(priceDraft.markup)}
                         </div>
                       ) : (
@@ -1468,7 +1470,7 @@ export function PriceRequestWorkspace() {
           </table>
         </div>
         {filteredPrices.length === 0 && (
-          <div className="px-5 py-12 text-center text-xs text-[#74849a]">
+          <div className="px-5 py-12 text-center text-xs text-[#5a6a82]">
             {pricesLoading
               ? "Cargando base de precios..."
               : !pricesLoaded
@@ -1476,7 +1478,7 @@ export function PriceRequestWorkspace() {
                 : "No hay precios para mostrar."}
           </div>
         )}
-        <div className="border-t border-[#e7edf4] bg-[#f8fafd] px-3 py-2 text-[10px] font-semibold text-[#74849a]">
+        <div className="border-t border-[#e7edf4] bg-[#f8fafd] px-3 py-2 text-[11px] font-semibold text-[#5a6a82]">
           {priceResultTotal > visiblePrices.length
             ? `${visiblePrices.length} de ${priceResultTotal} registros de precio`
             : `${visiblePrices.length} registros de precio`}
@@ -1497,7 +1499,7 @@ export function PriceRequestWorkspace() {
             <button
               type="button"
               onClick={() => setSupplierModalOpen(false)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#edf4fc]"
             >
               <X size={18} />
             </button>

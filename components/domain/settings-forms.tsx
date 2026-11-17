@@ -22,9 +22,9 @@ async function save(key: SettingKey, value: unknown) {
 }
 
 function SavedNote({ saved }: { saved: Saved }) {
-  if (!saved.updatedAt) return <span className="text-[11px] text-[#8a99ad]">Todavía no se guardó ningún cambio.</span>;
+  if (!saved.updatedAt) return <span className="text-[11px] text-[#5a6a82]">Todavía no se guardó ningún cambio.</span>;
   return (
-    <span className="text-[11px] text-[#8a99ad]">
+    <span className="text-[11px] text-[#5a6a82]">
       Último cambio: {saved.updatedBy ?? "—"}, {new Date(saved.updatedAt).toLocaleString("es-AR", { hourCycle: "h23" })}
     </span>
   );
@@ -155,7 +155,7 @@ export function NotificationsForm({ initial, saved: initialSaved }: { initial: N
       <div className="mt-6">
         <div className="text-[11px] font-extrabold text-[#334b6b]">Destinatarios de los avisos</div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {form.recipients.length === 0 && <span className="text-xs text-[#8a99ad]">Sin destinatarios: los problemas se ven acá pero no se avisa por correo.</span>}
+          {form.recipients.length === 0 && <span className="text-xs text-[#5a6a82]">Sin destinatarios: los problemas se ven acá pero no se avisa por correo.</span>}
           {form.recipients.map((email) => (
             <span key={email} className="inline-flex items-center gap-1 rounded-full bg-[#e9f1fb] px-3 py-1 text-xs font-bold text-[#0b5bbb]">
               {email}
@@ -200,7 +200,7 @@ export function NotificationsForm({ initial, saved: initialSaved }: { initial: N
             />
             <span>
               <span className="block text-xs font-bold text-[#10233f]">{alert.label}</span>
-              <span className="block text-[11px] text-[#62728a]">{alert.help}</span>
+              <span className="block text-[11px] text-[#5a6a82]">{alert.help}</span>
               {alert.key === "tango" && form.tango && (
                 <span className="mt-2 flex items-center gap-2 text-[11px] text-[#334b6b]">
                   Avisar después de

@@ -290,7 +290,7 @@ function ProductOptionPicker({
           if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
         }}
       >
-        <LeadingIcon className="ml-3 shrink-0 text-[#7690ae]" size={15} />
+        <LeadingIcon className="ml-3 shrink-0 text-[#5a6a82]" size={15} />
         <input
           type="text"
           role="combobox"
@@ -322,8 +322,9 @@ function ProductOptionPicker({
               setIsOpen(false);
             }
           }}
+          aria-label={label}
           placeholder={placeholder}
-          className="h-full min-w-0 flex-1 bg-transparent px-2 text-xs font-medium text-[#233a58] outline-none placeholder:text-[#9aa8b8]"
+          className="h-full min-w-0 flex-1 bg-transparent px-2 text-xs font-medium text-[#233a58] outline-none placeholder:text-[#74849a]"
         />
         <button
           type="button"
@@ -331,7 +332,7 @@ function ProductOptionPicker({
           aria-label={`Mostrar ${optionLabel}`}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => setIsOpen((current) => !current)}
-          className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#7690ae] transition-colors hover:bg-[#edf3fa] hover:text-[#315d8f]"
+          className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#5a6a82] transition-colors hover:bg-[#edf3fa] hover:text-[#315d8f]"
         >
           <ChevronDown
             size={16}
@@ -346,7 +347,7 @@ function ProductOptionPicker({
           role="listbox"
           className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-[#d6e0ec] bg-white p-1.5 shadow-[0_16px_40px_rgba(31,55,86,.16)]"
         >
-          <div className="flex items-center justify-between px-2.5 py-2 text-[9px] font-black uppercase tracking-[.1em] text-[#8493a6]">
+          <div className="flex items-center justify-between px-2.5 py-2 text-[11px] font-black uppercase tracking-[.1em] text-[#5a6a82]">
             <span>{type === "supplier" ? "Proveedores disponibles" : "Categorías disponibles"}</span>
             <span className="rounded-full bg-[#edf3fa] px-2 py-0.5 text-[#52769f]">
               {filteredOptions.length}
@@ -380,12 +381,12 @@ function ProductOptionPicker({
                 );
               })
             ) : (
-              <div className="px-3 py-5 text-center text-[11px] font-medium leading-5 text-[#8493a6]">
+              <div className="px-3 py-5 text-center text-[11px] font-medium leading-5 text-[#5a6a82]">
                 No hay {optionLabel} que coincidan con “{value}”.
               </div>
             )}
           </div>
-          <div className="border-t border-[#edf1f5] px-2.5 py-2 text-[9px] font-medium text-[#98a4b2]">
+          <div className="border-t border-[#edf1f5] px-2.5 py-2 text-[11px] font-medium text-[#98a4b2]">
             Escribí para filtrar · ↑↓ para navegar · Enter para elegir
           </div>
         </div>
@@ -996,11 +997,12 @@ export function ProductWorkspace() {
           <div className="relative w-full max-w-[360px]">
             <Search
               size={15}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8a99ad]"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#5a6a82]"
             />
             <input
               value={query}
               onChange={(event) => updateQuery(event.target.value)}
+              aria-label="Buscar productos"
               placeholder="Buscar código, producto o marca..."
               className="h-10 w-full rounded-xl border border-[#dbe4ef] bg-[#f8fafd] pl-10 pr-4 text-xs outline-none focus:border-[#7da4d3]"
             />
@@ -1013,7 +1015,7 @@ export function ProductWorkspace() {
               onClick={deactivateSelected}
               className={
                 selected.size === 0
-                  ? "border-[#e1e5ea] bg-[#f1f3f5] text-[#9aa3ad] opacity-100"
+                  ? "border-[#e1e5ea] bg-[#f1f3f5] text-[#5a6a82] opacity-100"
                   : ""
               }
             >
@@ -1028,7 +1030,7 @@ export function ProductWorkspace() {
           </div>
         </div>
         <div className="max-h-[470px] overflow-auto">
-          <table className="w-full min-w-[1120px] table-fixed text-left text-[10.5px]">
+          <table className="w-full min-w-[1120px] table-fixed text-left text-[11px]">
             <thead className="sticky top-0 z-[1]">
               <tr className="border-b border-[#dbe4ef] bg-[#edf4fc] font-bold text-[#334b6b]">
                 <th className="w-10 px-2 py-2 text-center">
@@ -1099,17 +1101,17 @@ export function ProductWorkspace() {
                       size="sm"
                       variant="secondary"
                       onClick={() => openEdit(product)}
-                      className="h-7 px-3 text-[10px]"
+                      className="h-7 px-3 text-[11px]"
                     >
                       Editar
                     </Button>
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     <span
-                      className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black ${
+                      className={`inline-flex rounded-full px-2 py-1 text-[11px] font-black ${
                         product.active
                           ? "bg-[#e8f6ed] text-[#277345]"
-                          : "bg-[#eceff3] text-[#687789]"
+                          : "bg-[#eceff3] text-[#5a6a82]"
                       }`}
                     >
                       {product.active ? "Activo" : "Inactivo"}
@@ -1130,12 +1132,12 @@ export function ProductWorkspace() {
                   </td>
                   <td className="px-3 py-1.5">
                     <div
-                      className="truncate text-[10.5px] font-semibold leading-4 text-[#10233f]"
+                      className="truncate text-[11px] font-semibold leading-4 text-[#10233f]"
                       title={product.name}
                     >
                       {product.name}
                     </div>
-                    <div className="mt-0.5 font-mono text-[8.5px] leading-3 text-[#8492a5]">
+                    <div className="mt-0.5 font-mono text-[11px] leading-3 text-[#5a6a82]">
                       {product.code}
                     </div>
                   </td>
@@ -1149,7 +1151,7 @@ export function ProductWorkspace() {
                       {product.supplier}
                     </div>
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-[9.5px] text-[#425979]">
+                  <td className="px-2 py-1.5 font-mono text-[11px] text-[#425979]">
                     <div className="truncate" title={product.supplierCode}>
                       {product.supplierCode || "-"}
                     </div>
@@ -1172,7 +1174,7 @@ export function ProductWorkspace() {
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[10px] font-semibold text-[#62728a]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[11px] font-semibold text-[#5a6a82]">
           <span>
             Mostrando {visibleProducts.length} de {filtered.length} filtrados ·{" "}
             {products.filter((product) => product.active).length} activos ·{" "}
@@ -1186,7 +1188,7 @@ export function ProductWorkspace() {
               onClick={() =>
                 setVisibleLimit((current) => current + visibleBatchSize)
               }
-              className="h-7 px-3 text-[10px]"
+              className="h-7 px-3 text-[11px]"
             >
               Mostrar{" "}
               {Math.min(
@@ -1205,11 +1207,11 @@ export function ProductWorkspace() {
           <div>
           <div className="eyebrow">Importación</div>
           <h2 className="mt-1 text-base font-black text-[#10233f]">Carga masiva de productos</h2>
-          <p className="mt-1 text-[11px] font-medium text-[#62728a]">
+          <p className="mt-1 text-[11px] font-medium text-[#5a6a82]">
             Subí un Excel, completá la tabla o pegá desde Excel. Orden de columnas: Producto · Marca · Código único · Proveedor · Categoría · Bulto · Cód. Único Prov.
             Los códigos únicos que ya existen se omiten.
           </p>
-          <p className="mt-1 text-[10px] font-bold text-[#8a99ad]">
+          <p className="mt-1 text-[11px] font-bold text-[#5a6a82]">
             Tip: mantené click y arrastrá para seleccionar celdas. Un nuevo click inicia una selección nueva.
           </p>
           </div>
@@ -1234,7 +1236,7 @@ export function ProductWorkspace() {
           </div>
         </div>
         <div className="overflow-auto">
-          <table className="w-full min-w-[880px] table-fixed text-left text-[10.5px]">
+          <table className="w-full min-w-[880px] table-fixed text-left text-[11px]">
             <thead className="sticky top-0 z-[1]">
               <tr className="border-b border-[#dbe4ef] bg-[#edf4fc] font-bold text-[#334b6b]">
                 <th className="w-[28%] px-3 py-2">Producto *</th>
@@ -1276,6 +1278,7 @@ export function ProductWorkspace() {
                             col === "category" ? "bulk-category-options" :
                             undefined
                           }
+                          aria-label={`Fila ${rowIndex + 1}: ${{ name: "nombre", brand: "marca", code: "código", supplier: "proveedor", category: "categoría", unitsPerPackage: "unidades por bulto" }[col as string] ?? col}`}
                           placeholder={
                             col === "name" ? "Nombre del producto" :
                             col === "brand" ? "Marca" :
@@ -1299,7 +1302,7 @@ export function ProductWorkspace() {
                             setBulkRows((prev) => applyBulkPaste(prev, text, rowIndex, colIndex));
                             setBulkError("");
                           }}
-                          className={`h-8 w-full rounded-lg border px-2 text-[10.5px] outline-none hover:border-[#dbe4ef] focus:border-[#7da4d3] focus:bg-white ${col === "unitsPerPackage" ? "text-center" : ""} ${
+                          className={`h-8 w-full rounded-lg border px-2 text-[11px] outline-none hover:border-[#dbe4ef] focus:border-[#7da4d3] focus:bg-white ${col === "unitsPerPackage" ? "text-center" : ""} ${
                             selectedCell
                               ? "border-[#0b5bbb] bg-[#dfeafa] shadow-[inset_0_0_0_1px_#0b5bbb]"
                               : "border-transparent bg-transparent"
@@ -1340,7 +1343,7 @@ export function ProductWorkspace() {
               variant="secondary"
               size="sm"
               onClick={() => setBulkRows((prev) => [...prev, ...Array.from({ length: 5 }, emptyBulkRow)])}
-              className="h-7 px-3 text-[10px]"
+              className="h-7 px-3 text-[11px]"
             >
               <Plus size={12} /> 5 filas más
             </Button>
@@ -1352,8 +1355,8 @@ export function ProductWorkspace() {
               onClick={clearSelectedBulkCells}
               className={
                 selectedBulkCells.size === 0
-                  ? "h-7 border-[#e1e5ea] bg-[#f1f3f5] px-3 text-[10px] text-[#9aa3ad] opacity-100"
-                  : "h-7 px-3 text-[10px]"
+                  ? "h-7 border-[#e1e5ea] bg-[#f1f3f5] px-3 text-[11px] text-[#5a6a82] opacity-100"
+                  : "h-7 px-3 text-[11px]"
               }
             >
               <Trash2 size={12} /> Borrar celdas ({selectedBulkCells.size})
@@ -1367,7 +1370,7 @@ export function ProductWorkspace() {
                 setSelectedBulkCells(new Set());
                 setBulkError("");
               }}
-              className="h-7 px-3 text-[10px] text-[#9aa3ad]"
+              className="h-7 px-3 text-[11px] text-[#5a6a82]"
             >
               Limpiar
             </Button>
@@ -1393,7 +1396,7 @@ export function ProductWorkspace() {
             <button
               type="button"
               onClick={() => setBulkPending(null)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]"
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]"
             >
               <X size={18} />
             </button>
@@ -1403,14 +1406,14 @@ export function ProductWorkspace() {
               {bulkPending.toImport.length === 1 ? "producto nuevo" : "productos nuevos"} a importar
             </h2>
             {bulkPending.skipped.length > 0 && (
-              <p className="mt-1 text-[11px] font-semibold text-[#62728a]">
+              <p className="mt-1 text-[11px] font-semibold text-[#5a6a82]">
                 {bulkPending.skipped.length}{" "}
                 {bulkPending.skipped.length === 1 ? "producto ya existe" : "productos ya existen"} y{" "}
                 {bulkPending.skipped.length === 1 ? "será omitido" : "serán omitidos"}.
               </p>
             )}
             <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-[#e1e8f1]">
-              <table className="w-full text-left text-[10px]">
+              <table className="w-full text-left text-[11px]">
                 <thead className="sticky top-0 bg-[#edf4fc] font-bold text-[#334b6b]">
                   <tr>
                     <th className="px-3 py-2 w-[40%]">Producto</th>
@@ -1421,12 +1424,12 @@ export function ProductWorkspace() {
                 </thead>
                 <tbody className="divide-y divide-[#e7edf4] bg-white">
                   {bulkPending.toImport.map((p) => (
-                    <tr key={p.id} className="text-[10px] text-[#334b6b]">
+                    <tr key={p.id} className="text-[11px] text-[#334b6b]">
                       <td className="px-3 py-1.5">
                         <div className="truncate font-semibold">{p.name}</div>
-                        <div className="font-normal text-[#8492a5]">{p.brand}</div>
+                        <div className="font-normal text-[#5a6a82]">{p.brand}</div>
                       </td>
-                      <td className="px-2 py-1.5 font-mono text-[9.5px]">{p.code}</td>
+                      <td className="px-2 py-1.5 font-mono text-[11px]">{p.code}</td>
                       <td className="px-2 py-1.5 text-[#425979]">{p.supplier}</td>
                       <td className="px-2 py-1.5 text-[#425979]">{p.category}</td>
                     </tr>
@@ -1472,7 +1475,7 @@ export function ProductWorkspace() {
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]"
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]"
             >
               <X size={18} />
             </button>
@@ -1586,16 +1589,16 @@ export function ProductWorkspace() {
                     className="text-[11px] font-semibold text-[#425979] file:mr-3 file:rounded-lg file:border-0 file:bg-[#edf4fc] file:px-3 file:py-1.5 file:text-[11px] file:font-bold file:text-[#0b5bbb] hover:file:bg-[#dfeafb]"
                   />
                   {imageUploading && (
-                    <span className="text-[10px] font-bold text-[#7690ae]">Subiendo...</span>
+                    <span className="text-[11px] font-bold text-[#5a6a82]">Subiendo...</span>
                   )}
                   {imageError && (
-                    <span className="text-[10px] font-bold text-[#a43d39]">{imageError}</span>
+                    <span className="text-[11px] font-bold text-[#a43d39]">{imageError}</span>
                   )}
                   {form.imageUrl && !imageUploading && (
                     <button
                       type="button"
                       onClick={() => setForm((current) => ({ ...current, imageUrl: "" }))}
-                      className="w-fit text-[10px] font-bold text-[#a43d39] hover:underline"
+                      className="w-fit text-[11px] font-bold text-[#a43d39] hover:underline"
                     >
                       Quitar imagen
                     </button>

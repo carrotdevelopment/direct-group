@@ -6,7 +6,6 @@ export const accessModules = {
   productos: "Productos",
   ventas: "Ventas y egresos",
   stock: "Stock",
-  importaciones: "Importaciones",
   pasajes: "Pasajes y ajustes",
   correos: "Correos (casilla de proveedores)",
 } as const;
@@ -23,7 +22,7 @@ export function pageModule(path: string): string {
     compras: "compras", ingresos: "compras", precios: "precios", pricing: "precios",
     "estructura-costos": "precios", proveedores: "proveedores", clientes: "clientes",
     "codigos-clientes": "clientes", productos: "productos", ventas: "ventas",
-    egresos: "ventas", stock: "stock", importaciones: "importaciones",
+    egresos: "ventas", stock: "stock",
     pasajes: "pasajes", correos: "correos",
   };
   return map[section] ?? "admin";

@@ -34,7 +34,7 @@ export function EgressBulkDeactivate({ client, batches, onComplete }: {
   const inputClass = "rounded-lg border border-[#dbe4ef] bg-white px-3 py-2 text-xs";
   return <section className="card space-y-3 p-4" aria-label="Inactivar carga completa">
     <h2 className="text-sm font-bold">Inactivar archivo o rango de fechas</h2>
-    <p className="text-xs text-[#62728a]">Afecta todos los egresos activos del cliente dentro del alcance elegido, aunque no estén visibles en la grilla. Se conserva el respaldo original.</p>
+    <p className="text-xs text-[#5a6a82]">Afecta todos los egresos activos del cliente dentro del alcance elegido, aunque no estén visibles en la grilla. Se conserva el respaldo original.</p>
     <div className="flex flex-wrap items-center gap-2">
       <select aria-label="Tipo de baja" className={inputClass} value={mode} disabled={busy} onChange={e => { setMode(e.target.value); setCount(null); }}>
         <option value="batch">Archivo / subida</option><option value="date">Fecha de operación</option>

@@ -10,7 +10,7 @@ summary {
 
 :root {
   --ink: #10233f;
-  --muted: #62728a;
+  --muted: #5a6a82;
   --line: #dfe6ef;
   --surface: #ffffff;
   --canvas: #f4f7fb;
@@ -54,7 +54,13 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgb(11 91 187 / 0.14);
   outline: none;
 }
-input::placeholder, textarea::placeholder { color: #8a99ad; opacity: 1; }
+/* Botones, enlaces y casillas: el mismo anillo azul al moverse con el teclado (antes quedaba el contorno
+   del navegador, a veces naranja, o ninguno). */
+:where(button, a, summary, [role="button"], [tabindex], input[type="checkbox"], input[type="radio"]):focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+input::placeholder, textarea::placeholder { color: #74849a; opacity: 1; }
 input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--green); }
 
 ::selection { background: #cfe0f5; color: var(--green-dark); }
@@ -89,3 +95,12 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 @media (prefers-reduced-motion: reduce) { .animate-enter { animation: none; } }
 
 .cost-table tbody td { border-bottom: 1px solid #e1e8f1; }
+
+/* Celular y tablet (pantalla táctil): botones y campos con alto mínimo de 40 px y casillas más grandes,
+   para que se puedan tocar con el dedo sin errarle. En la PC no cambia nada. */
+@media (pointer: coarse) {
+  main button, main select,
+  main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { min-height: 40px; }
+  main button:has(> svg:only-child) { min-width: 40px; }
+  main input[type="checkbox"], main input[type="radio"] { width: 20px; height: 20px; }
+}

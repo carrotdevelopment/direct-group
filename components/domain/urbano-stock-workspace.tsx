@@ -253,7 +253,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
             )}
           </div>
 
-          {busy && <p className="mt-4 text-xs font-semibold text-[#8a99ad]">Procesando…</p>}
+          {busy && <p className="mt-4 text-xs font-semibold text-[#5a6a82]">Procesando…</p>}
           {error && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
           {notice && <div className="mt-4 rounded-xl bg-[#e7f7eb] px-4 py-3 text-xs font-bold text-[#23783a]">{notice}</div>}
 
@@ -263,7 +263,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                 <span className="rounded-full bg-[#e7f7eb] px-3 py-1 text-[#23783a]">{counts.ok} correctos</span>
                 {counts.warning > 0 && <span className="rounded-full bg-[#fff0d9] px-3 py-1 text-[#985b00]">{counts.warning} con aviso (se guardan igual)</span>}
                 {counts.error > 0 && <span className="rounded-full bg-[#fce9e8] px-3 py-1 text-[#a43d39]">{counts.error} con error (no se guardan)</span>}
-                <span className="text-[#8a99ad]">Física total: {fmt(counts.total)}</span>
+                <span className="text-[#5a6a82]">Física total: {fmt(counts.total)}</span>
               </div>
               {duplicateFile && (
                 <div className="mt-3 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
@@ -278,7 +278,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
               )}
               <div className="mt-3 max-h-[45vh] overflow-auto rounded-xl border border-[#e1e8f1]">
                 <table className="w-full text-left text-[11px]">
-                  <thead className="sticky top-0 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
+                  <thead className="sticky top-0 bg-[#edf4fc] text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">
                     <tr>
                       <th className="px-3 py-2">Fila</th>
                       <th className="px-3 py-2">Código</th>
@@ -293,16 +293,16 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                   <tbody className="divide-y divide-[#eef2f7]">
                     {preview.map((row) => (
                       <tr key={row.row} className={row.status === "error" ? "bg-[#fff8f8]" : row.status === "warning" ? "bg-[#fffaf1]" : "bg-white"}>
-                        <td className="px-3 py-2 text-[#8a99ad]">{row.row}</td>
+                        <td className="px-3 py-2 text-[#5a6a82]">{row.row}</td>
                         <td className="whitespace-nowrap px-3 py-2 font-mono font-bold text-[#10233f]">{row.clientCode}</td>
                         <td className="max-w-[320px] px-3 py-2 text-[#334b6b]">
                           <div className="truncate" title={row.product}>{row.product}</div>
-                          <div className="text-[#8a99ad]">{row.uniqueCode ?? ""}</div>
+                          <div className="text-[#5a6a82]">{row.uniqueCode ?? ""}</div>
                         </td>
                         <td className="px-3 py-2 text-[#334b6b]">{row.client ?? "—"}</td>
                         <td className="px-3 py-2 text-right font-bold tabular-nums">{Number.isFinite(row.quantity) ? fmt(row.quantity) : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-[#62728a]">{Number.isFinite(row.unavailable) ? fmt(row.unavailable) : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-[#62728a]">{Number.isFinite(row.pendingPickup) ? fmt(row.pendingPickup) : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#5a6a82]">{Number.isFinite(row.unavailable) ? fmt(row.unavailable) : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#5a6a82]">{Number.isFinite(row.pendingPickup) ? fmt(row.pendingPickup) : "—"}</td>
                         <td className="max-w-[300px] px-3 py-2">
                           <div className="flex items-start gap-1.5">
                             {row.status === "ok" && <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-[#23783a]" />}
@@ -333,7 +333,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
         <div className="card overflow-hidden">
           <div className="border-b border-[#dbe4ef] px-5 py-3 text-xs font-black text-[#10233f]">Cargas</div>
           {loads.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[11px] font-bold text-[#8a99ad]">Todavía no hay cargas del reporte de Urbano.</p>
+            <p className="px-5 py-8 text-center text-[11px] font-bold text-[#5a6a82]">Todavía no hay cargas del reporte de Urbano.</p>
           ) : (
             <ul className="max-h-[60vh] divide-y divide-[#eef2f7] overflow-auto">
               {loads.map((load) => (
@@ -342,12 +342,12 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
                     <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelected(load.id)}>
                       <div className="flex items-center gap-2 text-xs font-black text-[#10233f]">
                         Reporte del {formatDate(load.reportDate)}
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${load.source === "excel" ? "bg-[#eef1f5] text-[#52647d]" : "bg-[#e7f0fb] text-[#0b5bbb]"}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${load.source === "excel" ? "bg-[#eef1f5] text-[#52647d]" : "bg-[#e7f0fb] text-[#0b5bbb]"}`}>
                           {load.source === "api" ? "API" : load.source === "portal" ? "Portal" : "Excel"}
                         </span>
                       </div>
-                      <div className="truncate text-[10px] text-[#62728a]" title={load.fileName ?? ""}>{load.fileName ?? "sin nombre"}</div>
-                      <div className="text-[10px] text-[#8a99ad]">
+                      <div className="truncate text-[11px] text-[#5a6a82]" title={load.fileName ?? ""}>{load.fileName ?? "sin nombre"}</div>
+                      <div className="text-[11px] text-[#5a6a82]">
                         {load.rowCount} códigos · física {fmt(load.totalQuantity)} · {load.createdBy}, {new Date(load.createdAt).toLocaleString("es-AR")}
                       </div>
                     </button>
@@ -369,12 +369,12 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
               {selectedLoad ? `Stock informado por Urbano · ${formatDate(selectedLoad.reportDate)}` : "Stock informado por Urbano"}
             </div>
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 text-[10px] font-bold text-[#62728a]">
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5a6a82]">
                 <input type="checkbox" checked={onlyWithStock} onChange={(event) => setOnlyWithStock(event.target.checked)} />
                 Solo con cantidad
               </label>
               <div className="relative">
-                <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#7b8da6]" />
+                <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -386,7 +386,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
           </div>
           <div className="max-h-[60vh] overflow-auto">
             <table className="w-full text-left text-[11px]">
-              <thead className="sticky top-0 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
+              <thead className="sticky top-0 bg-[#edf4fc] text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">
                 <tr>
                   <th className="px-4 py-2">Código</th>
                   <th className="px-4 py-2">Producto</th>
@@ -399,19 +399,19 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
               <tbody className="divide-y divide-[#eef2f7]">
                 {visibleItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center font-bold text-[#8a99ad]">{items.length ? "Sin resultados." : "Sin datos."}</td>
+                    <td colSpan={6} className="py-10 text-center font-bold text-[#5a6a82]">{items.length ? "Sin resultados." : "Sin datos."}</td>
                   </tr>
                 ) : visibleItems.map((item) => (
                   <tr key={item.clientCode} className="bg-white">
                     <td className="whitespace-nowrap px-4 py-2 font-mono font-bold text-[#10233f]">{item.clientCode}</td>
                     <td className="max-w-[360px] px-4 py-2 text-[#334b6b]">
                       <div className="truncate" title={item.product}>{item.product}</div>
-                      <div className="text-[#8a99ad]">{item.uniqueCode ?? ""}</div>
+                      <div className="text-[#5a6a82]">{item.uniqueCode ?? ""}</div>
                     </td>
                     <td className="px-4 py-2 text-[#334b6b]">{item.client ?? <span className="text-[#985b00]">Sin código cliente</span>}</td>
                     <td className="px-4 py-2 text-right font-bold tabular-nums">{fmt(item.quantity)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-[#62728a]">{fmt(item.unavailable)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-[#62728a]">{fmt(item.pendingPickup)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-[#5a6a82]">{fmt(item.unavailable)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-[#5a6a82]">{fmt(item.pendingPickup)}</td>
                   </tr>
                 ))}
               </tbody>

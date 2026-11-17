@@ -15,6 +15,45 @@ type AdminItem = {
 
 type ApiKey = "suppliers" | "categories";
 type Manager = { id: string; name: string };
+// Encargado de un proveedor: se muestra el nombre y la lista se arma recién al tocarlo (antes cada fila
+// tenía su desplegable completo y la página se hacía pesada con cientos de proveedores).
+function ManagerPicker({ supplier, value, managers, managerName, onChange }: {
+  supplier: string; value: string; managers: Manager[]; managerName: Map<string, string>; onChange: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    if (!editing || !selectRef.current) return;
+    selectRef.current.focus();
+    try { selectRef.current.showPicker(); } catch { /* algunos navegadores no lo permiten: queda enfocado */ }
+  }, [editing]);
+  const label = value ? managerName.get(value) ?? "Usuario dado de baja" : "Sin encargado";
+  const tone = value ? "border-[#cfdcec] text-[#16365f]" : "border-dashed border-[#dbe4ef] text-[#5a6a82]";
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => setEditing(true)} aria-label={`Encargado de ${supplier}: ${label}. Cambiar`}
+        className={`h-7 max-w-[150px] truncate rounded-lg border bg-white px-2 text-[11px] font-bold hover:border-[#0b5bbb] ${tone}`}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <select
+      ref={selectRef}
+      aria-label={`Encargado de ${supplier}`}
+      value={value}
+      onChange={(event) => { onChange(event.target.value); setEditing(false); }}
+      onBlur={() => setEditing(false)}
+      onKeyDown={(event) => { if (event.key === "Escape") setEditing(false); }}
+      className={`h-7 max-w-[150px] rounded-lg border bg-white px-2 text-[11px] font-bold outline-none focus:border-[#7da4d3] ${tone}`}
+    >
+      <option value="">Sin encargado</option>
+      {value && !managerName.has(value) && <option value={value}>Usuario dado de baja</option>}
+      {managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.name}</option>)}
+    </select>
+  );
+}
+
 type ListResponse = Partial<Record<ApiKey, AdminItem[]>> & { managers?: Manager[]; currentUserId?: string | null };
 
 // Filtro por encargado: todos, los del usuario que mira, los que no tienen o los de un usuario puntual.
@@ -191,7 +230,7 @@ function AdminList({
         <div>
           <div className="eyebrow">{eyebrow}</div>
           <h2 className="mt-1 text-base font-black text-[#10233f]">{title}</h2>
-          <p className="mt-1 text-[11px] font-medium text-[#62728a]">
+          <p className="mt-1 text-[11px] font-medium text-[#5a6a82]">
             {description}
           </p>
         </div>
@@ -247,7 +286,7 @@ function AdminList({
       </div>
       <div className="max-h-[320px] overflow-y-auto">
         {visible.length === 0 ? (
-          <p className="p-4 text-[11px] font-semibold text-[#9aa3ad]">
+          <p className="p-4 text-[11px] font-semibold text-[#5a6a82]">
             Sin resultados para esta búsqueda.
           </p>
         ) : (
@@ -264,7 +303,7 @@ function AdminList({
               >
                 <span
                   className={`truncate text-[11.5px] font-bold ${
-                    item.active ? "text-[#10233f]" : "text-[#9aa3ad] line-through"
+                    item.active ? "text-[#10233f]" : "text-[#5a6a82] line-through"
                   }`}
                   title={item.name}
                 >
@@ -272,27 +311,19 @@ function AdminList({
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
                   {withManagers && (
-                    <select
-                      aria-label={`Encargado de ${item.name}`}
+                    <ManagerPicker
+                      supplier={item.name}
                       value={item.managerUserId ?? ""}
-                      onChange={(event) => void setManager(item.id, event.target.value)}
-                      title={item.managerUserId ? `Encargado: ${managerName.get(item.managerUserId) ?? "usuario dado de baja"}` : "Sin encargado"}
-                      className={`h-7 max-w-[150px] rounded-lg border bg-white px-2 text-[10px] font-bold outline-none focus:border-[#7da4d3] ${item.managerUserId ? "border-[#cfdcec] text-[#16365f]" : "border-dashed border-[#dbe4ef] text-[#9aa3ad]"}`}
-                    >
-                      <option value="">Sin encargado</option>
-                      {item.managerUserId && !managerName.has(item.managerUserId) && (
-                        <option value={item.managerUserId}>Usuario dado de baja</option>
-                      )}
-                      {managers.map((manager) => (
-                        <option key={manager.id} value={manager.id}>{manager.name}</option>
-                      ))}
-                    </select>
+                      managers={managers}
+                      managerName={managerName}
+                      onChange={(value) => void setManager(item.id, value)}
+                    />
                   )}
                   <span
-                    className={`rounded-full px-2 py-1 text-[9px] font-black ${
+                    className={`rounded-full px-2 py-1 text-[11px] font-black ${
                       item.active
                         ? "bg-[#e8f6ed] text-[#277345]"
-                        : "bg-[#eceff3] text-[#687789]"
+                        : "bg-[#eceff3] text-[#5a6a82]"
                     }`}
                   >
                     {item.active ? "Activo" : "Inactivo"}
@@ -300,9 +331,9 @@ function AdminList({
                   <button
                     type="button"
                     onClick={() => void toggleItem(item.id)}
-                    className={`rounded-lg border px-2.5 py-1 text-[9px] font-extrabold transition ${
+                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-extrabold transition ${
                       item.active
-                        ? "border-[#dbe4ef] bg-white text-[#62728a] hover:border-[#a43d39] hover:bg-[#fce9e8] hover:text-[#a43d39]"
+                        ? "border-[#dbe4ef] bg-white text-[#5a6a82] hover:border-[#a43d39] hover:bg-[#fce9e8] hover:text-[#a43d39]"
                         : "border-[#cfe3d6] bg-[#e8f6ed] text-[#277345] hover:border-[#277345]"
                     }`}
                   >
@@ -315,7 +346,7 @@ function AdminList({
           </ul>
         )}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[10px] font-semibold text-[#62728a]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e4eaf2] bg-[#f8fafd] px-5 py-3 text-[11px] font-semibold text-[#5a6a82]">
         <span>
           {items.filter((item) => item.active).length} activos · {items.length}{" "}
           total

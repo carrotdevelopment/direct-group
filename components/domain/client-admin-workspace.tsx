@@ -253,7 +253,7 @@ export function ClientAdminWorkspace() {
 
   if (loading) {
     return (
-      <div className="py-24 text-center text-sm text-[#74849a]">Cargando clientes...</div>
+      <div className="py-24 text-center text-sm text-[#5a6a82]">Cargando clientes...</div>
     );
   }
 
@@ -268,7 +268,7 @@ export function ClientAdminWorkspace() {
       />
 
       {status && (
-        <div className="mb-4 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-3 text-[11px] font-bold text-[#62728a]">
+        <div className="mb-4 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-3 text-[11px] font-bold text-[#5a6a82]">
           {status}
         </div>
       )}
@@ -306,7 +306,7 @@ export function ClientAdminWorkspace() {
                         </Badge>
                       </button>
                     </div>
-                    <div className="mt-0.5 text-[10px] text-[#74849a]">
+                    <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                       {latestConfig
                         ? `Config. vigente desde ${periodDisplay(latestConfig.effectiveFrom)} · ${latestConfig.items.filter((r) => r.applies).length} tasas activas`
                         : "Sin configuración de tasas"}
@@ -317,7 +317,7 @@ export function ClientAdminWorkspace() {
                       size="sm"
                       variant="secondary"
                       onClick={() => openEditClient(client)}
-                      className="h-8 px-3 text-[10px]"
+                      className="h-8 px-3 text-[11px]"
                     >
                       <Pencil size={13} /> Editar
                     </Button>
@@ -325,7 +325,7 @@ export function ClientAdminWorkspace() {
                       size="sm"
                       onClick={() => openNewConfig(client)}
                       disabled={saving}
-                      className="h-8 px-3 text-[10px]"
+                      className="h-8 px-3 text-[11px]"
                     >
                       <Plus size={13} /> Nueva config
                     </Button>
@@ -333,7 +333,7 @@ export function ClientAdminWorkspace() {
                       <button
                         type="button"
                         onClick={() => setExpandedId(isExpanded ? null : client.id)}
-                        className="grid h-8 w-8 place-items-center rounded-lg border border-[#dbe4ef] text-[#62728a] hover:bg-[#edf4fc]"
+                        className="grid h-8 w-8 place-items-center rounded-lg border border-[#dbe4ef] text-[#5a6a82] hover:bg-[#edf4fc]"
                       >
                         {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                       </button>
@@ -345,14 +345,14 @@ export function ClientAdminWorkspace() {
                 {isExpanded && latestConfig && (
                   <div className="border-t border-[#e7edf4] bg-[#f8fafd] px-5 pb-4 pt-3">
                     <div className="mb-2 flex items-center justify-between">
-                      <div className="text-[10px] font-extrabold uppercase tracking-wide text-[#62728a]">
+                      <div className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
                         Tasas vigentes desde {periodDisplay(latestConfig.effectiveFrom)}
                       </div>
                       {hasHistory && (
                         <button
                           type="button"
                           onClick={() => setHistoryExpandedId(isHistoryExpanded ? null : client.id)}
-                          className="flex items-center gap-1 text-[10px] font-bold text-[#0b5bbb] hover:underline"
+                          className="flex items-center gap-1 text-[11px] font-bold text-[#0b5bbb] hover:underline"
                         >
                           <History size={12} />
                           {isHistoryExpanded ? "Ocultar historial" : `Ver historial (${client.configs.length - 1} versión${client.configs.length > 2 ? "es" : ""})`}
@@ -365,7 +365,7 @@ export function ClientAdminWorkspace() {
                       <div className="mt-4 space-y-3">
                         {client.configs.slice(1).map((cfg) => (
                           <div key={cfg.effectiveFrom}>
-                            <div className="mb-1 text-[10px] font-bold text-[#74849a]">
+                            <div className="mb-1 text-[11px] font-bold text-[#5a6a82]">
                               Desde {periodDisplay(cfg.effectiveFrom)}
                             </div>
                             <RateTable items={cfg.items} muted />
@@ -381,7 +381,7 @@ export function ClientAdminWorkspace() {
         </div>
 
         {clients.length === 0 && (
-          <div className="py-16 text-center text-xs text-[#74849a]">
+          <div className="py-16 text-center text-xs text-[#5a6a82]">
             No hay clientes cargados. Creá el primero.
           </div>
         )}
@@ -398,7 +398,7 @@ export function ClientAdminWorkspace() {
             <button
               type="button"
               onClick={() => setClientModalOpen(false)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#edf4fc]"
             >
               <X size={18} />
             </button>
@@ -446,7 +446,7 @@ export function ClientAdminWorkspace() {
             <button
               type="button"
               onClick={() => setConfigModalOpen(false)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#edf4fc]"
             >
               <X size={18} />
             </button>
@@ -454,7 +454,7 @@ export function ClientAdminWorkspace() {
               {clients.find((c) => c.id === configClientId)?.name}
             </div>
             <h2 className="mt-2 text-xl font-black text-[#10233f]">Nueva configuración de tasas</h2>
-            <p className="mt-1 text-[11px] text-[#62728a]">
+            <p className="mt-1 text-[11px] text-[#5a6a82]">
               Definí las tasas que aplican a este cliente y desde cuándo rigen. La configuración anterior se conserva como historial.
             </p>
 
@@ -491,7 +491,7 @@ export function ClientAdminWorkspace() {
                 <button
                   type="button"
                   onClick={addRateRow}
-                  className="flex items-center gap-1 text-[10px] font-bold text-[#0b5bbb] hover:underline"
+                  className="flex items-center gap-1 text-[11px] font-bold text-[#0b5bbb] hover:underline"
                 >
                   <Plus size={12} /> Agregar tasa
                 </button>
@@ -564,7 +564,7 @@ export function ClientAdminWorkspace() {
                 </table>
               </div>
 
-              <div className="mt-2 rounded-xl bg-[#edf4fc] px-3 py-2 text-[10px] text-[#425979]">
+              <div className="mt-2 rounded-xl bg-[#edf4fc] px-3 py-2 text-[11px] text-[#425979]">
                 <strong>Costo DG:</strong> la tasa se aplica sobre el costo del proveedor sin IVA (ej: Seguro).
                 <span className="mx-2">·</span>
                 <strong>PVC sin IVA:</strong> la tasa se aplica sobre el precio de venta sin IVA (ej: IB, impuestos).

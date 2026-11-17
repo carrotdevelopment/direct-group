@@ -6,8 +6,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import {
-  ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator, ChartNoAxesCombined,
-  CircleDollarSign, ClipboardList, FileKey2, FileUp,
+  ArrowDownToLine, ArrowUpFromLine, Boxes, Calculator,
+  CircleDollarSign, ClipboardList, FileKey2,
   Mail, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, Users, Warehouse, X,
 } from "lucide-react";
 import { hasModule, pageModule } from "@/lib/module-access";
@@ -43,9 +43,6 @@ const navigation: NavGroup[] = [
   ]},
   { label: "Sistema", items: [
     { label: "Permisos", href: "/permisos", icon: ShieldCheck },
-    { label: "Importaciones", href: "/importaciones", icon: FileUp },
-    { label: "Integraciones", href: "/integraciones", icon: ChartNoAxesCombined },
-    { label: "Auditoría", href: "/auditoria", icon: ShieldCheck },
     { label: "Configuración", href: "/configuracion", icon: Settings },
   ]},
 ];
@@ -58,9 +55,9 @@ function SidebarContent({ close, collapse }: { close?: () => void; collapse?: ()
     <div className="flex h-full flex-col">
       <div className="flex h-[76px] items-center border-b border-[#dfe7f0] px-4">
         <Image src="/brand/logo-dg-original.png" alt="Direct Group" width={190} height={74} priority unoptimized className="h-[56px] w-auto object-contain" />
-        {close && <button onClick={close} className="ml-auto rounded-lg p-2 text-[#60738d] hover:bg-[#e9f1fb] hover:text-[#062b5b]"><X size={18} /></button>}
+        {close && <button onClick={close} className="ml-auto rounded-lg p-2 text-[#5a6a82] hover:bg-[#e9f1fb] hover:text-[#062b5b]"><X size={18} /></button>}
         {collapse && (
-          <button onClick={collapse} aria-label="Ocultar menú" title="Ocultar menú" className="ml-auto rounded-lg p-2 text-[#60738d] hover:bg-[#e9f1fb] hover:text-[#062b5b]">
+          <button onClick={collapse} aria-label="Ocultar menú" title="Ocultar menú" className="ml-auto rounded-lg p-2 text-[#5a6a82] hover:bg-[#e9f1fb] hover:text-[#062b5b]">
             <PanelLeftClose size={18} />
           </button>
         )}
@@ -72,7 +69,7 @@ function SidebarContent({ close, collapse }: { close?: () => void; collapse?: ()
           if (visibleItems.length === 0) return null;
           return (
             <div key={group.label} className="mb-5">
-              <div className="mb-2 px-3 text-[9px] font-extrabold uppercase tracking-[.18em] text-[#8190a4]">{group.label}</div>
+              <div className="mb-2 px-3 text-[11px] font-extrabold uppercase tracking-[.18em] text-[#5a6a82]">{group.label}</div>
               <div className="space-y-1">
                 {visibleItems.map((item) => {
                   // Con /stock y /stock/urbano, se marca solo la entrada más específica.
@@ -99,7 +96,7 @@ function SidebarContent({ close, collapse }: { close?: () => void; collapse?: ()
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#dce9f8] text-xs font-black text-[#0b5bbb]">{session?.user?.name?.slice(0, 2).toUpperCase()}</div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-bold text-[#10233f]">{session?.user?.name}</div>
-            <div className="text-[10px] font-semibold text-[#74849a]">{session?.user?.role === "ADMIN" ? "Administrador" : "Usuario"}</div>
+            <div className="text-[11px] font-semibold text-[#5a6a82]">{session?.user?.role === "ADMIN" ? "Administrador" : "Usuario"}</div>
           </div>
           <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-xs text-[#0b5bbb]">Salir</button>
         </div>

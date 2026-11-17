@@ -45,7 +45,7 @@ export default async function ConfiguracionPage({ searchParams }: { searchParams
               key={section.key}
               href={`/configuracion?seccion=${section.key}`}
               aria-current={section.key === current ? "page" : undefined}
-              className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-xs font-bold ${section.key === current ? "bg-[#e9f1fb] text-[#0b5bbb]" : "text-[#60738d] hover:bg-[#f2f6fb]"}`}
+              className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-xs font-bold ${section.key === current ? "bg-[#e9f1fb] text-[#0b5bbb]" : "text-[#5a6a82] hover:bg-[#f2f6fb]"}`}
             >
               <section.icon size={16} />
               {section.label}
@@ -71,7 +71,7 @@ function Card({ title, description, children, aside }: { title: string; descript
       <div className="flex flex-col gap-3 border-b border-[#e1e8f1] pb-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-black">{title}</h2>
-          <p className="mt-1 text-xs text-[#62728a]">{description}</p>
+          <p className="mt-1 text-xs text-[#5a6a82]">{description}</p>
         </div>
         {aside}
       </div>
@@ -88,7 +88,7 @@ function Status({ name, check }: { name: string; check: HealthCheck }) {
         <div>
           <div className="text-xs font-black text-[#10233f]">{name}</div>
           <div className={`mt-0.5 text-xs ${check.ok ? "text-[#23783a]" : "text-amber-900"}`}>{check.summary}</div>
-          {check.details.map((detail) => <div key={detail} className="mt-0.5 text-[11px] text-[#62728a]">{detail}</div>)}
+          {check.details.map((detail) => <div key={detail} className="mt-0.5 text-[11px] text-[#5a6a82]">{detail}</div>)}
         </div>
       </div>
     </div>
@@ -123,7 +123,7 @@ async function UsersSection() {
     >
       <div className="mt-5 overflow-x-auto rounded-2xl border border-[#dbe4ef]">
         <table className="w-full text-left text-xs">
-          <thead className="bg-[#f2f6fb] text-[10px] font-black uppercase tracking-[0.12em] text-[#6a7f98]">
+          <thead className="bg-[#f2f6fb] text-[11px] font-black uppercase tracking-[0.12em] text-[#6a7f98]">
             <tr>
               <th className="px-4 py-3">Usuario</th>
               <th className="px-4 py-3">Rol</th>
@@ -133,10 +133,10 @@ async function UsersSection() {
           </thead>
           <tbody className="divide-y divide-[#e7edf5]">
             {users.map((user) => (
-              <tr key={user.id} className={user.active ? "bg-white" : "bg-[#f8f9fb] text-[#8a99ad]"}>
+              <tr key={user.id} className={user.active ? "bg-white" : "bg-[#f8f9fb] text-[#5a6a82]"}>
                 <td className="px-4 py-3">
                   <div className="font-bold text-[#10233f]">{user.name}</div>
-                  <div className="text-[11px] text-[#62728a]">{user.email}</div>
+                  <div className="text-[11px] text-[#5a6a82]">{user.email}</div>
                 </td>
                 <td className="px-4 py-3">
                   {ROLE_LABELS[user.role] ?? user.role}
@@ -147,7 +147,7 @@ async function UsersSection() {
                     ? "Todos"
                     : user.moduleAccess.map((key) => accessModules[key as keyof typeof accessModules] ?? key).join(", ") || "Sin módulos"}
                   {user.moduleAccess.includes("pasajes") && user.role !== "ADMIN" && (
-                    <div className="text-[11px] text-[#8a99ad]">Pasajes: {user.pasajeClients.length ? user.pasajeClients.join(", ") : "sin clientes"}</div>
+                    <div className="text-[11px] text-[#5a6a82]">Pasajes: {user.pasajeClients.length ? user.pasajeClients.join(", ") : "sin clientes"}</div>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-[#425979]">{lastLogin(user.lastLoginAt)}</td>
@@ -254,20 +254,20 @@ function DataSection() {
     >
       <div className="mt-5"><Status name="Último respaldo automático" check={health} /></div>
       {!available ? (
-        <p className="mt-5 text-xs text-[#8a99ad]">No se puede leer la carpeta de respaldos ({folder}) desde este servidor.</p>
+        <p className="mt-5 text-xs text-[#5a6a82]">No se puede leer la carpeta de respaldos ({folder}) desde este servidor.</p>
       ) : (
         <div className="mt-5 overflow-hidden rounded-2xl border border-[#dbe4ef]">
-          <div className="grid grid-cols-[1fr_110px_150px] bg-[#f2f6fb] px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#6a7f98]">
+          <div className="grid grid-cols-[1fr_110px_150px] bg-[#f2f6fb] px-4 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-[#6a7f98]">
             <span>Archivo</span>
             <span>Tamaño</span>
             <span>Fecha</span>
           </div>
-          {files.length === 0 && <p className="border-t border-[#e7edf5] px-4 py-6 text-center text-xs text-[#8a99ad]">Todavía no hay respaldos.</p>}
+          {files.length === 0 && <p className="border-t border-[#e7edf5] px-4 py-6 text-center text-xs text-[#5a6a82]">Todavía no hay respaldos.</p>}
           {files.slice(0, 30).map((file) => (
             <div key={`${file.automatic}-${file.name}`} className="grid grid-cols-[1fr_110px_150px] items-center border-t border-[#e7edf5] px-4 py-3 text-xs">
               <span className="min-w-0 truncate font-mono text-[11px] text-[#263b57]" title={file.name}>
                 {file.name}
-                <span className="ml-2 font-sans text-[10px] font-bold text-[#8a99ad]">{file.automatic ? "automático" : "manual"}</span>
+                <span className="ml-2 font-sans text-[11px] font-bold text-[#5a6a82]">{file.automatic ? "automático" : "manual"}</span>
               </span>
               <span className="font-mono text-[11px] text-[#536980]">{mb(file.sizeBytes)}</span>
               <span className="text-[11px] text-[#536980]">{lastLogin(new Date(file.modifiedAt))}</span>
@@ -275,7 +275,7 @@ function DataSection() {
           ))}
         </div>
       )}
-      <p className="mt-4 text-[11px] text-[#8a99ad]">
+      <p className="mt-4 text-[11px] text-[#5a6a82]">
         Los respaldos quedan en el servidor ({folder}). Para restaurar uno hay que hacerlo desde el servidor: pedíselo a soporte técnico.
       </p>
     </Card>
@@ -285,7 +285,7 @@ function DataSection() {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-[#e1e8f1] bg-white p-3">
-      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#7b8da3]">{label}</p>
+      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#7b8da3]">{label}</p>
       <p className="mt-1 text-lg font-black text-[#243a57]">{value}</p>
     </div>
   );

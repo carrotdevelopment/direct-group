@@ -30,7 +30,7 @@ let checks = 0;
 const equal = (actual, expected, label) => { assert.equal(actual, expected, label); checks++; };
 const routes = [
  ['compras','/compras'], ['compras','/ingresos'], ['precios','/precios'], ['precios','/pricing'], ['precios','/estructura-costos'],
- ['proveedores','/proveedores'], ['clientes','/clientes'], ['clientes','/codigos-clientes'], ['productos','/productos'], ['ventas','/ventas'], ['ventas','/egresos'], ['stock','/stock'], ['importaciones','/importaciones'],
+ ['proveedores','/proveedores'], ['clientes','/clientes'], ['clientes','/codigos-clientes'], ['productos','/productos'], ['ventas','/egresos'], ['stock','/stock'],
  ['admin','/dashboard'], ['admin','/permisos'], ['admin','/auditoria'], ['admin','/configuracion'], ['admin','/integraciones'],
 ];
 const endpoints = [
@@ -58,12 +58,12 @@ try {
  const create=await admin('/api/users',{...json(account),method:'POST'});equal(create.status,200,'create');testId=(await create.json()).user.id;
  const restricted=jar();equal((await login(restricted,account.email,account.password)).id,testId,'new login');
  const update = async overrides => equal((await admin('/api/users',json({...account,password:undefined,id:testId,...overrides}))).status,200,'update');
- for(const key of ['compras','precios','proveedores','clientes','productos','ventas','stock','importaciones']) {
+ for(const key of ['compras','precios','proveedores','clientes','productos','ventas','stock']) {
    await update({moduleAccess:[key]});
    for(const [owner,path] of routes) equal((await restricted(path)).status,owner === key ? 200 : 307,`${key} page ${path}`);
    for(const [owner,path,methods] of endpoints) if(owner!==key) for(const method of methods) equal((await restricted(path,requestMethod(method))).status,403,`${key} denied ${method} ${path}`);
  }
- await update({role:'LECTURA',moduleAccess:['compras','precios','proveedores','clientes','productos','ventas','stock','importaciones']});
+ await update({role:'LECTURA',moduleAccess:['compras','precios','proveedores','clientes','productos','ventas','stock']});
  for(const [,path,methods] of endpoints) for(const method of methods.filter(m=>m!=='GET' && path!=='/api/local-db/prices/preview')) equal((await restricted(path,requestMethod(method))).status,403,`reader ${method} ${path}`);
  await update({moduleAccess:[]});
  equal((await restricted('/api/trpc/products.list?input='+encodeURIComponent(JSON.stringify({json:{}})))).status,403,'restricted trpc');

@@ -94,7 +94,7 @@ export function MailInboxWorkspace() {
         <form onSubmit={applySearch} className="flex items-center gap-2 border-b border-[#e1e8f1] bg-white p-3">
           <label className="relative flex-1">
             <span className="sr-only">Buscar correos</span>
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a99ad]" />
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -110,9 +110,9 @@ export function MailInboxWorkspace() {
 
         <div className="flex-1 divide-y divide-[#e7edf4] overflow-y-auto">
           {error && <p className="m-3 rounded-xl bg-[#fdeeee] px-3 py-2 text-xs font-bold text-[#a43d39]">{error}</p>}
-          {!error && loading && threads.length === 0 && <p className="p-4 text-xs font-semibold text-[#8a99ad]">Cargando correos…</p>}
+          {!error && loading && threads.length === 0 && <p className="p-4 text-xs font-semibold text-[#5a6a82]">Cargando correos…</p>}
           {!error && !loading && threads.length === 0 && (
-            <p className="p-4 text-xs font-semibold text-[#8a99ad]">{query ? "No hay correos que coincidan con la búsqueda." : "La bandeja de entrada está vacía."}</p>
+            <p className="p-4 text-xs font-semibold text-[#5a6a82]">{query ? "No hay correos que coincidan con la búsqueda." : "La bandeja de entrada está vacía."}</p>
           )}
           {threads.map((thread) => (
             <button
@@ -126,14 +126,14 @@ export function MailInboxWorkspace() {
                 <span className={`min-w-0 flex-1 truncate text-xs ${thread.unread ? "font-black text-[#10233f]" : "font-bold text-[#334b6b]"}`}>
                   {senderName(thread.from)}
                 </span>
-                {thread.hasAttachments && <Paperclip size={12} className="shrink-0 text-[#8a99ad]" aria-label="Tiene adjuntos" />}
-                <span className="shrink-0 text-[10px] font-semibold text-[#8a99ad]">{formatDate(thread.date, false)}</span>
+                {thread.hasAttachments && <Paperclip size={12} className="shrink-0 text-[#5a6a82]" aria-label="Tiene adjuntos" />}
+                <span className="shrink-0 text-[11px] font-semibold text-[#5a6a82]">{formatDate(thread.date, false)}</span>
               </div>
               <div className={`mt-0.5 truncate text-xs ${thread.unread ? "font-bold text-[#10233f]" : "text-[#334b6b]"}`}>
                 {thread.subject || "(sin asunto)"}
-                {thread.messageCount > 1 && <span className="ml-1 text-[10px] font-bold text-[#8a99ad]">({thread.messageCount})</span>}
+                {thread.messageCount > 1 && <span className="ml-1 text-[11px] font-bold text-[#5a6a82]">({thread.messageCount})</span>}
               </div>
-              <div className="mt-0.5 truncate text-[11px] text-[#8a99ad]">{thread.snippet}</div>
+              <div className="mt-0.5 truncate text-[11px] text-[#5a6a82]">{thread.snippet}</div>
             </button>
           ))}
         </div>
@@ -142,7 +142,7 @@ export function MailInboxWorkspace() {
           <Button size="sm" variant="ghost" disabled={page === 0 || loading} onClick={() => setPage((current) => Math.max(0, current - 1))}>
             <ChevronLeft size={14} /> Más nuevos
           </Button>
-          <span className="text-[10px] font-bold text-[#8a99ad]">Página {page + 1}</span>
+          <span className="text-[11px] font-bold text-[#5a6a82]">Página {page + 1}</span>
           <Button size="sm" variant="ghost" disabled={!hasMore || loading} onClick={() => setPage((current) => current + 1)}>
             Más antiguos <ChevronRight size={14} />
           </Button>
@@ -154,11 +154,11 @@ export function MailInboxWorkspace() {
           <div className="grid h-full min-h-[560px] place-items-center p-8 text-center">
             <div>
               <Inbox size={28} className="mx-auto text-[#b9c7d8]" />
-              <p className="mt-3 text-sm font-bold text-[#62728a]">Elegí un correo para verlo.</p>
+              <p className="mt-3 text-sm font-bold text-[#5a6a82]">Elegí un correo para verlo.</p>
             </div>
           </div>
         )}
-        {selectedId && detailLoading && <p className="p-6 text-xs font-semibold text-[#8a99ad]">Abriendo correo…</p>}
+        {selectedId && detailLoading && <p className="p-6 text-xs font-semibold text-[#5a6a82]">Abriendo correo…</p>}
         {selectedId && detailError && <p className="m-4 rounded-xl bg-[#fdeeee] px-3 py-2 text-xs font-bold text-[#a43d39]">{detailError}</p>}
         {detail && (
           <div>
@@ -169,10 +169,10 @@ export function MailInboxWorkspace() {
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <div className="min-w-0 break-words text-xs [overflow-wrap:anywhere]">
                       <div className="font-black text-[#10233f]">{message.from}</div>
-                      {message.to && <div className="mt-0.5 text-[#62728a]">Para: {message.to}</div>}
-                      {message.cc && <div className="mt-0.5 text-[#62728a]">CC: {message.cc}</div>}
+                      {message.to && <div className="mt-0.5 text-[#5a6a82]">Para: {message.to}</div>}
+                      {message.cc && <div className="mt-0.5 text-[#5a6a82]">CC: {message.cc}</div>}
                     </div>
-                    <span className="text-[10px] font-semibold text-[#8a99ad]">{formatDate(message.date)}</span>
+                    <span className="text-[11px] font-semibold text-[#5a6a82]">{formatDate(message.date)}</span>
                   </div>
                   <div className="mt-4 whitespace-pre-wrap break-words text-[13px] leading-6 text-[#334b6b]">
                     {message.body.trim() || "(El correo no tiene texto: puede tener solo adjuntos o imágenes.)"}
@@ -187,7 +187,7 @@ export function MailInboxWorkspace() {
                         >
                           <Download size={13} className="shrink-0" />
                           <span className="truncate">{attachment.name}</span>
-                          <span className="shrink-0 text-[10px] font-semibold text-[#8a99ad]">{formatSize(attachment.size)}</span>
+                          <span className="shrink-0 text-[11px] font-semibold text-[#5a6a82]">{formatSize(attachment.size)}</span>
                         </a>
                       ))}
                     </div>

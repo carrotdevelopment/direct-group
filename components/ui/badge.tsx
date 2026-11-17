@@ -6,7 +6,7 @@ const tones: Record<Tone, string> = {
   success: "bg-[#e9f1fb] text-[#0b5bbb]",
   warning: "bg-[#fff3df] text-[#9a5b17]",
   danger: "bg-[#fce9e8] text-[#ad3f3b]",
-  neutral: "bg-[#edf1f6] text-[#60738d]",
+  neutral: "bg-[#edf1f6] text-[#5a6a82]",
   info: "bg-[#e3edf9] text-[#174d8f]",
 };
 

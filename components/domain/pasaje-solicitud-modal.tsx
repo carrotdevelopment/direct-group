@@ -328,12 +328,12 @@ export function PasajeSolicitudModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
       <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
       <div className="relative flex max-h-[92vh] w-full max-w-7xl flex-col rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]">
+        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]">
           <X size={18} />
         </button>
         <div className="eyebrow">Pasajes</div>
         <h2 className="mt-2 text-xl font-black">Cargar pasajes</h2>
-        <p className="mt-2 max-w-4xl text-xs text-[#62728a]">
+        <p className="mt-2 max-w-4xl text-xs text-[#5a6a82]">
           Completá la grilla, pegá desde Excel o subí la solicitud; con &quot;Exportar solicitud&quot; la bajás en Excel sin cargarla. El cliente sale del shipper (SH) y del código. Al cargarlos,
           cada pasaje espera que lo apruebe la encargada del cliente origen: ahí egresa del origen y queda el ingreso pendiente en
           el destino. Después vas a poder bajar el Excel para mandarle a Urbano y la planilla para subir en Urbano.
@@ -347,16 +347,16 @@ export function PasajeSolicitudModal({
                 {fileName ? `Cambiar archivo (${fileName})` : "Subir el Excel de la solicitud"}
                 <input type="file" accept=".xls,.xlsx,.xlsm" className="sr-only" onChange={onFile} />
               </label>
-              <span className="text-[10px] font-semibold text-[#8a99ad]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper; el SKU nuevo, solo los del mismo producto. Se completan descripción y cantidad destino, y abajo de la cantidad se ve el stock disponible.</span>
+              <span className="text-[11px] font-semibold text-[#5a6a82]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper; el SKU nuevo, solo los del mismo producto. Se completan descripción y cantidad destino, y abajo de la cantidad se ve el stock disponible.</span>
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full min-w-[1080px] table-fixed text-left text-[11px]">
                 <thead className="sticky top-0 z-[1]">
-                  <tr className="bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
+                  <tr className="bg-[#edf4fc] text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">
                     <th colSpan={5} className="border-b border-r border-[#dbe4ef] px-2 py-1">Origen</th>
                     <th colSpan={4} className="border-b border-[#dbe4ef] px-2 py-1">Destino</th>
                   </tr>
-                  <tr className="bg-[#f4f7fb] text-[10px] font-bold text-[#62728a]">
+                  <tr className="bg-[#f4f7fb] text-[11px] font-bold text-[#5a6a82]">
                     {COLUMNS.map((column, index) => (
                       <th key={index} className={`${column.width} px-2 py-1.5 ${index === 4 ? "border-r border-[#dbe4ef]" : ""}`}>{column.label}</th>
                     ))}
@@ -391,7 +391,7 @@ export function PasajeSolicitudModal({
                             if (!info) return null;
                             return (
                               <div
-                                className={`px-1.5 text-right text-[9px] font-bold ${info.requested > info.stock.available ? "text-[#b7433f]" : "text-[#8a99ad]"}`}
+                                className={`px-1.5 text-right text-[11px] font-bold ${info.requested > info.stock.available ? "text-[#b7433f]" : "text-[#5a6a82]"}`}
                                 title={`Stock real ${info.stock.real} − pasajes abiertos ${info.stock.reserved}`}
                               >
                                 Disp. {info.stock.available}
@@ -473,7 +473,7 @@ export function PasajeSolicitudModal({
               {withWarnings > 0 && <span className="rounded-full bg-[#fff0d9] px-3 py-1 text-[#985b00]">{withWarnings} con aviso</span>}
               {withErrors > 0 && <span className="rounded-full bg-[#fce9e8] px-3 py-1 text-[#a43d39]">{withErrors} con error (no se cargan)</span>}
               {codeChanges > 0 && <span className="rounded-full bg-[#eef1f5] px-3 py-1 text-[#52647d]">{codeChanges} cambios de código del mismo cliente (no se cargan acá)</span>}
-              <span className="text-[#8a99ad]">Fecha de la solicitud: {formatDate(preview.find((row) => row.requestDate)?.requestDate ?? null)}</span>
+              <span className="text-[#5a6a82]">Fecha de la solicitud: {formatDate(preview.find((row) => row.requestDate)?.requestDate ?? null)}</span>
             </div>
             {duplicateFile && (
               <div className="mt-3 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
@@ -483,7 +483,7 @@ export function PasajeSolicitudModal({
             )}
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full text-left text-[11px]">
-                <thead className="sticky top-0 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
+                <thead className="sticky top-0 bg-[#edf4fc] text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">
                   <tr>
                     <th className="px-3 py-2">Fila</th>
                     <th className="px-3 py-2">Origen</th>
@@ -495,19 +495,19 @@ export function PasajeSolicitudModal({
                 </thead>
                 <tbody className="divide-y divide-[#eef2f7]">
                   {preview.map((row) => (
-                    <tr key={row.row} className={row.status === "error" ? "bg-[#fff8f8]" : row.status === "warning" ? "bg-[#fffaf1]" : row.status === "excluded" ? "bg-[#f6f7f9] text-[#8a99ad]" : "bg-white"}>
-                      <td className="px-3 py-2 text-[#8a99ad]">{row.row}</td>
+                    <tr key={row.row} className={row.status === "error" ? "bg-[#fff8f8]" : row.status === "warning" ? "bg-[#fffaf1]" : row.status === "excluded" ? "bg-[#f6f7f9] text-[#5a6a82]" : "bg-white"}>
+                      <td className="px-3 py-2 text-[#5a6a82]">{row.row}</td>
                       <td className="px-3 py-2">
                         <div className="font-bold text-[#10233f]">{row.fromClient ?? "—"}</div>
-                        <div className="text-[#62728a]">{row.fromClientCode} · SH {row.fromShipper || "—"}</div>
+                        <div className="text-[#5a6a82]">{row.fromClientCode} · SH {row.fromShipper || "—"}</div>
                       </td>
                       <td className="px-3 py-2">
                         <div className="font-bold text-[#10233f]">{row.toClient ?? "—"}</div>
-                        <div className="text-[#62728a]">{row.toClientCode} · SH {row.toShipper || "—"}</div>
+                        <div className="text-[#5a6a82]">{row.toClientCode} · SH {row.toShipper || "—"}</div>
                       </td>
                       <td className="max-w-[260px] px-3 py-2 text-[#334b6b]">
                         <div className="truncate" title={row.fromDescription || row.toDescription}>{row.fromDescription || row.toDescription}</div>
-                        <div className="text-[#8a99ad]">{row.uniqueCode ?? ""}</div>
+                        <div className="text-[#5a6a82]">{row.uniqueCode ?? ""}</div>
                       </td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums">{row.quantity ?? "—"}</td>
                       <td className="max-w-[340px] px-3 py-2">
@@ -515,7 +515,7 @@ export function PasajeSolicitudModal({
                           {row.status === "ok" && <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-[#23783a]" />}
                           {row.status === "warning" && <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[#985b00]" />}
                           {row.status === "error" && <XCircle size={14} className="mt-0.5 shrink-0 text-[#a43d39]" />}
-                          {row.status === "excluded" && <ArrowLeftRight size={14} className="mt-0.5 shrink-0 text-[#62728a]" />}
+                          {row.status === "excluded" && <ArrowLeftRight size={14} className="mt-0.5 shrink-0 text-[#5a6a82]" />}
                           <span className={row.status === "error" ? "text-[#a43d39]" : row.status === "warning" ? "text-[#985b00]" : row.status === "excluded" ? "text-[#52647d]" : "text-[#23783a]"}>
                             {row.messages.length ? row.messages.join(" ") : "Correcta"}
                           </span>

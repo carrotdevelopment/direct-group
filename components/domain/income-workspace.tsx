@@ -206,7 +206,7 @@ function SelectField({
   children: React.ReactNode;
 }) {
   return (
-    <label className="text-[10px] font-black uppercase text-[#62728a]">
+    <label className="text-[11px] font-black uppercase text-[#5a6a82]">
       {label}
       <select
         value={value}
@@ -268,7 +268,7 @@ function MultiSelectDropdown<T extends string | number>({
 
   return (
     <details ref={detailsRef} className="group relative">
-      <summary className="list-none text-[10px] font-black uppercase text-[#62728a]">
+      <summary className="list-none text-[11px] font-black uppercase text-[#5a6a82]">
         {label}
         <div className="mt-1 flex h-10 cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case text-[#10233f] outline-none transition group-open:border-[#0b5bbb] group-open:ring-3 group-open:ring-[#e5eef9]">
           <span className="truncate">
@@ -276,11 +276,11 @@ function MultiSelectDropdown<T extends string | number>({
           </span>
           <ChevronDown
             size={15}
-            className="shrink-0 text-[#62728a] transition group-open:rotate-180"
+            className="shrink-0 text-[#5a6a82] transition group-open:rotate-180"
           />
         </div>
         {helper ? (
-          <div className="mt-1 text-[10px] font-bold normal-case text-[#8a9584]">
+          <div className="mt-1 text-[11px] font-bold normal-case text-[#5a6a82]">
             {helper}
           </div>
         ) : null}
@@ -291,7 +291,7 @@ function MultiSelectDropdown<T extends string | number>({
             <button
               type="button"
               onClick={onSelectAll}
-              className="text-[10px] font-black uppercase text-[#0b5bbb]"
+              className="text-[11px] font-black uppercase text-[#0b5bbb]"
             >
               Todos
             </button>
@@ -301,7 +301,7 @@ function MultiSelectDropdown<T extends string | number>({
           <button
             type="button"
             onClick={onClear}
-            className="text-[10px] font-black uppercase text-[#0b5bbb]"
+            className="text-[11px] font-black uppercase text-[#0b5bbb]"
           >
             Limpiar
           </button>
@@ -312,6 +312,7 @@ function MultiSelectDropdown<T extends string | number>({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onClick={(event) => event.stopPropagation()}
+              aria-label="Buscar en la lista"
               placeholder="Buscar..."
               className="h-8 w-full rounded-lg border border-[#dbe4ef] px-2.5 text-xs normal-case outline-none focus:border-[#7da4d3]"
             />
@@ -319,7 +320,7 @@ function MultiSelectDropdown<T extends string | number>({
         )}
         <div className="max-h-64 overflow-auto p-2">
           {visibleOptions.length === 0 && (
-            <p className="px-3 py-2 text-xs font-semibold text-[#9aa3ad]">Sin resultados.</p>
+            <p className="px-3 py-2 text-xs font-semibold text-[#5a6a82]">Sin resultados.</p>
           )}
           {visibleOptions.map((option) => {
             const isSelected = selected.includes(option.value);
@@ -675,7 +676,7 @@ export function IncomeWorkspace() {
             <div className="text-xs font-black text-[#10233f]">
               Sincronización Tango
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] font-bold text-[#62728a]">
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] font-bold text-[#5a6a82]">
               <span className="inline-flex items-center gap-1">
                 <Clock3 size={13} />
                 Última lectura: {formatLastUpdated(summary.lastUpdated)}
@@ -707,7 +708,7 @@ export function IncomeWorkspace() {
             </Button>
           </div>
         </div>
-        <div className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#62728a]">
+        <div className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#5a6a82]">
           {syncJob ? syncJobLabel(syncJob) : message}
         </div>
         <div className="grid gap-4 px-5 py-4 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_.9fr_.9fr_.9fr]">
@@ -763,13 +764,14 @@ export function IncomeWorkspace() {
           </SelectField>
         </div>
         <div className="grid gap-3 px-5 pb-4 md:grid-cols-[.8fr_1.2fr]">
-          <label className="text-[10px] font-black uppercase text-[#62728a]">
+          <label className="text-[11px] font-black uppercase text-[#5a6a82]">
             Búsqueda
             <div className="mt-1 flex h-10 items-center gap-2 rounded-xl border border-[#dbe4ef] bg-white px-3 focus-within:border-[#0b5bbb] focus-within:ring-3 focus-within:ring-[#e5eef9]">
               <Search size={15} className="text-[#8a9bb0]" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                aria-label="Buscar ingresos"
                 placeholder="OC, código, origen, comentario..."
                 className="h-full min-w-0 flex-1 bg-transparent text-xs normal-case text-[#10233f] outline-none"
               />
@@ -782,7 +784,7 @@ export function IncomeWorkspace() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dbe4ef] px-5 py-4">
           <div>
             <h2 className="text-sm font-black text-[#10233f]">Ingresos</h2>
-            <div className="mt-1 text-[10px] font-bold text-[#62728a]">
+            <div className="mt-1 text-[11px] font-bold text-[#5a6a82]">
               {limitedNotice ||
                 `Mostrando ${formatNumber(rows.length)} filas de ${formatNumber(
                   totalFiltered,
@@ -790,7 +792,7 @@ export function IncomeWorkspace() {
             </div>
           </div>
           <div
-            className="inline-flex items-center gap-1.5 text-[10px] font-bold text-[#62728a]"
+            className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5a6a82]"
             title="Los ingresos vienen de Tango: acá se consultan, no se editan."
           >
             <CheckCircle2 size={13} />
@@ -800,7 +802,7 @@ export function IncomeWorkspace() {
         <div className="max-h-[calc(100vh-280px)] min-h-[360px] overflow-auto overscroll-contain bg-white">
           <table className="min-w-[1420px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
             <thead>
-              <tr className="sticky top-0 z-10 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
+              <tr className="sticky top-0 z-10 bg-[#edf4fc] text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">
                 <th className="w-36 px-3 py-3">Estado</th>
                 <th className="w-28 px-3 py-3">Cliente</th>
                 <th className="w-44 px-3 py-3">Operación</th>
@@ -829,7 +831,7 @@ export function IncomeWorkspace() {
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                     <span
-                      className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-black uppercase ring-1 ${statusClass(
+                      className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-black uppercase ring-1 ${statusClass(
                         row.status,
                       )}`}
                     >
@@ -844,7 +846,7 @@ export function IncomeWorkspace() {
                             ? "Cargado desde la web, todavía falta cargarlo en Tango. Tocá para marcarlo como cargado."
                             : "Ya se cargó en Tango. Tocá para volver a marcarlo como pendiente."
                         }
-                        className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold ring-1 transition ${
+                        className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 transition ${
                           row.pendingTangoEntry
                             ? "bg-[#fff3df] text-[#9a5b17] ring-[#f4dcae] hover:bg-[#ffe9c4]"
                             : "bg-[#e7f7eb] text-[#23783a] ring-[#c9ebd1] hover:bg-[#d9f0e0]"
@@ -903,7 +905,7 @@ export function IncomeWorkspace() {
                 <tr>
                   <td
                     colSpan={13}
-                    className="px-5 py-12 text-center text-sm font-bold text-[#62728a]"
+                    className="px-5 py-12 text-center text-sm font-bold text-[#5a6a82]"
                   >
                     {selectedClients.length === 0
                       ? "Seleccioná uno o varios clientes para visualizar ingresos."
@@ -914,7 +916,7 @@ export function IncomeWorkspace() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[10px] font-bold text-[#62728a]">
+        <div className="border-t border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#5a6a82]">
           Tango sigue siendo la fuente de verdad. Si una fila está mal, se corrige
           en Tango y luego se actualiza esta consulta.
         </div>
@@ -934,7 +936,7 @@ export function IncomeWorkspace() {
             <button
               type="button"
               onClick={() => setManualModalOpen(false)}
-              className="absolute right-5 top-5 rounded-lg p-2 text-[#74849a] hover:bg-[#edf4fc]"
+              className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#edf4fc]"
             >
               <X size={18} />
             </button>
@@ -942,7 +944,7 @@ export function IncomeWorkspace() {
             <h2 className="mt-2 text-xl font-black text-[#10233f]">
               Registrar movimiento
             </h2>
-            <p className="mt-2 text-xs font-bold text-[#62728a]">
+            <p className="mt-2 text-xs font-bold text-[#5a6a82]">
               Devoluciones, ajustes y pasajes que todavía no están cargados en
               Tango. Quedan marcados como &quot;Falta cargar en Tango&quot; hasta que
               alguien los carga también ahí.

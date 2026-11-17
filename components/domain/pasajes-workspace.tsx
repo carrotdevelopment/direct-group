@@ -143,7 +143,7 @@ function ClientCodeSelect({
           ))}
         </select>
         {requireUniqueCode && clients.length === 0 && (
-          <span className="mt-1 block text-[10px] font-bold text-[#a43d39]">
+          <span className="mt-1 block text-[11px] font-bold text-[#a43d39]">
             Ningún cliente tiene el código único {requireUniqueCode} asignado.
           </span>
         )}
@@ -384,7 +384,7 @@ export function PasajesWorkspace({
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="hidden text-[10px] font-bold text-[#8a99ad] sm:inline">{status}</span>
+          <span className="hidden text-[11px] font-bold text-[#5a6a82] sm:inline">{status}</span>
           {tab === "pasajes" ? (
             <>
               <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
@@ -432,9 +432,9 @@ export function PasajesWorkspace({
           <section className="card animate-enter overflow-hidden">
             <div className="border-b border-[#e1e8f1] bg-white p-4">
               <h2 className="text-sm font-black text-[#10233f]">Sin destino</h2>
-              <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
-                Pasajes que se crearon solos con una salida de Urbano, antes de que se cargaran en la plataforma. Elegí a qué
-                cliente fue y sigue como cualquier pasaje; si no era un pasaje, cancelalo y el stock vuelve al origen.
+              <p className="mt-1 text-[11px] font-semibold text-[#5a6a82]">
+                Quedaron de cuando los pasajes se armaban solos con las salidas de Urbano (ya no se crean nuevos). Elegí a qué
+                cliente fue cada uno y sigue como cualquier pasaje; si no era un pasaje, cancelalo y el stock vuelve al origen.
               </p>
             </div>
             <div className="divide-y divide-[#e7edf4]">
@@ -446,17 +446,17 @@ export function PasajesWorkspace({
                       <div className="font-bold text-[#10233f]">
                         {p.fromClient} ({p.fromClientCode}) → ?
                       </div>
-                      <div className="mt-0.5 text-[#62728a]">
+                      <div className="mt-0.5 text-[#5a6a82]">
                         {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Salieron: {Number(p.quantity)}
                       </div>
-                      <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                      <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                         {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
                         {p.comments ? ` · ${p.comments}` : ""}
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {options.length ? destinationPicker(p, "Guardar destino") : (
-                        <span className="text-[10px] font-bold text-[#a43d39]">
+                        <span className="text-[11px] font-bold text-[#a43d39]">
                           Ningún otro cliente tiene el código único {p.uniqueCode}: cargalo en Códigos Cliente.
                         </span>
                       )}
@@ -475,7 +475,7 @@ export function PasajesWorkspace({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e1e8f1] bg-white p-4">
               <div>
                 <h2 className="text-sm font-black text-[#10233f]">1 · Esperando aprobación del origen ({awaitingApproval.length})</h2>
-                <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
+                <p className="mt-1 text-[11px] font-semibold text-[#5a6a82]">
                   Todavía no movieron stock: la cantidad queda comprometida. Al aprobarlo la encargada del cliente origen, egresa
                   del origen y queda el ingreso pendiente en el destino; si lo rechaza, no se mueve nada.
                 </p>
@@ -497,7 +497,7 @@ export function PasajesWorkspace({
             </div>
             <div className="max-h-[520px] divide-y divide-[#e7edf4] overflow-auto">
               {awaitingApproval.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando aprobación.</p>
+                <p className="p-4 text-xs font-semibold text-[#5a6a82]">No hay pasajes esperando aprobación.</p>
               )}
               {awaitingApproval.map((p) => (
                 <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -519,14 +519,14 @@ export function PasajesWorkspace({
                         <div className="font-bold text-[#10233f]">
                           {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
                         </div>
-                        <div className="mt-0.5 text-[#62728a]">
+                        <div className="mt-0.5 text-[#5a6a82]">
                           {p.fromDescription || productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · {Number(p.quantity)} u.
                         </div>
-                        <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                        <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                           Cargado por {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
                           {p.comments ? ` · ${p.comments}` : ""}
                         </div>
-                        {p.warning && <div className="mt-0.5 text-[10px] font-bold text-[#985b00]">{p.warning}</div>}
+                        {p.warning && <div className="mt-0.5 text-[11px] font-bold text-[#985b00]">{p.warning}</div>}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -535,7 +535,7 @@ export function PasajesWorkspace({
                         <Check size={14} /> Aprobar
                       </Button>
                     ) : (
-                      <span className="text-[10px] font-bold text-[#8a99ad]">Lo aprueba la encargada de {p.fromClient}</span>
+                      <span className="text-[11px] font-bold text-[#5a6a82]">Lo aprueba la encargada de {p.fromClient}</span>
                     )}
                     {canCancel(p) && (
                       <Button size="sm" variant="secondary" onClick={() => void respond("pasajes", p.id, "cancel")}>
@@ -552,7 +552,7 @@ export function PasajesWorkspace({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e1e8f1] bg-white p-4">
               <div>
                 <h2 className="text-sm font-black text-[#10233f]">2 · Esperando que llegue al destino ({awaitingArrival.length})</h2>
-                <p className="mt-1 text-[10px] font-semibold text-[#8a99ad]">
+                <p className="mt-1 text-[11px] font-semibold text-[#5a6a82]">
                   Aprobados por el origen. Cuando Urbano avisa por correo que llegaron, la encargada del cliente destino confirma
                   cuántas unidades llegaron: ingresan al destino; si llegaron menos, la diferencia vuelve al origen; con 0, se revierte.
                 </p>
@@ -574,7 +574,7 @@ export function PasajesWorkspace({
             </div>
             <div className="max-h-[520px] divide-y divide-[#e7edf4] overflow-auto">
               {awaitingArrival.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay pasajes esperando que lleguen al destino.</p>
+                <p className="p-4 text-xs font-semibold text-[#5a6a82]">No hay pasajes esperando que lleguen al destino.</p>
               )}
               {awaitingArrival.map((p) => {
                 const requested = Number(p.quantity);
@@ -599,16 +599,16 @@ export function PasajesWorkspace({
                         <div className="font-bold text-[#10233f]">
                           {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
                         </div>
-                        <div className="mt-0.5 text-[#62728a]">
+                        <div className="mt-0.5 text-[#5a6a82]">
                           {p.fromDescription || productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · {Number(p.quantity)} u.
                         </div>
-                        <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                        <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                           Cargado por {p.createdBy} el {formatDateTime(p.createdAt)}{requestLabel(p)}
                           {p.comments ? ` · ${p.comments}` : ""}
                         </div>
-                        {p.warning && <div className="mt-0.5 text-[10px] font-bold text-[#985b00]">{p.warning}</div>}
+                        {p.warning && <div className="mt-0.5 text-[11px] font-bold text-[#985b00]">{p.warning}</div>}
                         {p.respondedBy && p.respondedAt && (
-                          <div className="mt-0.5 text-[10px] text-[#8a99ad]">Aprobado por {p.respondedBy} el {formatDateTime(p.respondedAt)}</div>
+                          <div className="mt-0.5 text-[11px] text-[#5a6a82]">Aprobado por {p.respondedBy} el {formatDateTime(p.respondedAt)}</div>
                         )}
                       </div>
                     </div>
@@ -627,12 +627,12 @@ export function PasajesWorkspace({
                             }}
                             className="h-9 w-20 rounded-lg border border-[#dbe4ef] px-2 text-right text-xs tabular-nums outline-none focus:border-[#7da4d3]"
                           />
-                          <span className={real < requested ? "text-[#985b00]" : "text-[#8a99ad]"}>
+                          <span className={real < requested ? "text-[#985b00]" : "text-[#5a6a82]"}>
                             {real === 0 ? "no llegó" : real < requested ? `faltan ${requested - real}` : `de ${requested}`}
                           </span>
                         </label>
                       ) : (
-                        <span className="text-[10px] font-bold text-[#8a99ad]">Lo confirma la encargada de {p.toClient}</span>
+                        <span className="text-[11px] font-bold text-[#5a6a82]">Lo confirma la encargada de {p.toClient}</span>
                       )}
                       {canCancel(p) && (
                         <Button size="sm" variant="secondary" onClick={() => void respond("pasajes", p.id, "cancel")}>
@@ -654,7 +654,7 @@ export function PasajesWorkspace({
             </div>
             <div className="divide-y divide-[#e7edf4]">
               {resolvedPasajes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">Todavía no hay pasajes resueltos.</p>
+                <p className="p-4 text-xs font-semibold text-[#5a6a82]">Todavía no hay pasajes resueltos.</p>
               )}
               {resolvedPasajes.map((p) => (
                 <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -662,10 +662,10 @@ export function PasajesWorkspace({
                     <div className="font-bold text-[#10233f]">
                       {p.fromClient} ({p.fromClientCode}) → {p.toClient} ({p.toClientCode})
                     </div>
-                    <div className="mt-0.5 text-[#62728a]">
+                    <div className="mt-0.5 text-[#5a6a82]">
                       {productByCode.get(p.uniqueCode.toLowerCase()) || p.product || p.uniqueCode} · Cantidad: {p.quantity}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                    <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                       Cargado por {p.createdBy} el {formatDateTime(p.createdAt)}
                       {p.respondedBy && p.respondedAt ? ` · ${p.status === "rejected" ? "Rechazado" : "Aprobado"} por ${p.respondedBy} el ${formatDateTime(p.respondedAt)}` : ""}
                       {p.responseComment ? ` · ${p.responseComment}` : ""}
@@ -677,7 +677,7 @@ export function PasajesWorkspace({
                       {requestLabel(p)}
                     </div>
                   </div>
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${statusBadge(p.status)}`}>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${statusBadge(p.status)}`}>
                     {pasajeStatusLabel(p.status)}
                   </span>
                 </div>
@@ -693,7 +693,7 @@ export function PasajesWorkspace({
             </div>
             <div className="divide-y divide-[#e7edf4]">
               {pendingAjustes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">No hay ajustes pendientes.</p>
+                <p className="p-4 text-xs font-semibold text-[#5a6a82]">No hay ajustes pendientes.</p>
               )}
               {pendingAjustes.map((a) => (
                 <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -701,11 +701,11 @@ export function PasajesWorkspace({
                     <div className="font-bold text-[#10233f]">
                       {a.client} ({a.clientCode})
                     </div>
-                    <div className="mt-0.5 text-[#62728a]">
+                    <div className="mt-0.5 text-[#5a6a82]">
                       {productByCode.get(a.uniqueCode.toLowerCase()) || a.product || a.uniqueCode} · Cantidad:{" "}
                       {Number(a.quantity) > 0 ? `+${a.quantity}` : a.quantity}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                    <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                       Generado por {a.createdBy} el {formatDateTime(a.createdAt)}
                       {a.reason ? ` · ${a.reason}` : ""}
                     </div>
@@ -720,7 +720,7 @@ export function PasajesWorkspace({
                       </Button>
                     </div>
                   ) : (
-                    <span className="text-[10px] font-bold text-[#8a99ad]">Esperando la aprobación de otra persona</span>
+                    <span className="text-[11px] font-bold text-[#5a6a82]">Esperando la aprobación de otra persona</span>
                   )}
                 </div>
               ))}
@@ -733,7 +733,7 @@ export function PasajesWorkspace({
             </div>
             <div className="divide-y divide-[#e7edf4]">
               {resolvedAjustes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#8a99ad]">Todavía no hay ajustes resueltos.</p>
+                <p className="p-4 text-xs font-semibold text-[#5a6a82]">Todavía no hay ajustes resueltos.</p>
               )}
               {resolvedAjustes.map((a) => (
                 <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -741,16 +741,16 @@ export function PasajesWorkspace({
                     <div className="font-bold text-[#10233f]">
                       {a.client} ({a.clientCode})
                     </div>
-                    <div className="mt-0.5 text-[#62728a]">
+                    <div className="mt-0.5 text-[#5a6a82]">
                       {productByCode.get(a.uniqueCode.toLowerCase()) || a.product || a.uniqueCode} · Cantidad:{" "}
                       {Number(a.quantity) > 0 ? `+${a.quantity}` : a.quantity}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-[#8a99ad]">
+                    <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                       {a.respondedBy} el {a.respondedAt ? formatDateTime(a.respondedAt) : ""}
                       {a.responseComment ? ` · ${a.responseComment}` : ""}
                     </div>
                   </div>
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${statusBadge(a.status)}`}>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${statusBadge(a.status)}`}>
                     {statusLabel(a.status)}
                   </span>
                 </div>
@@ -837,7 +837,7 @@ function SearchSelect({
       {open && !disabled && (
         <div className="absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto rounded-xl border border-[#dbe4ef] bg-white shadow-lg">
           {filtered.length === 0 && (
-            <div className="px-3 py-2 text-[11px] font-semibold text-[#8a99ad]">{emptyText ?? "Sin resultados."}</div>
+            <div className="px-3 py-2 text-[11px] font-semibold text-[#5a6a82]">{emptyText ?? "Sin resultados."}</div>
           )}
           {filtered.map((option) => (
             <button
@@ -1027,12 +1027,12 @@ function PasajeModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
       <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
       <form onSubmit={submit} className="relative w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]">
+        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]">
           <X size={18} />
         </button>
         <div className="eyebrow">Nuevo pasaje</div>
         <h2 className="mt-2 text-xl font-black">Registrar pasaje entre clientes</h2>
-        <p className="mt-1 text-xs text-[#62728a]">
+        <p className="mt-1 text-xs text-[#5a6a82]">
           Elegí primero el producto: se habilitan los clientes y códigos que lo tienen asignado. Queda esperando la
           aprobación de la encargada del origen: ahí egresa y se crea el ingreso pendiente en el destino, que se confirma cuando Urbano informa la recepción.
         </p>
@@ -1061,7 +1061,7 @@ function PasajeModal({
                 ))}
               </select>
               {draft.sku && fromClients.length === 0 && (
-                <span className="mt-1 block text-[10px] font-bold text-[#a43d39]">
+                <span className="mt-1 block text-[11px] font-bold text-[#a43d39]">
                   Ninguno de tus clientes tiene este producto asignado.
                 </span>
               )}
@@ -1116,7 +1116,7 @@ function PasajeModal({
             </label>
           </div>
           {draft.sku && toClients.length <= 1 && (
-            <p className="text-[10px] font-bold text-[#985b00]">
+            <p className="text-[11px] font-bold text-[#985b00]">
               Solo un cliente tiene este producto asignado: para pasarlo a otro hay que cargar su código cliente en
               Códigos cliente.
             </p>
@@ -1132,7 +1132,7 @@ function PasajeModal({
                 className={selectClass}
               />
               {stock && (
-                <span className={`mt-1 block text-[10px] font-bold ${shortage ? "text-[#985b00]" : "text-[#62728a]"}`}>
+                <span className={`mt-1 block text-[11px] font-bold ${shortage ? "text-[#985b00]" : "text-[#5a6a82]"}`}>
                   Disponible en {draft.fromClientCode}: {stock.available}
                   {stock.reserved > 0 ? ` (stock real ${stock.real}, ${stock.reserved} en otros pasajes sin confirmar)` : ""}
                 </span>
@@ -1225,12 +1225,12 @@ function AjusteModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
       <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
       <form onSubmit={submit} className="relative w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#7b847d] hover:bg-[#f0f2f0]">
+        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]">
           <X size={18} />
         </button>
         <div className="eyebrow">Nuevo ajuste</div>
         <h2 className="mt-2 text-xl font-black">Registrar ajuste de stock</h2>
-        <p className="mt-1 text-xs text-[#62728a]">
+        <p className="mt-1 text-xs text-[#5a6a82]">
           Necesita que otra persona lo apruebe antes de impactar en el stock.
         </p>
         <div className="mt-5 space-y-4">
