@@ -50,7 +50,7 @@ const navigation: NavGroup[] = [
   ]},
 ];
 
-function SidebarContent({ close }: { close?: () => void }) {
+function SidebarContent({ close, collapse }: { close?: () => void; collapse?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
 
@@ -59,6 +59,11 @@ function SidebarContent({ close }: { close?: () => void }) {
       <div className="flex h-[92px] items-center border-b border-[#dfe7f0] px-4">
         <Image src="/brand/logo-dg-original.png" alt="Direct Group" width={190} height={74} priority unoptimized className="h-[68px] w-auto object-contain" />
         {close && <button onClick={close} className="ml-auto rounded-lg p-2 text-[#60738d] hover:bg-[#e9f1fb] hover:text-[#062b5b]"><X size={18} /></button>}
+        {collapse && (
+          <button onClick={collapse} aria-label="Ocultar menú" title="Ocultar menú" className="ml-auto rounded-lg p-2 text-[#60738d] hover:bg-[#e9f1fb] hover:text-[#062b5b]">
+            <PanelLeftClose size={18} />
+          </button>
+        )}
       </div>
 
       <nav className="scrollbar-none flex-1 overflow-y-auto px-3 py-5">
@@ -127,7 +132,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#f4f7fb]">
-      <aside className={cn("fixed inset-y-0 left-0 z-30 hidden w-[246px] border-r border-[#dce5ef] bg-white", !collapsed && "lg:block")}><SidebarContent /></aside>
+      <aside className={cn("fixed inset-y-0 left-0 z-30 hidden w-[246px] border-r border-[#dce5ef] bg-white", !collapsed && "lg:block")}><SidebarContent collapse={toggleCollapsed} /></aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button aria-label="Cerrar menú" className="absolute inset-0 bg-black/45" onClick={() => setMobileOpen(false)} />
@@ -136,19 +141,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <div className={collapsed ? "" : "lg:pl-[246px]"}>
-        <header className="sticky top-0 z-20 flex h-14 items-center border-b border-[#dfe6ef] bg-white/92 px-5 backdrop-blur-xl lg:px-8">
-          <button onClick={() => setMobileOpen(true)} className="mr-3 rounded-xl border border-[#dbe4ef] bg-white p-2 text-[#334b6b] lg:hidden"><Menu size={18} /></button>
+        {/* En escritorio no hay barra superior: el botón para ocultar el menú está en el menú, y con el menú oculto queda uno flotante para volver a mostrarlo. En celular sigue la barra con el botón de menú. */}
+        <header className="sticky top-0 z-20 flex h-14 items-center border-b border-[#dfe6ef] bg-white/92 px-5 backdrop-blur-xl lg:hidden">
+          <button onClick={() => setMobileOpen(true)} aria-label="Abrir menú" className="mr-3 rounded-xl border border-[#dbe4ef] bg-white p-2 text-[#334b6b]"><Menu size={18} /></button>
+          <Image src="/brand/logo-dg-original.png" alt="Direct Group" width={140} height={55} priority unoptimized className="mr-4 h-9 w-auto object-contain" />
+        </header>
+        {collapsed && (
           <button
             onClick={toggleCollapsed}
-            aria-label={collapsed ? "Mostrar menú" : "Ocultar menú"}
-            title={collapsed ? "Mostrar menú" : "Ocultar menú"}
-            className="mr-3 hidden rounded-xl border border-[#dbe4ef] bg-white p-2 text-[#334b6b] hover:text-[#0b5bbb] lg:block"
+            aria-label="Mostrar menú"
+            title="Mostrar menú"
+            className="fixed left-3 top-4 z-20 hidden rounded-xl border border-[#dbe4ef] bg-white p-2 text-[#334b6b] shadow-sm hover:text-[#0b5bbb] lg:block"
           >
-            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            <PanelLeftOpen size={18} />
           </button>
-          <Image src="/brand/logo-dg-original.png" alt="Direct Group" width={140} height={55} priority unoptimized className={cn("mr-4 h-9 w-auto object-contain", collapsed ? "hidden lg:block" : "lg:hidden")} />
-        </header>
-        <main className={cn("mx-auto px-4 py-4 lg:px-6 lg:py-5", collapsed ? "max-w-none" : "max-w-[1600px]")}>{children}</main>
+        )}
+        <main className={cn("mx-auto px-4 py-4 lg:px-6 lg:py-5", collapsed ? "max-w-none lg:pl-16" : "max-w-[1600px]")}>{children}</main>
       </div>
     </div>
   );
