@@ -5,7 +5,8 @@ import { excelPostgres } from "@/lib/excel-postgres-client";
 import { canSeePasaje, type PasajeActor } from "@/lib/module-access";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import {
-  requestFileName, requestSheet, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
+  requestFileName, requestSheet, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
+  urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
 
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
@@ -71,13 +72,14 @@ export async function listPasajeBatches(actor: PasajeActor) {
     .filter((batch) => batch.count > 0);
 }
 
-function workbookFile(rows: unknown[][], sheetName: string, dateColumn?: number) {
+// dateColumns: columna → formato de fecha de Excel (las fechas van como número de serie).
+function workbookFile(rows: unknown[][], sheetName: string, dateColumns: Record<number, string> = {}) {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet(rows);
-  if (dateColumn !== undefined) {
+  for (const [column, format] of Object.entries(dateColumns)) {
     for (let row = 1; row < rows.length; row += 1) {
-      const cell = sheet[XLSX.utils.encode_cell({ r: row, c: dateColumn })];
-      if (cell) cell.z = "d-mmm";
+      const cell = sheet[XLSX.utils.encode_cell({ r: row, c: Number(column) })];
+      if (cell) cell.z = format;
     }
   }
   XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
@@ -85,8 +87,8 @@ function workbookFile(rows: unknown[][], sheetName: string, dateColumn?: number)
 }
 
 // Arma uno de los Excel de un lote. "correo": la solicitud completa para mandarle a Urbano.
-// "urbano" y "urbano-id": la planilla de egresos de un shipper origen (y cliente) para subir en Urbano, en
-// cada uno de los dos formatos que usan.
+// "urbano": la planilla de egresos de un shipper origen (y cliente) para subir en Urbano, con el formato
+// propio de ese shipper; si no hay uno cargado, el formato Descripción. "urbano-id": el formato genérico con ID.
 export async function pasajeBatchExcel(batchId: string, format: string, shipper: string, client: string, actor: PasajeActor) {
   const batch = await excelPostgres.pasajeBatch.findUnique({
     where: { id: batchId },
@@ -116,9 +118,16 @@ export async function pasajeBatchExcel(batchId: string, format: string, shipper:
       batch: { createdAt: { lt: batch.createdAt } },
     },
   });
+  const template = format === "urbano" ? urbanoTemplate(shipper) : null;
+  if (template) {
+    return {
+      fileName: urbanoTemplateFileName(requestDate, client, shipper),
+      bytes: workbookFile(urbanoTemplateSheet(template, selected, requestDate, earlier + 1), template.sheetName, template.dateColumns),
+    };
+  }
   const fileName = urbanoUploadFileName(requestDate, client, shipper);
   if (format === "urbano-id") {
-    return { fileName, bytes: workbookFile(urbanoIdSheet(selected, requestDate, earlier + 1), "Hoja1", URBANO_ID_DATE_COLUMN) };
+    return { fileName, bytes: workbookFile(urbanoIdSheet(selected, requestDate, earlier + 1), "Hoja1", { [URBANO_ID_DATE_COLUMN]: "d-mmm" }) };
   }
   return { fileName, bytes: workbookFile(urbanoUploadSheet(selected, requestDate, earlier + 1), "Hoja1") };
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { certificate, draftRequestSheet, excelSerial, requestSheet, urbanoIdSheet, urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje } from "@/lib/pasaje-export";
+import {
+  certificate, draftRequestSheet, excelSerial, requestSheet, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
+  urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
+} from "@/lib/pasaje-export";
 import { parseSolicitudSheet } from "@/lib/pasaje-solicitud";
 
 const pasaje: ExportPasaje = {
@@ -59,5 +62,56 @@ describe("Excel de pasajes para Urbano", () => {
     const sheet = draftRequestSheet([draft]);
     expect(sheet[1]).toEqual(["12/11/2026", "1258", "DG99-3026", "Pava", 14, "1955", "PROD-3026", "Pava eléctrica", 14]);
     expect(parseSolicitudSheet(sheet)[0]).toMatchObject({ ...draft, toQuantity: 14 });
+  });
+
+  // Filas copiadas de los Excel de pasajes del 24/09/2026 (uno por shipper).
+  describe("planilla propia de cada shipper", () => {
+    const from = (fromShipper: string, fromClient: string, fromClientCode: string, fromDescription: string, quantity: number): ExportPasaje => ({
+      ...pasaje, requestDate: "2026-09-24", fromShipper, fromClient, fromClientCode, fromDescription, quantity,
+    });
+    const day = excelSerial("2026-09-24");
+
+    it("Massalin", () => {
+      const sheet = urbanoTemplateSheet(urbanoTemplate("1369")!, [from("1369", "Massalin", "REC-1301", "Centrifugador de verduras Hudson (CENTRI01) Blanco", 1)], "2026-09-24");
+      expect(sheet[1].slice(0, 12)).toEqual([
+        "Centrifugador de verduras Hudson (CENTRI01) Blanco", "REC-1301", "PAS2409MASS1", "PASAJE DE STOCK MASSALIN", "PASAJE DE STOCK MASSALIN",
+        "ASCASUBI 3380", "", "CABA", 9996, "", "E", 1,
+      ]);
+      expect(urbanoTemplateFileName("2026-09-24", "Massalin", "1369")).toBe("PASAJE 24 SEPTIEMBRE MASSA 1369.xlsx");
+    });
+
+    it("Pampa, con la fecha y la numeración del día", () => {
+      const sheet = urbanoTemplateSheet(urbanoTemplate("1315")!, [from("1315", "Pampa", "68-5218", "COOLER 25 L D55D41 AZUL", 12)], "2026-09-24", 3);
+      expect(sheet[1]).toEqual([
+        day, "", "PAS2409PAMPA3", "COOLER 25 L D55D41 AZUL", "68-5218", "", "", "", "", "", "PASAJE DE STOCK PAMPA", "Buenos Aires ", "",
+        "ASCASUBI 3381", "", "BARRACAS", "BSAS", 9996, "", "", "E", 12,
+      ]);
+    });
+
+    it("Producteca: 56 columnas con SKU, cantidad y dirección en su lugar", () => {
+      const sheet = urbanoTemplateSheet(urbanoTemplate("1955")!, [from("1955", "Producteca", "PROD-164", "", 23)], "2026-09-24");
+      expect(sheet[0]).toHaveLength(56);
+      expect([sheet[1][0], sheet[1][1], sheet[1][3], sheet[1][11], sheet[1][15], sheet[1][29], sheet[1][32]]).toEqual([
+        day, "PAS2409PR1", "PASAJE DE STOCK", "PROD-164", 23, "ASCASUBI 3380", 9996,
+      ]);
+      expect(urbanoTemplateFileName("2026-09-24", "Producteca", "1955")).toBe("PASAJE 24 SEPTIEMBRE PR 1955.xlsx");
+    });
+
+    it("Syngenta lleva la descripción bajo Código y el código bajo Producto, como su planilla", () => {
+      const row = urbanoTemplateSheet(urbanoTemplate("3817")!, [from("3817", "Syngenta", "SYN115", "TIJERA CORTACERCO 5943", 13)], "2026-09-24")[1];
+      expect(row.slice(0, 17)).toEqual([
+        "PAS2409SYN1", "PAS2409SYN1", "PAS2409SYN1", "ASCASUBI 3380", "", "BARRACAS", "BSAS", "", 9996, "", "", "",
+        "TIJERA CORTACERCO 5943", "SYN115", 13, day, "E",
+      ]);
+    });
+
+    it("Umiles usa PJE en el ID", () => {
+      const row = urbanoTemplateSheet(urbanoTemplate("3102")!, [from("3102", "Umiles", "URB-179", "", 10)], "2026-09-24")[1];
+      expect([row[4], row[6], row[8], row[12], row[20]]).toEqual(["PJE2409UMILES1", 10, "URB-179", "PASAJE DE STOCK", "E"]);
+    });
+
+    it("un shipper sin planilla cargada no tiene formato propio", () => {
+      expect(urbanoTemplate("9999")).toBeNull();
+    });
   });
 });

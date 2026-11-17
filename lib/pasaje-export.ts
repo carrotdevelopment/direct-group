@@ -26,7 +26,7 @@ function plainClient(client: string) {
 }
 
 // Abreviaturas que usa Urbano en el N° de certificado cuando no es el nombre entero.
-const CERTIFICATE_ABBREVIATIONS: Record<string, string> = { CREDICOOP: "CREDI" };
+const CERTIFICATE_ABBREVIATIONS: Record<string, string> = { CREDICOOP: "CREDI", MASSALIN: "MASS", PRODUCTECA: "PR", SYNGENTA: "SYN" };
 
 // Cliente en el N° de certificado: la abreviatura de Urbano o el nombre en mayúsculas (AMEX, CREDI, PAMPA).
 export function certificateClient(client: string) {
@@ -137,4 +137,125 @@ export function urbanoUploadFileName(requestDate: string, client: string, shippe
 export function requestFileName(requestDate: string) {
   const { day, month } = parts(requestDate);
   return `SOLICITUD PASAJE DE STOCK ${Number(day)} ${MONTHS[Number(month) - 1]}.xlsx`;
+}
+
+// Planilla de egresos propia de cada shipper: Urbano la sube con la misma planilla que usa ese cliente para
+// sus canjes, así que cada shipper tiene sus columnas. Armadas copiando los Excel de pasajes del 24/09/2026
+// que mandó Aire Club (uno por shipper): solo cambian el certificado, el producto, la cantidad y la fecha.
+type TemplateRow = { cert: string; p: ExportPasaje; date: number; client: string };
+export type UrbanoTemplate = {
+  sheetName: string;
+  header: (string | null)[];
+  row: (r: TemplateRow) => unknown[];
+  dateColumns: Record<number, string>; // Columna → formato de fecha de Excel.
+  certificatePrefix?: string; // PAS salvo que el cliente use otro (Umiles: PJE).
+};
+
+// Fila de n celdas vacías con algunas completas.
+const filled = (length: number, values: Record<number, unknown>) =>
+  Array.from({ length }, (_, index) => (index in values ? values[index] : ""));
+const blanks = (count: number) => Array<null>(count).fill(null);
+
+export const URBANO_TEMPLATES: Record<string, UrbanoTemplate> = {
+  // Amex
+  "1258": {
+    sheetName: "Hoja1", header: URBANO_UPLOAD_HEADER, dateColumns: {},
+    row: ({ cert, p }) => [p.fromDescription, p.fromClientCode, "", cert, "PASAJE DE STOCK", "ASCASUBI 3380", "", "", "", "BSAS", 9996, "E", p.quantity],
+  },
+  // Credicoop
+  "1247": {
+    sheetName: "Hoja1", header: URBANO_ID_HEADER, dateColumns: { 9: "d-mmm" },
+    row: ({ cert, p, date }) => [
+      cert, "PASAJE DE STOCK", "ASCASUBI 3381", 9996, "CABA", "BARRACAS", codeCell(p.fromClientCode), p.quantity, "", date, p.fromDescription, "E", "", "",
+    ],
+  },
+  // Massalin
+  "1369": {
+    sheetName: "canjes_procesados - 2020-11-26T", dateColumns: {},
+    header: [
+      "Descripcion", "Codigo", "Nº Seguimiento", "Nombre y apellido RRHH", "Nombre y apellido", "Direccion", "Observaciones", "Localidad",
+      "CP", "PVA", "Tipo de operacion", "Cantidad", "Company Code", "Ceco Facturacion", "Ceco", "Legajo", "Fecha", "Procedencia", "DNI",
+      "Puntos Canjeados", "Importe",
+    ],
+    row: ({ cert, p, client }) => filled(21, {
+      0: p.fromDescription, 1: p.fromClientCode, 2: cert, 3: `PASAJE DE STOCK ${client}`, 4: `PASAJE DE STOCK ${client}`,
+      5: "ASCASUBI 3380", 7: "CABA", 8: 9996, 10: "E", 11: p.quantity,
+    }),
+  },
+  // Banco La Pampa
+  "1315": {
+    sheetName: "Hoja1", dateColumns: { 0: "mm-dd-yy" },
+    header: [
+      "Fecha Canje", "Nro de Canje", "cli_código", "Descripcion", "SKU", null, null, "Nro de Socio", "Tipo Documento Socio",
+      "Nro Documento Socio", "Apellido y Nombre", "Observaciones", "Observaciones2", "Direccion", "EntreCalles", "Localidad", "Provincia",
+      "CP", "Telefono", "Celular", "MODALIDAD", "CANTIDAD",
+    ],
+    row: ({ cert, p, date, client }) => filled(22, {
+      0: date, 2: cert, 3: p.fromDescription, 4: p.fromClientCode, 10: `PASAJE DE STOCK ${client}`, 11: "Buenos Aires ",
+      13: "ASCASUBI 3381", 15: "BARRACAS", 16: "BSAS", 17: 9996, 20: "E", 21: p.quantity,
+    }),
+  },
+  // Producteca / Comafi
+  "1955": {
+    sheetName: "Hoja 1", dateColumns: { 0: "mm-dd-yy" },
+    header: [
+      "Fecha", "ID", null, "NOMBRE Y APELLIDO", "SERVICIO", ...blanks(6), "SKU", ...blanks(3), "Cantidad", ...blanks(13),
+      "Dirección", "Provincia", "Localidad", "Código Postal", ...blanks(23),
+    ],
+    row: ({ cert, p, date }) => filled(56, {
+      0: date, 1: cert, 3: "PASAJE DE STOCK", 4: "E", 11: p.fromClientCode, 15: p.quantity,
+      29: "ASCASUBI 3380", 30: "CABA", 31: "BARRACAS", 32: 9996,
+    }),
+  },
+  // Syngenta. Así viene su planilla: la descripción va bajo "Código" y el código bajo "Producto".
+  "3817": {
+    sheetName: "Hoja1", dateColumns: { 15: "mm-dd-yy" },
+    header: [
+      "ID", "IdCliente", "Nombre y Apellido", "Calle", "Número", "Depto/Piso", "Provincia", "Localidad", "CP", "Cod_Area",
+      "Telefono/Celular", "Mail de contacto", "Código", "Producto", "Cantidad", "Fecha Pedido", "SERVICIO", null,
+      "Fecha Tomado Rambla", "Fecha Envío a Correo", "Fecha Entrega", "Link Andreani", "Observaciones",
+    ],
+    row: ({ cert, p, date }) => filled(23, {
+      0: cert, 1: cert, 2: cert, 3: "ASCASUBI 3380", 5: "BARRACAS", 6: "BSAS", 8: 9996,
+      12: p.fromDescription, 13: p.fromClientCode, 14: p.quantity, 15: date, 16: "E",
+    }),
+  },
+  // Umiles / Macro
+  "3102": {
+    sheetName: "TRANSACCIONES", dateColumns: {}, certificatePrefix: "PJE",
+    header: [
+      "Fecha_creacion_orden", "Fecha_pago", "Orden_#", "Orden_pública_#", "ID", "Fabricante", "Cantidad", "GP_SKU", "SKU",
+      "Producto_nombre", "Variantes", "Apellido", "NOMBRE", "Email", "DNI", "DIRECCIÓN", "CODIGO POSTAL", null, "LOCALIDAD",
+      "Provincia", "SERVICIO",
+    ],
+    row: ({ cert, p }) => filled(21, {
+      4: cert, 6: p.quantity, 8: p.fromClientCode, 12: "PASAJE DE STOCK", 15: "ASCASUBI 3380", 16: 9996, 18: "BARRACAS", 19: "CABA", 20: "E",
+    }),
+  },
+};
+
+export function urbanoTemplate(shipper: string) {
+  return URBANO_TEMPLATES[shipper.trim()] ?? null;
+}
+
+// Planilla de egresos de un shipper con su propio formato. El cliente del nombre del archivo y del
+// "PASAJE DE STOCK <CLIENTE>" es el del pasaje, también cuando el shipper agrupa varios (Producteca/Comafi).
+export function urbanoTemplateSheet(template: UrbanoTemplate, pasajes: ExportPasaje[], requestDate: string, firstNumber = 1) {
+  const date = excelSerial(requestDate);
+  return [
+    template.header.map((cell) => cell ?? ""),
+    ...pasajes.map((p, index) => {
+      const cert = certificate(requestDate, p.fromClient, firstNumber + index).replace(/^PAS/, template.certificatePrefix ?? "PAS");
+      return template.row({ cert, p, date, client: plainClient(p.fromClient) });
+    }),
+  ];
+}
+
+// Cliente en el nombre del archivo: el nombre en mayúsculas o la abreviatura que usan (MASSA, PR, SYN).
+const FILE_LABELS: Record<string, string> = { MASSALIN: "MASSA", PRODUCTECA: "PR", SYNGENTA: "SYN" };
+
+export function urbanoTemplateFileName(requestDate: string, client: string, shipper: string) {
+  const { day, month } = parts(requestDate);
+  const label = FILE_LABELS[plainClient(client)] ?? plainClient(client);
+  return `PASAJE ${Number(day)} ${MONTHS[Number(month) - 1]} ${label} ${shipper}.xlsx`.replace(/\s+/g, " ");
 }
