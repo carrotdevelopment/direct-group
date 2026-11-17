@@ -223,10 +223,14 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
   const limit = Math.max(1, Math.min(Number(options.limit ?? 750), 5000));
 
   // Los totales del filtro salen de funciones de ventana sobre el mismo recorrido
-  // que trae las filas: se calculan antes del LIMIT.
+  // que trae las filas: se calculan antes del LIMIT. El filtro va en un CTE materializado:
+  // con el LIMIT a la vista, PostgreSQL elegía cruzar cada ingreso contra todos los
+  // códigos cliente uno por uno (pensando que leería pocas filas) y la carga tardaba
+  // 15-60 s; filtrando aparte usa hash joins y tarda decenas de milisegundos.
   const [rows, groups] = await Promise.all([
     excelPostgres.$queryRaw<(IncomeDbRow & IncomeWindowTotals)[]>(Prisma.sql`
-      WITH ${RESOLVED_INCOME_CTE}
+      WITH ${RESOLVED_INCOME_CTE},
+      f AS MATERIALIZED (SELECT * FROM r ${where})
       SELECT id, cliente_res, operacion, to_char(fecha_pedido, 'DD/MM/YYYY') AS fecha_display,
         extract(year FROM fecha_pedido)::int AS anio, extract(month FROM fecha_pedido)::int AS mes,
         orden_de_compra, codigo_cliente, codigo_unico, cantidad::float8 AS cantidad, origen,
@@ -236,7 +240,7 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
         (sum(entregado) OVER ())::float8 AS t_entregado, (sum(pendiente) OVER ())::float8 AS t_pendiente,
         (count(*) FILTER (WHERE pendiente > 0) OVER ())::int AS t_filas_pendientes,
         (count(*) FILTER (WHERE codigo_unico = '') OVER ())::int AS t_sin_unico
-      FROM r ${where}
+      FROM f
       ORDER BY fecha_entrega DESC NULLS LAST, fecha_pedido DESC NULLS LAST, id DESC
       LIMIT ${limit}`),
     readIncomeGroups(),
