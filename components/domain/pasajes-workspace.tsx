@@ -305,12 +305,12 @@ export function PasajesWorkspace({
       .sort((a, b) => a.client.localeCompare(b.client, "es") || a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }));
 
   const destinationPicker = (p: Pasaje, label: string) => (
-    <span className="flex flex-wrap items-center gap-2">
+    <span className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
       <select
         aria-label="Cliente destino"
         value={destinationChoice[p.id] ?? ""}
         onChange={(event) => setDestinationChoice((current) => ({ ...current, [p.id]: event.target.value }))}
-        className="h-9 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs outline-none focus:border-[#7da4d3]"
+        className="h-9 min-w-0 flex-1 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs outline-none focus:border-[#7da4d3] sm:flex-none"
       >
         <option value="">{lacksDestination(p) ? "Elegí el destino" : "Otro destino"}</option>
         {destinationOptions(p)
@@ -321,7 +321,7 @@ export function PasajesWorkspace({
             </option>
           ))}
       </select>
-      <Button size="sm" variant={lacksDestination(p) ? "primary" : "secondary"} disabled={busy || !destinationChoice[p.id]} onClick={() => void setDestination(p)}>
+      <Button size="sm" className="whitespace-nowrap" variant={lacksDestination(p) ? "primary" : "secondary"} disabled={busy || !destinationChoice[p.id]} onClick={() => void setDestination(p)}>
         <MapPin size={14} /> {label}
       </Button>
     </span>
@@ -398,14 +398,14 @@ export function PasajesWorkspace({
             Ajustes {pendingAjustes.length > 0 && `(${pendingAjustes.length})`}
           </button>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-[#8a99ad]">{status}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="hidden text-[10px] font-bold text-[#8a99ad] sm:inline">{status}</span>
           {tab === "pasajes" ? (
             <>
-              <Button size="sm" variant="secondary" onClick={() => setPasajeModalOpen(true)}>
+              <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
                 <ArrowRightLeft size={15} /> Un pasaje
               </Button>
-              <Button size="sm" onClick={() => setSolicitudModalOpen(true)}>
+              <Button size="sm" className="whitespace-nowrap" onClick={() => setSolicitudModalOpen(true)}>
                 <FileSpreadsheet size={15} /> Cargar pasajes
               </Button>
             </>
@@ -431,11 +431,17 @@ export function PasajesWorkspace({
 
       {tab === "pasajes" ? (
         <div className="space-y-4">
-          <div className="rounded-xl bg-[#eef3fb] px-4 py-3 text-xs font-bold text-[#52647d]">
-            Los pasajes se cargan acá (&quot;Cargar pasajes&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
-            origen y queda el ingreso pendiente en el destino; cuando Urbano avisa por correo que llegaron, los confirma la
-            encargada del cliente destino. De cada carga se bajan el Excel para mandarle a Urbano y la planilla para subir en Urbano.
-          </div>
+          <details className="group rounded-xl bg-[#eef3fb] px-4 py-2 text-xs font-bold text-[#52647d]">
+            <summary className="cursor-pointer list-none text-[#0b5bbb] marker:hidden">
+              <span className="group-open:hidden">¿Cómo funcionan los pasajes?</span>
+              <span className="hidden group-open:inline">Ocultar explicación</span>
+            </summary>
+            <p className="mt-2 pb-1">
+              Los pasajes se cargan acá (&quot;Cargar pasajes&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
+              origen y queda el ingreso pendiente en el destino; cuando Urbano avisa por correo que llegaron, los confirma la
+              encargada del cliente destino. De cada carga se bajan el Excel para mandarle a Urbano y la planilla para subir en Urbano.
+            </p>
+          </details>
 
           {urbanoWithoutPasaje.length > 0 && (
             <section className="card animate-enter overflow-hidden border border-[#f4c16d]">

@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Tag, Truck } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
-import { SummaryStrip } from "@/components/domain/summary-strip";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 type AdminItem = {
@@ -64,7 +63,7 @@ function AdminList({
   const [managerFilter, setManagerFilter] = useState("");
   const [draft, setDraft] = useState("");
   const [inputError, setInputError] = useState("");
-  const [status, setStatus] = useState("Leyendo base de datos...");
+  const [status, setStatus] = useState("Cargando...");
   const [query, setQuery] = useState("");
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
@@ -86,9 +85,9 @@ function AdminList({
         setItems(uniqueAdminItems(data[apiKey] ?? []));
         setManagers(data.managers ?? []);
         setCurrentUserId(data.currentUserId ?? null);
-        setStatus("PostgreSQL sincronizado");
+        setStatus("");
       })
-      .catch(() => setStatus("No pude leer PostgreSQL"));
+      .catch(() => setStatus("No se pudo cargar la lista."));
   }, [apiKey, endpoint]);
 
   useEffect(() => {
@@ -124,7 +123,7 @@ function AdminList({
 
   async function persist(next: AdminItem[]): Promise<string | null> {
     const uniqueNext = uniqueAdminItems(next);
-    setStatus("Guardando en PostgreSQL...");
+    setStatus("Guardando...");
     try {
       const response = await fetch(endpoint, {
         method: "PUT",
@@ -133,7 +132,7 @@ function AdminList({
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { message?: string };
-        const message = body.message ?? "No pude guardar en PostgreSQL";
+        const message = body.message ?? "No se pudo guardar.";
         setStatus(message);
         return message;
       }
@@ -143,10 +142,10 @@ function AdminList({
       // a duplicate row.
       const data = (await response.json()) as ListResponse;
       setItems(uniqueAdminItems(data[apiKey] ?? uniqueNext));
-      setStatus("PostgreSQL sincronizado");
+      setStatus("");
       return null;
     } catch {
-      setStatus("No pude guardar en PostgreSQL");
+      setStatus("No se pudo guardar.");
       return null;
     }
   }
@@ -212,7 +211,7 @@ function AdminList({
                 }
               }}
               placeholder={placeholder}
-              className={`h-10 flex-1 rounded-xl border bg-[#f8fafd] px-3 text-xs font-semibold uppercase outline-none ${inputError ? "border-red-400 focus:border-red-400" : "border-[#dbe4ef] focus:border-[#7da4d3]"}`}
+              className={`h-10 flex-1 rounded-xl border bg-[#f8fafd] px-3 text-xs font-semibold outline-none ${inputError ? "border-red-400 focus:border-red-400" : "border-[#dbe4ef] focus:border-[#7da4d3]"}`}
             />
             <Button size="sm" onClick={addItem}>
               <Plus size={14} /> Agregar
@@ -303,7 +302,7 @@ function AdminList({
                     onClick={() => void toggleItem(item.id)}
                     className={`rounded-lg border px-2.5 py-1 text-[9px] font-extrabold transition ${
                       item.active
-                        ? "border-[#f0d3d2] bg-[#fce9e8] text-[#a43d39] hover:border-[#a43d39]"
+                        ? "border-[#dbe4ef] bg-white text-[#62728a] hover:border-[#a43d39] hover:bg-[#fce9e8] hover:text-[#a43d39]"
                         : "border-[#cfe3d6] bg-[#e8f6ed] text-[#277345] hover:border-[#277345]"
                     }`}
                   >
@@ -322,7 +321,7 @@ function AdminList({
           total
           {withManagers && ` · ${items.filter((item) => !item.managerUserId).length} sin encargado`}
         </span>
-        <span>{status}</span>
+        {status && <span>{status}</span>}
       </div>
     </section>
   );
@@ -335,23 +334,6 @@ export function SupplierAdminWorkspace() {
         eyebrow="Proveedores"
         title="Red de proveedores"
         description="Gestioná proveedores, categorías, catálogos, documentos y vigencia de costos desde un único lugar."
-      />
-      <SummaryStrip
-        items={[
-          {
-            label: "Listas maestras",
-            value: "2",
-            meta: "Proveedores y categorías",
-            icon: Truck,
-          },
-          {
-            label: "Uso en productos",
-            value: "Activo",
-            meta: "Desplegables del catálogo",
-            icon: Tag,
-            tone: "blue",
-          },
-        ]}
       />
       <div className="grid gap-4 xl:grid-cols-2">
         <AdminList

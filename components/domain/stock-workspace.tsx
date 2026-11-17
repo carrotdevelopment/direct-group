@@ -396,16 +396,16 @@ export function StockWorkspace() {
       </section>
 
       {/* KPIs */}
-      <section className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
         {[
           { label: "Vigentes", value: fmt(totals.vigentes) },
           { label: "No vigentes con stock", value: fmt(totals.noVigentesConStock) },
           { label: "Stock real (vigentes)", value: fmt(totals.realStock) },
           { label: "Stock valorizado", value: `$${money(totals.stockValue)}` },
         ].map(({ label, value }) => (
-          <div key={label} className="card p-4">
-            <div className="text-[10px] font-black uppercase text-[#62728a]">{label}</div>
-            <div className="mt-2 text-2xl font-black text-[#10233f]">{value}</div>
+          <div key={label} className="card min-w-0 px-3 py-2.5">
+            <div className="truncate text-[10px] font-black uppercase text-[#62728a]">{label}</div>
+            <div className="truncate text-lg font-black leading-tight text-[#10233f]">{value}</div>
           </div>
         ))}
       </section>

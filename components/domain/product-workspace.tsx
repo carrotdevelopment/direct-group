@@ -414,7 +414,7 @@ export function ProductWorkspace() {
     key: "updatedAt",
     direction: "desc",
   });
-  const [dbStatus, setDbStatus] = useState("Leyendo base de datos...");
+  const [dbStatus, setDbStatus] = useState("Cargando...");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [visibleLimit, setVisibleLimit] = useState(visibleBatchSize);
@@ -448,7 +448,7 @@ export function ProductWorkspace() {
         setProducts(productsData.products);
         setSuppliers(suppliersData.suppliers);
         setCategories(categoriesData.categories);
-        setDbStatus("PostgreSQL sincronizado");
+        setDbStatus("");
       })
       .catch(() => {
         setDbStatus("No pude leer la base de datos, usando datos demo");
@@ -480,7 +480,7 @@ export function ProductWorkspace() {
     savingRef.current = true;
     const previous = products;
     setProducts(next);
-    setDbStatus("Guardando en PostgreSQL...");
+    setDbStatus("Guardando...");
     try {
       const response = await fetch("/api/local-db/products", {
         method: "PUT",
@@ -490,16 +490,16 @@ export function ProductWorkspace() {
       const data = (await response.json().catch(() => ({}))) as { message?: string; products?: Product[] };
       if (!response.ok) {
         setProducts(previous);
-        setDbStatus("No pude guardar en PostgreSQL");
-        return { ok: false as const, message: data.message || "No pude guardar en PostgreSQL." };
+        setDbStatus("No se pudo guardar.");
+        return { ok: false as const, message: data.message || "No se pudo guardar." };
       }
       if (data.products) setProducts(data.products);
-      setDbStatus("PostgreSQL sincronizado");
+      setDbStatus("");
       return { ok: true as const };
     } catch {
       setProducts(previous);
-      setDbStatus("No pude guardar en PostgreSQL");
-      return { ok: false as const, message: "No pude guardar en PostgreSQL." };
+      setDbStatus("No se pudo guardar.");
+      return { ok: false as const, message: "No se pudo guardar." };
     } finally {
       savingRef.current = false;
     }

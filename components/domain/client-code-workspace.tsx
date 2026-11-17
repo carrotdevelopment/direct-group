@@ -208,7 +208,7 @@ export function ClientCodeWorkspace() {
     uniqueCodes: Set<string>;
     clientCodes: Set<string>;
   }>(() => ({ uniqueCodes: new Set(), clientCodes: new Set() }));
-  const [dbStatus, setDbStatus] = useState("Leyendo base de datos...");
+  const [dbStatus, setDbStatus] = useState("Cargando...");
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [historyClient, setHistoryClient] = useState("");
   const [historyMonth, setHistoryMonth] = useState("");
@@ -482,7 +482,7 @@ export function ClientCodeWorkspace() {
 
   async function persist(next: Mapping[]) {
     setMappings(next);
-    setDbStatus("Guardando en PostgreSQL...");
+    setDbStatus("Guardando...");
     try {
       const response = await fetch("/api/local-db/client-codes", {
         method: "PUT",
@@ -490,24 +490,24 @@ export function ClientCodeWorkspace() {
         body: JSON.stringify({ mappings: next }),
       });
       if (!response.ok) throw new Error("write failed");
-      setDbStatus("PostgreSQL sincronizado");
+      setDbStatus("");
     } catch {
-      setDbStatus("No pude guardar en PostgreSQL");
+      setDbStatus("No se pudo guardar.");
     }
   }
 
   async function loadMappingsFromExcel() {
     setIsLoadingDb(true);
-    setDbStatus("Leyendo PostgreSQL...");
+    setDbStatus("Cargando...");
     try {
       const response = await fetch("/api/local-db/client-codes");
       if (!response.ok) throw new Error("read failed");
       const data = (await response.json()) as { mappings: Mapping[] };
       setMappings(data.mappings);
-      setDbStatus("PostgreSQL sincronizado");
+      setDbStatus("");
       return data.mappings;
     } catch {
-      setDbStatus("No pude leer PostgreSQL");
+      setDbStatus("No se pudo cargar.");
       return mappings;
     } finally {
       setIsLoadingDb(false);
