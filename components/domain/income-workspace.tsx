@@ -781,9 +781,7 @@ export function IncomeWorkspace() {
       <section className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dbe4ef] px-5 py-4">
           <div>
-            <div className="text-xs font-black text-[#10233f]">
-              Consulta1 · ingresos visualizados
-            </div>
+            <h2 className="text-sm font-black text-[#10233f]">Ingresos</h2>
             <div className="mt-1 text-[10px] font-bold text-[#62728a]">
               {limitedNotice ||
                 `Mostrando ${formatNumber(rows.length)} filas de ${formatNumber(
@@ -791,8 +789,11 @@ export function IncomeWorkspace() {
                 )} filtradas.`}
             </div>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#eef5ff] px-3 py-2 text-[10px] font-black uppercase tracking-[.1em] text-[#0b5bbb]">
-            <CheckCircle2 size={14} />
+          <div
+            className="inline-flex items-center gap-1.5 text-[10px] font-bold text-[#62728a]"
+            title="Los ingresos vienen de Tango: acá se consultan, no se editan."
+          >
+            <CheckCircle2 size={13} />
             Solo lectura
           </div>
         </div>
@@ -800,7 +801,7 @@ export function IncomeWorkspace() {
           <table className="min-w-[1420px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
             <thead>
               <tr className="sticky top-0 z-10 bg-[#edf4fc] text-[10px] font-bold uppercase tracking-wide text-[#334b6b]">
-                <th className="w-28 px-3 py-3">Estado</th>
+                <th className="w-36 px-3 py-3">Estado</th>
                 <th className="w-28 px-3 py-3">Cliente</th>
                 <th className="w-44 px-3 py-3">Operación</th>
                 <th className="w-24 px-3 py-3 text-center">Pedido</th>
@@ -826,8 +827,9 @@ export function IncomeWorkspace() {
                   }
                 >
                   <td className="px-3 py-2">
+                    <div className="flex flex-col items-start gap-1">
                     <span
-                      className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black uppercase ring-1 ${statusClass(
+                      className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-black uppercase ring-1 ${statusClass(
                         row.status,
                       )}`}
                     >
@@ -842,15 +844,16 @@ export function IncomeWorkspace() {
                             ? "Cargado desde la web, todavía falta cargarlo en Tango. Tocá para marcarlo como cargado."
                             : "Ya se cargó en Tango. Tocá para volver a marcarlo como pendiente."
                         }
-                        className={`ml-1 inline-flex rounded-full px-2 py-1 text-[9px] font-black uppercase ring-1 transition ${
+                        className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-bold ring-1 transition ${
                           row.pendingTangoEntry
-                            ? "bg-[#eef3fb] text-[#52647d] ring-[#d8e3f0] hover:bg-[#e0e9f5]"
+                            ? "bg-[#fff3df] text-[#9a5b17] ring-[#f4dcae] hover:bg-[#ffe9c4]"
                             : "bg-[#e7f7eb] text-[#23783a] ring-[#c9ebd1] hover:bg-[#d9f0e0]"
                         }`}
                       >
-                        {row.pendingTangoEntry ? "Pendiente Tango" : "Cargado en Tango"}
+                        {row.pendingTangoEntry ? "Falta cargar en Tango" : "Cargado en Tango"}
                       </button>
                     ) : null}
+                    </div>
                   </td>
                   <td className="px-3 py-2 font-black uppercase text-[#10233f]">
                     {row.client || "-"}
@@ -941,7 +944,7 @@ export function IncomeWorkspace() {
             </h2>
             <p className="mt-2 text-xs font-bold text-[#62728a]">
               Devoluciones, ajustes y pasajes que todavía no están cargados en
-              Tango. Quedan marcados como &quot;Pendiente Tango&quot; hasta que
+              Tango. Quedan marcados como &quot;Falta cargar en Tango&quot; hasta que
               alguien los carga también ahí.
             </p>
             <div className="mt-6 grid gap-4">

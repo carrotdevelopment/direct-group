@@ -37,7 +37,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button, input, select, textarea { font: inherit; }
+/* En la capa base: suelto pisaba el tamaño y el peso de letra de todos los botones y campos (text-xs,
+   font-bold...), que quedaban en 16 px y letra normal. */
+@layer base {
+  button, input, select, textarea { font: inherit; }
+}
 
 button, a { -webkit-tap-highlight-color: transparent; }
 
