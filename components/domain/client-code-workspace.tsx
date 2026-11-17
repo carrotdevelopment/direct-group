@@ -967,14 +967,17 @@ export function ClientCodeWorkspace() {
 
   return (
     <>
-      <div className="mb-3 rounded-xl border border-[#dbe4ef] bg-white px-4 py-2 text-[10px] font-bold text-[#62728a]">
-        <span className="inline-flex items-center gap-2">
-          {isLoadingDb && (
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#b7c9df] border-t-[#0b5bbb]" />
-          )}
-          {isLoadingDb ? "Cargando datos..." : dbStatus}
-        </span>
-      </div>
+      {/* Solo aparece mientras carga, guarda o si hubo un error; si no, quedaba una barra blanca vacía. */}
+      {(isLoadingDb || dbStatus) && (
+        <div className="mb-3 rounded-xl border border-[#dbe4ef] bg-white px-4 py-2 text-[10px] font-bold text-[#62728a]">
+          <span className="inline-flex items-center gap-2">
+            {isLoadingDb && (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#b7c9df] border-t-[#0b5bbb]" />
+            )}
+            {isLoadingDb ? "Cargando datos..." : dbStatus}
+          </span>
+        </div>
+      )}
 
       <PageHeader
         eyebrow="Códigos cliente"
