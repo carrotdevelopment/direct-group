@@ -94,6 +94,7 @@ model ExcelSupplier {
   legacyId        String?           @map("legacy_id") @db.VarChar(100)
   supplier        String?           @map("proveedor") @db.VarChar(255)
   active          Boolean?          @map("activo")
+  managerUserId   String?           @map("encargado_usuario_id") @db.VarChar(40)
   importBatchId   BigInt?           @map("import_batch_id") @db.BigInt
   sourceRowNumber Int?              @map("source_row_number")
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)

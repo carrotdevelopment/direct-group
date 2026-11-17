@@ -147,6 +147,7 @@ export async function readSuppliersFromPostgres(): Promise<ExcelSupplier[]> {
     id: row.id.toString(),
     name: text(row.supplier),
     active: row.active ?? false,
+    managerUserId: row.managerUserId ?? null,
   }));
 }
 
@@ -157,7 +158,12 @@ export async function writeSuppliersToPostgres(suppliers: ExcelSupplier[]) {
   await excelPostgres.$transaction(async (transaction) => {
     for (const supplier of suppliers) {
       const id = numericId(supplier.id);
-      const data = { supplier: supplier.name.trim(), active: supplier.active };
+      // Sin la propiedad (pantallas viejas abiertas) no se pisa el encargado guardado.
+      const data = {
+        supplier: supplier.name.trim(),
+        active: supplier.active,
+        managerUserId: supplier.managerUserId === undefined ? undefined : supplier.managerUserId || null,
+      };
       if (id && existing.some((row) => row.id === id)) {
         await transaction.excelSupplier.update({ where: { id }, data });
       } else {

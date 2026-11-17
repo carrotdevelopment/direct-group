@@ -11,9 +11,16 @@ type AdminItem = {
   id: string;
   name: string;
   active: boolean;
+  managerUserId?: string | null;
 };
 
 type ApiKey = "suppliers" | "categories";
+type Manager = { id: string; name: string };
+type ListResponse = Partial<Record<ApiKey, AdminItem[]>> & { managers?: Manager[]; currentUserId?: string | null };
+
+// Filtro por encargado: todos, los del usuario que mira, los que no tienen o los de un usuario puntual.
+const MINE = "__mine__";
+const NONE = "__none__";
 
 function canonicalAdminKey(value: string) {
   return normalizeForDuplicateCheck(value).replace(/[^A-Z0-9]+/g, " ");
@@ -40,6 +47,7 @@ function AdminList({
   endpoint,
   apiKey,
   placeholder,
+  withManagers = false,
 }: {
   id: string;
   title: string;
@@ -48,8 +56,12 @@ function AdminList({
   endpoint: string;
   apiKey: ApiKey;
   placeholder: string;
+  withManagers?: boolean;
 }) {
   const [items, setItems] = useState<AdminItem[]>([]);
+  const [managers, setManagers] = useState<Manager[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [managerFilter, setManagerFilter] = useState("");
   const [draft, setDraft] = useState("");
   const [inputError, setInputError] = useState("");
   const [status, setStatus] = useState("Leyendo base de datos...");
@@ -68,10 +80,12 @@ function AdminList({
   useEffect(() => {
     fetch(endpoint)
       .then(
-        (response) => response.json() as Promise<Record<ApiKey, AdminItem[]>>,
+        (response) => response.json() as Promise<ListResponse>,
       )
       .then((data) => {
         setItems(uniqueAdminItems(data[apiKey] ?? []));
+        setManagers(data.managers ?? []);
+        setCurrentUserId(data.currentUserId ?? null);
         setStatus("PostgreSQL sincronizado");
       })
       .catch(() => setStatus("No pude leer PostgreSQL"));
@@ -93,12 +107,20 @@ function AdminList({
     const normalized = query.trim().toLowerCase();
     return items
       .filter((item) => item.name.toLowerCase().includes(normalized))
+      .filter((item) => {
+        if (!withManagers || !managerFilter) return true;
+        if (managerFilter === NONE) return !item.managerUserId;
+        const wanted = managerFilter === MINE ? currentUserId : managerFilter;
+        return !!wanted && item.managerUserId === wanted;
+      })
       .sort(
         (left, right) =>
           Number(right.active) - Number(left.active) ||
           left.name.localeCompare(right.name, "es"),
       );
-  }, [items, query]);
+  }, [items, query, withManagers, managerFilter, currentUserId]);
+
+  const managerName = useMemo(() => new Map(managers.map((manager) => [manager.id, manager.name])), [managers]);
 
   async function persist(next: AdminItem[]): Promise<string | null> {
     const uniqueNext = uniqueAdminItems(next);
@@ -119,7 +141,7 @@ function AdminList({
       // items created in this call only get a database id once saved, and
       // reusing the client-side placeholder id on the next save would create
       // a duplicate row.
-      const data = (await response.json()) as Record<ApiKey, AdminItem[]>;
+      const data = (await response.json()) as ListResponse;
       setItems(uniqueAdminItems(data[apiKey] ?? uniqueNext));
       setStatus("PostgreSQL sincronizado");
       return null;
@@ -148,6 +170,12 @@ function AdminList({
       setQuery("");
       setHighlightKey(canonicalAdminKey(name));
     }
+  }
+
+  async function setManager(id: string, managerUserId: string) {
+    await persist(
+      items.map((item) => (item.id === id ? { ...item, managerUserId: managerUserId || null } : item)),
+    );
   }
 
   async function toggleItem(id: string) {
@@ -195,13 +223,28 @@ function AdminList({
           )}
         </div>
       </div>
-      <div className="border-b border-[#e7edf4] bg-[#fafcff] p-4">
+      <div className="flex flex-wrap gap-2 border-b border-[#e7edf4] bg-[#fafcff] p-4">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Buscar..."
           className="h-9 w-full max-w-xs rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
         />
+        {withManagers && (
+          <select
+            aria-label="Filtrar por encargado"
+            value={managerFilter}
+            onChange={(event) => setManagerFilter(event.target.value)}
+            className="h-9 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs font-semibold text-[#334b6b] outline-none focus:border-[#7da4d3]"
+          >
+            <option value="">Todos los encargados</option>
+            {currentUserId && <option value={MINE}>Mis proveedores</option>}
+            <option value={NONE}>Sin encargado</option>
+            {managers.map((manager) => (
+              <option key={manager.id} value={manager.id}>{manager.name}</option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="max-h-[320px] overflow-y-auto">
         {visible.length === 0 ? (
@@ -229,6 +272,23 @@ function AdminList({
                   {item.name}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
+                  {withManagers && (
+                    <select
+                      aria-label={`Encargado de ${item.name}`}
+                      value={item.managerUserId ?? ""}
+                      onChange={(event) => void setManager(item.id, event.target.value)}
+                      title={item.managerUserId ? `Encargado: ${managerName.get(item.managerUserId) ?? "usuario dado de baja"}` : "Sin encargado"}
+                      className={`h-7 max-w-[150px] rounded-lg border bg-white px-2 text-[10px] font-bold outline-none focus:border-[#7da4d3] ${item.managerUserId ? "border-[#cfdcec] text-[#16365f]" : "border-dashed border-[#dbe4ef] text-[#9aa3ad]"}`}
+                    >
+                      <option value="">Sin encargado</option>
+                      {item.managerUserId && !managerName.has(item.managerUserId) && (
+                        <option value={item.managerUserId}>Usuario dado de baja</option>
+                      )}
+                      {managers.map((manager) => (
+                        <option key={manager.id} value={manager.id}>{manager.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <span
                     className={`rounded-full px-2 py-1 text-[9px] font-black ${
                       item.active
@@ -260,6 +320,7 @@ function AdminList({
         <span>
           {items.filter((item) => item.active).length} activos · {items.length}{" "}
           total
+          {withManagers && ` · ${items.filter((item) => !item.managerUserId).length} sin encargado`}
         </span>
         <span>{status}</span>
       </div>
@@ -297,10 +358,11 @@ export function SupplierAdminWorkspace() {
           id="proveedores"
           eyebrow="Perfil admin"
           title="Administrar proveedores"
-          description="Estos proveedores alimentan el desplegable del módulo Productos."
+          description="Estos proveedores alimentan el desplegable del módulo Productos. Cada uno puede tener un encargado."
           endpoint="/api/local-db/suppliers"
           apiKey="suppliers"
           placeholder="Nuevo proveedor..."
+          withManagers
         />
         <AdminList
           id="categorias"

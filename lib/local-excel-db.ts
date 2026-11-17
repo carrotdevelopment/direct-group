@@ -38,6 +38,8 @@ export type ExcelSupplier = {
   id: string;
   name: string;
   active: boolean;
+  // Usuario de la plataforma encargado del proveedor (id de User).
+  managerUserId?: string | null;
 };
 
 export type ExcelCategory = {
