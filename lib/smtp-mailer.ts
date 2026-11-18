@@ -158,7 +158,10 @@ export async function sendSmtpMail(message: MailMessage) {
   await command(Buffer.from(config.user).toString("base64"));
   await command(Buffer.from(config.pass).toString("base64"));
   await command(`MAIL FROM:<${normalizeAddress(config.from)}>`);
-  await command(`RCPT TO:<${normalizeAddress(message.to)}>`);
+  // Puede haber varios destinatarios separados por coma (contactos con más de un correo).
+  for (const to of message.to.split(",").map((address) => normalizeAddress(address)).filter(Boolean)) {
+    await command(`RCPT TO:<${to}>`);
+  }
   await command("DATA");
   socket.write(`${createMessage(config.from, message)}\r\n.\r\n`);
   await waitForResponse();

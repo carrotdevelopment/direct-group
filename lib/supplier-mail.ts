@@ -1,5 +1,6 @@
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 import { sendSmtpMail } from "@/lib/smtp-mailer";
+import { formatEmailList, parseEmailList, splitEmails } from "@/lib/email-list";
 import { getInboxAttachment, getInboxThread, listInbox } from "@/lib/mail-inbox";
 import { DEFAULT_SUPPLIER_MAIL, renderMailTemplate, withDefaults, type SupplierMailTemplates } from "@/lib/org-settings";
 
@@ -76,9 +77,10 @@ type ContactInput = { supplier: string; contactName: string; email: string; acti
 function validate(input: ContactInput) {
   const supplier = String(input.supplier ?? "").trim();
   const contactName = String(input.contactName ?? "").trim();
-  const email = String(input.email ?? "").trim();
+  const emails = parseEmailList(input.email);
   if (!supplier) throw new SupplierMailError("Elegí el proveedor.");
-  if (!/^\S+@\S+\.\S+$/.test(email)) throw new SupplierMailError("Ingresá un correo válido.");
+  if (!emails) throw new SupplierMailError("Ingresá un correo válido (si son varios, separalos con coma).");
+  const email = formatEmailList(emails);
   if (supplier.length > 255 || contactName.length > 255 || email.length > 255) {
     throw new SupplierMailError("Alguno de los datos es demasiado largo.");
   }
@@ -199,10 +201,14 @@ export async function findSupplierReply(
   contact: { email: string; supplier: string; contactName?: string; lastSentAt: Date },
   templates = DEFAULT_SUPPLIER_MAIL,
 ) {
-  const email = contact.email.trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, "");
+  const from = splitEmails(contact.email)
+    .map((email) => email.toLowerCase().replace(/[^a-z0-9@._+-]/g, ""))
+    .filter(Boolean)
+    .map((email) => `from:${email}`)
+    .join(" ");
   const sentSubject = buildPriceRequestMail(contact.contactName ?? "", contact.supplier, contact.lastSentAt, templates).subject;
   const subject = sentSubject.replace(/^(re|rv|fw|fwd):\s*/i, "").replace(/"/g, "").slice(0, 120);
-  const { threads } = await listInbox({ query: `{from:${email} subject:"${subject}"} after:${gmailDay(contact.lastSentAt)}` });
+  const { threads } = await listInbox({ query: `{${from} subject:"${subject}"} after:${gmailDay(contact.lastSentAt)}` });
   const replies = threads.filter((thread) => {
     if (new Date(thread.date).getTime() < contact.lastSentAt.getTime()) return false;
     return !thread.from.toLowerCase().includes(OWN_DOMAIN) || thread.messageCount > 1;

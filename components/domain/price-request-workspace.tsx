@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { PriceManualWorkspace } from "@/components/domain/price-manual-workspace";
+import { parseEmailList } from "@/lib/email-list";
 
 type SupplierMailConfig = {
   id: string;
@@ -450,7 +451,7 @@ export function PriceRequestWorkspace() {
     if (
       !supplierForm.supplier.trim() ||
       !supplierForm.contactName.trim() ||
-      !/^\S+@\S+\.\S+$/.test(supplierForm.email)
+      !parseEmailList(supplierForm.email)
     ) {
       setSupplierError(
         "Completá proveedor, persona de contacto y un correo válido.",
@@ -1544,7 +1545,9 @@ export function PriceRequestWorkspace() {
               <label className="text-[11px] font-extrabold text-[#334b6b]">
                 Correo electrónico *
                 <input
-                  type="email"
+                  type="text"
+                  inputMode="email"
+                  autoComplete="off"
                   value={supplierForm.email}
                   onChange={(event) =>
                     setSupplierForm({
@@ -1555,6 +1558,7 @@ export function PriceRequestWorkspace() {
                   placeholder="persona@proveedor.com"
                   className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
                 />
+                <span className="mt-1 block text-[11px] font-semibold text-[#5a6a82]">Si son varios, separalos con coma: el pedido les llega a todos.</span>
               </label>
               <div className="rounded-xl bg-[#edf4fc] px-2 py-2 text-[11px] text-[#425979]">
                 Programación fija: primer día hábil de cada mes, solo si el proveedor está activo. Para probar ahora, usá
