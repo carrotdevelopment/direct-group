@@ -3,12 +3,10 @@
 // Se parte de la planilla original guardada en templates/solicitud-pasaje-urbano.xlsx (convertida
 // del .xls que mandaron, sin las filas de ejemplo) y solo se agregan las filas de la solicitud: así se
 // conservan tal cual el logo, las fuentes, los bordes, los anchos y la configuración de impresión.
-// Funciona igual en el servidor y en el navegador.
 import * as XLSX from "xlsx";
 import { excelSerial, type DraftRequestRow } from "@/lib/pasaje-export";
 
-// La plantilla vive en templates/ (no es pública): el servidor la lee del disco y el navegador la pide a
-// /api/pasajes/solicitud/plantilla, que exige el módulo Pasajes.
+// La plantilla vive en templates/ (no es pública) y la lee el servidor.
 export const REQUEST_TEMPLATE_FILE = "templates/solicitud-pasaje-urbano.xlsx";
 
 export type RequestWorkbookRow = DraftRequestRow;

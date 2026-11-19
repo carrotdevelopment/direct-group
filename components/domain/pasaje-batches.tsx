@@ -26,17 +26,19 @@ function displayDate(iso: string) {
 // Los Excel de un lote: la solicitud para mandar a Urbano por correo y, por cada shipper origen, la planilla
 // de egresos para subir en Urbano. Si el shipper tiene su planilla cargada sale esa; si no, se elige entre
 // los dos formatos genéricos.
-export function BatchDownloads({ batch }: { batch: PasajeBatch }) {
+export function BatchDownloads({ batch, withRequest = true }: { batch: PasajeBatch; withRequest?: boolean }) {
   const base = `/api/pasajes/lotes/${batch.id}/excel`;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <a
-        href={`${base}?formato=correo`}
-        className={linkClass}
-        title="Solicitud con origen y destino, para mandar a Urbano por correo"
-      >
-        <Mail size={13} /> Excel para el correo
-      </a>
+      {withRequest && (
+        <a
+          href={`${base}?formato=correo`}
+          className={linkClass}
+          title="Solicitud con origen y destino, para mandar a Urbano por correo"
+        >
+          <Mail size={13} /> Exportar solicitud
+        </a>
+      )}
       {batch.origins.map((origin) =>
         origin.shipper ? (
           <span
