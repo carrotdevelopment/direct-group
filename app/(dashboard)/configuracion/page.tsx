@@ -145,7 +145,7 @@ async function UsersSection() {
                 <td className="max-w-[380px] px-4 py-3 text-[#425979]">
                   {user.role === "ADMIN"
                     ? "Todos"
-                    : user.moduleAccess.map((key) => accessModules[key as keyof typeof accessModules] ?? key).join(", ") || "Sin módulos"}
+                    : user.moduleAccess.filter((key) => key in accessModules).map((key) => accessModules[key as keyof typeof accessModules]).join(", ") || "Sin módulos"}
                   {user.moduleAccess.includes("pasajes") && user.role !== "ADMIN" && (
                     <div className="text-[11px] text-[#5a6a82]">Pasajes: {user.pasajeClients.length ? user.pasajeClients.join(", ") : "sin clientes"}</div>
                   )}

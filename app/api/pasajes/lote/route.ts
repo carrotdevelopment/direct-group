@@ -1,5 +1,6 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { notifyPasajes } from "@/server/lib/pasaje-notify";
 import { approvePasajes, confirmPasajes, PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
@@ -19,7 +20,12 @@ export async function POST(request: Request) {
   }
   try {
     const actor = await currentPasajeActor();
-    if (body.action === "approve") return NextResponse.json(await approvePasajes(body.ids ?? [], actor));
+    if (body.action === "approve") {
+      const result = await approvePasajes(body.ids ?? [], actor);
+      // Un solo correo por encargada del destino con todos los aprobados.
+      if (result.done.length) after(() => notifyPasajes("recibir", result.done, actor.name));
+      return NextResponse.json(result);
+    }
     if (body.action === "confirm") return NextResponse.json(await confirmPasajes(body.items ?? [], actor));
     return NextResponse.json({ message: "Acción inválida." }, { status: 400 });
   } catch (error) {

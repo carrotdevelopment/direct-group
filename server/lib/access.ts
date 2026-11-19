@@ -1,6 +1,6 @@
 import "server-only";
 import { auth } from "@/auth";
-import { hasModule } from "@/lib/module-access";
+import { hasModule, PASAJES_ALL } from "@/lib/module-access";
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 
@@ -34,5 +34,6 @@ export async function currentPasajeActor() {
     name: user?.name || user?.email || "desconocido",
     role: user?.role ?? "LECTURA",
     clients: user?.pasajeClients ?? [],
+    seesAll: user?.role === "ADMIN" || !!user?.moduleAccess?.includes(PASAJES_ALL),
   };
 }

@@ -28,7 +28,13 @@ export function pageModule(path: string): string {
   return map[section] ?? "admin";
 }
 
-export type PasajeActor = { name: string; role: string; clients: string[] };
+// Permiso extra dentro de Pasajes (se guarda junto con los módulos): la encargada de pasajes ve todos los
+// pasajes de todos los clientes, por ejemplo los que esperan la aprobación del origen. Aprobar y confirmar
+// sigue siendo de la encargada de cada cliente.
+export const PASAJES_ALL = "pasajes_todos";
+export const accessKeys = [...Object.keys(accessModules), PASAJES_ALL];
+
+export type PasajeActor = { name: string; role: string; clients: string[]; seesAll?: boolean };
 
 export function canActForClient(actor: Pick<PasajeActor, "role" | "clients">, client: string) {
   if (actor.role === "ADMIN") return true;
@@ -46,7 +52,7 @@ export function isPasajeCreator(actor: Pick<PasajeActor, "name">, pasaje: Pick<P
 }
 
 export function canSeePasaje(actor: PasajeActor, pasaje: PasajeParties) {
-  return canActForClient(actor, pasaje.fromClient) || canActForClient(actor, pasaje.toClient) || isPasajeCreator(actor, pasaje);
+  return !!actor.seesAll || canActForClient(actor, pasaje.fromClient) || canActForClient(actor, pasaje.toClient) || isPasajeCreator(actor, pasaje);
 }
 
 // Aprueba (o rechaza) el pasaje la encargada del cliente origen.

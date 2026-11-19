@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PasajeBatchesSection, type PasajeBatch } from "@/components/domain/pasaje-batches";
+import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
 import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
@@ -174,9 +174,11 @@ function ClientCodeSelect({
 export function PasajesWorkspace({
   restrictedClients,
   userName,
+  seesAll = false,
 }: {
   restrictedClients: string[] | null;
   userName: string;
+  seesAll?: boolean;
 }) {
   const [tab, setTab] = useState<"pasajes" | "ajustes">("pasajes");
   const [mappings, setMappings] = useState<Mapping[]>([]);
@@ -407,6 +409,7 @@ export function PasajesWorkspace({
           {restrictedClients.length
             ? `Tus clientes asignados: ${restrictedClients.join(", ")}. Podés cargar pasajes desde cualquier cliente y ajustes de tus clientes.`
             : "Podés cargar pasajes desde cualquier cliente. Para cargar ajustes, pedile a un administrador que te asigne clientes en Permisos."}
+          {seesAll && " Como encargada de pasajes, ves los pasajes de todos los clientes; los aprueba y confirma la encargada de cada uno."}
         </div>
       )}
 
@@ -646,6 +649,7 @@ export function PasajesWorkspace({
             </div>
           </section>
 
+          <PasajeRangeExport />
           <PasajeBatchesSection batches={batches} />
 
           <section className="card animate-enter overflow-hidden">

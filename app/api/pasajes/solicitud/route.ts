@@ -1,5 +1,7 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { excelPostgres } from "@/lib/excel-postgres-client";
+import { notifyPasajes } from "@/server/lib/pasaje-notify";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import { createSolicitud, listUrbanoShippers, previewSolicitud } from "@/lib/pasaje-solicitud-db";
 
@@ -28,7 +30,14 @@ export async function POST(request: Request) {
   }
   try {
     if (body.preview) return NextResponse.json(await previewSolicitud(body.rows, body.fileHash));
-    return NextResponse.json(await createSolicitud(body.rows, body.fileName, body.fileHash, await currentPasajeActor()));
+    const actor = await currentPasajeActor();
+    const result = await createSolicitud(body.rows, body.fileName, body.fileHash, actor);
+    // Un correo por encargada de cada cliente origen con los pasajes que tiene que aprobar.
+    after(async () => {
+      const created = await excelPostgres.pasajeRequest.findMany({ where: { batchId: result.batchId, status: "pending" }, select: { id: true } });
+      await notifyPasajes("aprobar", created.map((pasaje) => pasaje.id), actor.name);
+    });
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof PasajeAjusteError) return NextResponse.json({ message: error.message }, { status: error.status });
     throw error;

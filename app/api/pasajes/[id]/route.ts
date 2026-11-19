@@ -1,5 +1,6 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { notifyPasajes } from "@/server/lib/pasaje-notify";
 import { approvePasaje, cancelPasaje, confirmPasaje, PasajeAjusteError, setPasajeDestination } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
@@ -14,7 +15,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   try {
     const actor = await currentPasajeActor();
     if (body.action === "approve") {
-      return NextResponse.json({ pasaje: await approvePasaje(id, actor) });
+      const pasaje = await approvePasaje(id, actor);
+      // Aviso a la encargada del destino para que confirme lo que llega.
+      after(() => notifyPasajes("recibir", [id], actor.name));
+      return NextResponse.json({ pasaje });
     }
     if (body.action === "confirm") {
       return NextResponse.json({ pasaje: await confirmPasaje(id, Number(body.quantity), actor) });
