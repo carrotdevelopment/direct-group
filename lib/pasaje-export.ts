@@ -65,25 +65,9 @@ export function nextCertificateNumber(base: string, taken: string[]) {
 
 export const REQUEST_HEADER = ["FECHA", "SH", "SKU VIEJO", "DESCRIPCION", "CANT", "SH", "SKU NUEVO", "DESCRIPCION", "CANT"];
 
-// Solicitud para mandar a Urbano por correo: la misma planilla que se puede volver a subir en la plataforma.
-const sheetDate = (iso: string | null) => {
-  if (!iso) return "";
-  const { year, month, day } = parts(iso);
-  return `${day}/${month}/${year}`;
-};
-
-export function requestSheet(pasajes: ExportPasaje[]) {
-  return [
-    REQUEST_HEADER,
-    ...pasajes.map((p) => [
-      sheetDate(p.requestDate), p.fromShipper, p.fromClientCode, p.fromDescription, p.quantity,
-      p.toShipper, p.toClientCode, p.toDescription, p.quantity,
-    ]),
-  ];
-}
-
-// Solicitud armada desde la grilla de carga, antes de cargar los pasajes: cada lado con su propia cantidad
-// (si una falta se usa la otra), como se completó.
+// Fila de la solicitud para mandar a Urbano por correo (el Excel con el formato de siempre lo arma
+// lib/pasaje-request-workbook): cada lado con su propia cantidad; la grilla de carga ya viene así y un
+// pasaje cargado lleva la misma cantidad en los dos lados.
 export type DraftRequestRow = {
   requestDate: string | null;
   fromShipper: string;
@@ -96,14 +80,11 @@ export type DraftRequestRow = {
   toQuantity: number | null;
 };
 
-export function draftRequestSheet(rows: DraftRequestRow[]) {
-  return [
-    REQUEST_HEADER,
-    ...rows.map((row) => [
-      sheetDate(row.requestDate), row.fromShipper, row.fromClientCode, row.fromDescription, row.fromQuantity ?? row.toQuantity ?? "",
-      row.toShipper, row.toClientCode, row.toDescription, row.toQuantity ?? row.fromQuantity ?? "",
-    ]),
-  ];
+export function requestRows(pasajes: ExportPasaje[]): DraftRequestRow[] {
+  return pasajes.map((p) => ({
+    requestDate: p.requestDate, fromShipper: p.fromShipper, fromClientCode: p.fromClientCode, fromDescription: p.fromDescription,
+    fromQuantity: p.quantity, toShipper: p.toShipper, toClientCode: p.toClientCode, toDescription: p.toDescription, toQuantity: p.quantity,
+  }));
 }
 
 // Encabezado de la planilla de carga de Urbano, tal cual la usan (la segunda columna no tiene título y
@@ -157,9 +138,13 @@ export function urbanoUploadFileName(requestDate: string, client: string, shippe
   return `PASAJE ${Number(day)} ${MONTHS[Number(month) - 1]} ${plainClient(client)} ${shipper}.xlsx`.replace(/\s+/g, " ");
 }
 
+const WEEKDAYS = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
+
+// Como el archivo que se manda hoy: "Solicitud de pasaje de stock URBANO DIRECT GROUP JUEVES 29102026".
 export function requestFileName(requestDate: string) {
-  const { day, month } = parts(requestDate);
-  return `SOLICITUD PASAJE DE STOCK ${Number(day)} ${MONTHS[Number(month) - 1]}.xlsx`;
+  const { year, month, day } = parts(requestDate);
+  const weekday = WEEKDAYS[new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay()];
+  return `Solicitud de pasaje de stock URBANO DIRECT GROUP ${weekday} ${day}${month}${year}.xlsx`;
 }
 
 // Planilla de egresos propia de cada shipper: Urbano la sube con la misma planilla que usa ese cliente para

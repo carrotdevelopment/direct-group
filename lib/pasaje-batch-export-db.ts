@@ -5,9 +5,11 @@ import { excelPostgres } from "@/lib/excel-postgres-client";
 import { canSeePasaje, type PasajeActor } from "@/lib/module-access";
 import { PasajeAjusteError } from "@/lib/pasajes-ajustes-db";
 import {
-  certificateBase, certificatePrefix, nextCertificateNumber, requestFileName, requestSheet, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
+  certificateBase, certificatePrefix, nextCertificateNumber, requestFileName, requestRows, URBANO_ID_DATE_COLUMN, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
   urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
+import { buildRequestWorkbook } from "@/lib/pasaje-request-workbook";
+import { readRequestTemplate } from "@/lib/pasaje-request-template";
 
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 const same = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase();
@@ -125,7 +127,8 @@ function workbookFile(rows: unknown[][], sheetName: string, dateColumns: Record<
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
-// Arma uno de los Excel de un lote. "correo": la solicitud completa para mandarle a Urbano.
+// Arma uno de los Excel de un lote. "correo": la solicitud completa para mandarle a Urbano, con el formato
+// de siempre (logo de Urbano, ORIGEN / DESTINO, totales y AUTORIZA).
 // "urbano": la planilla de egresos de un shipper origen (y cliente) para subir en Urbano, con el formato
 // propio de ese shipper; si no hay uno cargado, el formato Descripción. "urbano-id": el formato genérico con ID.
 export async function pasajeBatchExcel(batchId: string, format: string, shipper: string, client: string, actor: PasajeActor) {
@@ -141,7 +144,8 @@ export async function pasajeBatchExcel(batchId: string, format: string, shipper:
   const requestDate = batch.requestDate ? isoDay(batch.requestDate) : isoDay(batch.createdAt);
 
   if (format === "correo") {
-    return { fileName: requestFileName(requestDate), bytes: workbookFile(requestSheet(rows), "Solicitud") };
+    const bytes = buildRequestWorkbook(await readRequestTemplate(), requestRows(rows), requestDate);
+    return { fileName: requestFileName(requestDate), bytes: Buffer.from(bytes) };
   }
   if (format !== "urbano" && format !== "urbano-id") throw new PasajeAjusteError("Formato inválido.");
   const chosen = batch.pasajes.filter((pasaje, index) => rows[index].fromShipper === shipper && same(pasaje.fromClient, client));

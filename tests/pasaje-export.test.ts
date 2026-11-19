@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  certificate, certificateBase, certificatePrefix, draftRequestSheet, nextCertificateNumber, excelSerial, requestSheet, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
+  certificate, certificateBase, certificatePrefix, nextCertificateNumber, excelSerial, requestFileName, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
   urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
 import { parseSolicitudSheet } from "@/lib/pasaje-solicitud";
@@ -46,22 +46,9 @@ describe("Excel de pasajes para Urbano", () => {
     expect(urbanoUploadFileName("2026-11-10", "Credicoop", "1247")).toBe("PASAJE 10 NOVIEMBRE CREDICOOP 1247.xlsx");
   });
 
-  it("la solicitud para el correo se puede volver a leer como solicitud", () => {
-    const [row] = parseSolicitudSheet(requestSheet([pasaje]));
-    expect(row).toMatchObject({
-      requestDate: "2026-11-12", fromShipper: "1258", fromClientCode: "DG99-3026", fromQuantity: 14,
-      toShipper: "1955", toClientCode: "PROD-3026", toQuantity: 14, toDescription: "Pava eléctrica Peabody",
-    });
-  });
-
-  it("la solicitud de la grilla se exporta antes de cargar y se vuelve a leer igual", () => {
-    const draft = {
-      requestDate: "2026-11-12", fromShipper: "1258", fromClientCode: "DG99-3026", fromDescription: "Pava", fromQuantity: 14,
-      toShipper: "1955", toClientCode: "PROD-3026", toDescription: "Pava eléctrica", toQuantity: null,
-    };
-    const sheet = draftRequestSheet([draft]);
-    expect(sheet[1]).toEqual(["12/11/2026", "1258", "DG99-3026", "Pava", 14, "1955", "PROD-3026", "Pava eléctrica", 14]);
-    expect(parseSolicitudSheet(sheet)[0]).toMatchObject({ ...draft, toQuantity: 14 });
+  it("la solicitud lleva el nombre del archivo que se manda hoy", () => {
+    expect(requestFileName("2026-10-29")).toBe("Solicitud de pasaje de stock URBANO DIRECT GROUP JUEVES 29102026.xlsx");
+    expect(requestFileName("2026-11-09")).toBe("Solicitud de pasaje de stock URBANO DIRECT GROUP LUNES 09112026.xlsx");
   });
 
   // Filas copiadas de los Excel de pasajes del 24/09/2026 (uno por shipper).

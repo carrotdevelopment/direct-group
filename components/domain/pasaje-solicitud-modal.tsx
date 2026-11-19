@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeftRight, CheckCircle2, Download, FileSpreadsheet, Plus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BatchDownloads, type PasajeBatch } from "@/components/domain/pasaje-batches";
-import { draftRequestSheet, REQUEST_HEADER, requestFileName } from "@/lib/pasaje-export";
+import { REQUEST_HEADER, requestFileName } from "@/lib/pasaje-export";
+import { buildRequestWorkbook } from "@/lib/pasaje-request-workbook";
 import {
   autofillGridRow,
   GRID_SIDES,
@@ -266,11 +267,21 @@ export function PasajeSolicitudModal({
     setError("");
     const parsed = gridRows();
     if (parsed.length === 0) return setError("Completá al menos una fila para exportar la solicitud.");
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(draftRequestSheet(parsed)), "Solicitud");
-    const date = parsed.find((row) => row.requestDate)?.requestDate ?? null;
-    XLSX.writeFile(workbook, date ? requestFileName(date) : "SOLICITUD PASAJE DE STOCK.xlsx");
+    try {
+      // Con el formato de siempre: la planilla original (logo de Urbano incluido) completada con la grilla.
+      const response = await fetch("/api/pasajes/solicitud/plantilla");
+      if (!response.ok) throw new Error("No se pudo bajar la planilla de la solicitud.");
+      const date = parsed.find((row) => row.requestDate)?.requestDate ?? today().split("/").reverse().join("-");
+      const bytes = buildRequestWorkbook(new Uint8Array(await response.arrayBuffer()), parsed, date);
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = requestFileName(date);
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo armar la solicitud.");
+    }
   }
 
   async function validate() {
