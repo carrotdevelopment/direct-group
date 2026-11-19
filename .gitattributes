@@ -4,3 +4,5 @@
 supplier-files/** filter=lfs diff=lfs merge=lfs -text
 local-data/** filter=lfs diff=lfs merge=lfs -text
 BASE[[:space:]]DE[[:space:]]DATOS[[:space:]]DG/** filter=lfs diff=lfs merge=lfs -text
+# Plantillas que la app lee del disco: van como archivo común (el servidor no tiene Git LFS).
+templates/** !filter !diff !merge binary
