@@ -48,7 +48,9 @@ describe("herramientas del asistente", () => {
 
   it("arma el esquema JSON de cada herramienta", () => {
     const tool = toApiTool(find("consultar_pasajes"));
-    expect(tool.input_schema.type).toBe("object");
-    expect(Object.keys(tool.input_schema.properties ?? {})).toEqual(["estado", "cliente", "busqueda"]);
+    const parameters = tool.function.parameters as { type: string; properties: Record<string, unknown> };
+    expect(tool.function.name).toBe("consultar_pasajes");
+    expect(parameters.type).toBe("object");
+    expect(Object.keys(parameters.properties)).toEqual(["estado", "cliente", "busqueda"]);
   });
 });

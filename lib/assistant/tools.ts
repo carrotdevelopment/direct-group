@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { hasModule, type AccessUser } from "@/lib/module-access";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { readPricesFromPostgres, readProductsFromPostgres } from "@/lib/postgres-replica-db";
@@ -229,13 +229,10 @@ export function assistantTools(user: AccessUser) {
 
 export type AssistantTool = ReturnType<typeof assistantTools>[number];
 
-export function toApiTool(t: AssistantTool): Anthropic.Beta.BetaTool {
-  return {
-    name: t.name,
-    description: t.description,
-    input_schema: z.toJSONSchema(t.schema) as Anthropic.Beta.BetaTool["input_schema"],
-    eager_input_streaming: true,
-  };
+export function toApiTool(t: AssistantTool): OpenAI.Chat.ChatCompletionFunctionTool {
+  const parameters = z.toJSONSchema(t.schema) as Record<string, unknown>;
+  delete parameters.$schema;
+  return { type: "function", function: { name: t.name, description: t.description, parameters } };
 }
 
 export async function runAssistantTool(t: AssistantTool, input: unknown) {
