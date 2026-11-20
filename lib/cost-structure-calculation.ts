@@ -53,3 +53,14 @@ export function proposedPvcNoVat(
   if (denominator <= 0 || !Number.isFinite(denominator)) return null;
   return round2((A * (1 + p)) / denominator);
 }
+
+// Amex usa un porcentaje propio por período que se suma, solo como dato informativo, al precio
+// público con IVA y al PVC sin IVA. No cambia la utilidad. "Amex Futuro" no lo usa.
+export function isAmexClient(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase() === "amex";
+}
+
+export function plusPercentage(price: number, pct: number) {
+  if (!Number.isFinite(price) || !Number.isFinite(pct)) return 0;
+  return round2(price * (1 + pct / 100));
+}

@@ -428,6 +428,7 @@ export async function readSantanderCostsFromPostgres(client?: string): Promise<E
     pvcNoVat: number(row.salePriceNoVat), pvcWithVat: number(row.salePriceWithVat), profit: number(row.profit),
     profitPercentage: number(row.percentage), missionsTax: number(row.missionsTax),
     volumetricWeight: number(row.volumetricWeight), unitsPerPackage: number(row.packages), source: text(row.origin),
+    amexPct: row.amexPct == null ? null : number(row.amexPct),
   }));
 }
 
@@ -447,7 +448,7 @@ export async function replaceSantanderCostsInPostgres(rows: ExcelSantanderCostRo
           freightNoVat: row.freightNoVat, totalCost: row.totalCost, salePriceNoVat: row.pvcNoVat,
           salePriceWithVat: row.pvcWithVat, profit: row.profit, percentage: row.profitPercentage,
           missionsTax: row.missionsTax, volumetricWeight: row.volumetricWeight,
-          packages: row.unitsPerPackage, origin: row.source,
+          packages: row.unitsPerPackage, origin: row.source, amexPct: row.amexPct ?? null,
         })),
       });
     }
@@ -481,11 +482,20 @@ export async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow
           freightNoVat: row.freightNoVat, totalCost: row.totalCost, salePriceNoVat: row.pvcNoVat,
           salePriceWithVat: row.pvcWithVat, profit: row.profit, percentage: row.profitPercentage,
           missionsTax: row.missionsTax, volumetricWeight: row.volumetricWeight,
-          packages: row.unitsPerPackage, origin: row.source,
+          packages: row.unitsPerPackage, origin: row.source, amexPct: row.amexPct ?? null,
         },
       });
     }
   }, { timeout: 600_000 });
+}
+
+// Porcentaje de Amex: uno por cliente y período, guardado en todas las filas de ese período.
+export async function setCostPeriodAmexPctInPostgres(client: string, period: string, amexPct: number) {
+  const result = await excelPostgres.excelSantanderCost.updateMany({
+    where: { client: { equals: client, mode: "insensitive" }, period },
+    data: { amexPct },
+  });
+  return result.count;
 }
 
 export async function deleteSantanderCostFromPostgres(

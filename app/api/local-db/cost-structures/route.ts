@@ -6,7 +6,7 @@ import {
   getActiveCriterion,
   type FreightCriterionEntry,
 } from "@/lib/local-excel-db";
-import { calculate, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import { calculate, isAmexClient, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
 import {
   readClientCodesFromPostgres,
   readClientsFromPostgres,
@@ -18,6 +18,7 @@ import {
   deleteSantanderCostFromPostgres,
   upsertSantanderCostsInPostgres,
   upsertFreightCriterionInPostgres,
+  setCostPeriodAmexPctInPostgres,
 } from "@/lib/postgres-replica-db";
 
 
@@ -367,12 +368,18 @@ export async function GET(request: Request) {
     });
   }
 
+  // Amex: porcentaje del período elegido (0 si todavía no se guardó). Null para los demás clientes.
+  const amexPct = isAmexClient(clientName)
+    ? allCostRows.find((row) => row.period === targetPeriodKey && row.amexPct != null)?.amexPct ?? 0
+    : null;
+
   const activeCount = rows.filter((r) => r.segment === "active").length;
   const inactiveStockCount = rows.filter((r) => r.segment === "inactive_with_stock").length;
   const inactiveCount = rows.filter((r) => r.segment === "inactive").length;
 
   return NextResponse.json({
     rows,
+    amexPct,
     message: `${activeCount} activos · ${inactiveStockCount} inactivos con stock · ${inactiveCount} inactivos — ${rows.length} códigos en total.`,
     source: "postgresql",
   });
@@ -386,6 +393,7 @@ export async function PUT(request: Request) {
     month?: number;
     year?: number;
     rows?: CostStructureRow[];
+    amexPct?: number;
   };
   const client = body.client || "";
   const now = new Date();
@@ -402,6 +410,9 @@ export async function PUT(request: Request) {
   }
 
   const period = periodLabel(year, month);
+  const amexPct = isAmexClient(clientName) && typeof body.amexPct === "number" && Number.isFinite(body.amexPct)
+    ? body.amexPct
+    : null;
   const rates = await ratesForPeriod(client, period);
   const nextRows: ExcelSantanderCostRow[] = rows.map((row) => {
     const calc = calculateSantanderCost(row, rates);
@@ -440,10 +451,22 @@ export async function PUT(request: Request) {
       volumetricWeight: 0,
       unitsPerPackage: 0,
       source: "WEB",
+      amexPct,
     };
   });
 
   await upsertSantanderCostsInPostgres(nextRows);
+
+  // El porcentaje de Amex es uno por período: se actualiza también en las filas ya guardadas.
+  if (amexPct !== null) {
+    const updated = await setCostPeriodAmexPctInPostgres(clientName, period, amexPct);
+    if (updated === 0) {
+      return NextResponse.json({
+        ok: false,
+        message: `El porcentaje de Amex se guarda junto con la estructura del período ${period}, y ese período todavía no tiene precios guardados. Guardá al menos un PVC del período y el porcentaje se guarda con él.`,
+      }, { status: 400 });
+    }
+  }
 
   // Persist freight criteria for rows where one was applied this session
   for (const row of rows) {
@@ -460,7 +483,9 @@ export async function PUT(request: Request) {
   return NextResponse.json({
     ok: true,
     rows,
-    message: `${rows.length} fila${rows.length === 1 ? "" : "s"} de ${clientName} ${period} guardada${rows.length === 1 ? "" : "s"}.`,
+    message: rows.length === 0 && amexPct !== null
+      ? `Porcentaje de ${clientName} ${period} guardado: ${amexPct}%.`
+      : `${rows.length} fila${rows.length === 1 ? "" : "s"} de ${clientName} ${period} guardada${rows.length === 1 ? "" : "s"}.`,
     source: "postgresql",
   });
 }

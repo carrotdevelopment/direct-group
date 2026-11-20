@@ -91,6 +91,8 @@ export type ExcelSantanderCostRow = {
   volumetricWeight: number;
   unitsPerPackage: number;
   source: string;
+  // Porcentaje del período de Amex (solo informativo); null en los demás clientes.
+  amexPct?: number | null;
 };
 
 export type ExcelClient = {

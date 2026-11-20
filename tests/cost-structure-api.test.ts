@@ -8,6 +8,7 @@ const db = vi.hoisted(() => ({
   readPricesFromPostgres: vi.fn(), readProductsFromPostgres: vi.fn(),
   readSantanderCostsFromPostgres: vi.fn(), replaceSantanderCostsInPostgres: vi.fn(), deleteSantanderCostFromPostgres: vi.fn(),
   upsertSantanderCostsInPostgres: vi.fn(), upsertFreightCriterionInPostgres: vi.fn(),
+  setCostPeriodAmexPctInPostgres: vi.fn(),
 }));
 vi.mock("@/lib/postgres-replica-db", () => db);
 import { GET, PUT, PATCH, DELETE } from "@/app/api/local-db/cost-structures/route";
@@ -189,5 +190,58 @@ describe("estructura de costos: varios clientes", () => {
     expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ client: "Umiles", period: "2026-08" })]);
     const rejected = await PUT(request("PUT", { client: "Inexistente", year: 2026, month: 8, rows: [saved] }));
     expect(rejected.status).toBe(400);
+  });
+});
+
+describe("estructura de costos: porcentaje de Amex", () => {
+  const amexRow = { ...saved, client: "Amex", clientCode: "AX1", period: "2026-07", month: 7, amexPct: 12.5 };
+  const asAmex = () => {
+    db.readClientsFromPostgres.mockResolvedValue([{ id: "1", name: "Amex" }, { id: "2", name: "Amex Futuro" }, { id: "3", name: "Santander" }]);
+    db.readClientCodesFromPostgres.mockResolvedValue([
+      { uniqueCode: "A", client: "Amex", clientCode: "AX1", assignedYear: 2026, assignedMonth: 6, active: true },
+      { uniqueCode: "A", client: "Amex Futuro", clientCode: "AX1", assignedYear: 2026, assignedMonth: 6, active: true },
+      { uniqueCode: "A", client: "Santander", clientCode: "AX1", assignedYear: 2026, assignedMonth: 6, active: true },
+    ]);
+    db.readSantanderCostsFromPostgres.mockResolvedValue([amexRow]);
+  };
+  const get = async (client: string, month: number) =>
+    (await GET(new Request(`http://localhost/api/local-db/cost-structures?client=${encodeURIComponent(client)}&year=2026&month=${month}`))).json();
+
+  it("devuelve el porcentaje del período para Amex, 0 si el período no lo tiene y null para otros clientes", async () => {
+    asAmex();
+    expect((await get("Amex", 7)).amexPct).toBe(12.5);
+    expect((await get("Amex", 8)).amexPct).toBe(0);
+    expect((await get("Amex Futuro", 7)).amexPct).toBeNull();
+    expect((await get("Santander", 7)).amexPct).toBeNull();
+  });
+
+  it("guarda el porcentaje en las filas nuevas y en todas las del período, sin cambiar la utilidad", async () => {
+    asAmex();
+    db.setCostPeriodAmexPctInPostgres.mockResolvedValue(3);
+    const row = { ...amexRow, id: "AX1", costDgUpdatedAt: null, pvcUpdatedAt: null, freightCriterion: null };
+    const response = await PUT(request("PUT", { client: "Amex", year: 2026, month: 7, amexPct: 15, rows: [row] }));
+    expect(response.status).toBe(200);
+    const written = db.upsertSantanderCostsInPostgres.mock.calls[0][0][0];
+    expect(written.amexPct).toBe(15);
+    expect(written.profit).toBe(78);
+    expect(db.setCostPeriodAmexPctInPostgres).toHaveBeenCalledWith("Amex", "2026-07", 15);
+  });
+
+  it("guarda solo el porcentaje, y avisa si el período no tiene filas donde guardarlo", async () => {
+    asAmex();
+    db.setCostPeriodAmexPctInPostgres.mockResolvedValue(2);
+    const ok = await PUT(request("PUT", { client: "Amex", year: 2026, month: 7, amexPct: 8, rows: [] }));
+    expect(await ok.json()).toMatchObject({ ok: true, message: "Porcentaje de Amex 2026-07 guardado: 8%." });
+    db.setCostPeriodAmexPctInPostgres.mockResolvedValue(0);
+    const empty = await PUT(request("PUT", { client: "Amex", year: 2026, month: 8, amexPct: 8, rows: [] }));
+    expect(empty.status).toBe(400);
+  });
+
+  it("ignora el porcentaje en clientes que no son Amex", async () => {
+    asAmex();
+    const row = { ...saved, id: "AX1", clientCode: "AX1", costDgUpdatedAt: null, pvcUpdatedAt: null, freightCriterion: null };
+    await PUT(request("PUT", { client: "Amex Futuro", year: 2026, month: 7, amexPct: 15, rows: [row] }));
+    expect(db.upsertSantanderCostsInPostgres.mock.calls[0][0][0].amexPct).toBeNull();
+    expect(db.setCostPeriodAmexPctInPostgres).not.toHaveBeenCalled();
   });
 });

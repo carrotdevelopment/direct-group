@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import { calculate, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
 
 const rate = (valuePct: number, appliesTo: CostRate["appliesTo"]): CostRate => ({
   id: "1", rateName: "Cargo", rateKey: "cargo", applies: true, valuePct, appliesTo, sortOrder: 1,
@@ -26,5 +26,22 @@ describe("cálculo compartido de estructura", () => {
     expect(proposedPvcNoVat(100, 0, 20, [], [])).toBe(120);
     expect(proposedPvcNoVat(100, 0, 100, [], [rate(50, "PRECIO")])).toBeNull();
     expect(calculate({ publicPrice: 0, vatRate: 0, costDgNoVat: 0, freightNoVat: 0, pvcNoVat: 0 }, [], []).profitPct).toBe(0);
+  });
+});
+
+describe("porcentaje de Amex", () => {
+  it("suma el porcentaje al precio: precio × (1 + % / 100)", () => {
+    expect(plusPercentage(1210, 10)).toBe(1331);
+    expect(plusPercentage(1000, 0)).toBe(1000);
+    expect(plusPercentage(99.99, 7.5)).toBe(107.49);
+    expect(plusPercentage(500, -10)).toBe(450);
+    expect(plusPercentage(Number.NaN, 10)).toBe(0);
+  });
+
+  it("aplica solo al cliente Amex, no a Amex Futuro ni a otros", () => {
+    expect(isAmexClient("Amex")).toBe(true);
+    expect(isAmexClient("  AMEX ")).toBe(true);
+    expect(isAmexClient("Amex Futuro")).toBe(false);
+    expect(isAmexClient("Santander")).toBe(false);
   });
 });

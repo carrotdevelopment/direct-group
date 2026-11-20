@@ -406,6 +406,7 @@ model ExcelSantanderCost {
   profit           Decimal?          @map("utilidad") @db.Decimal(18, 4)
   percentage       Decimal?          @map("porcentaje") @db.Decimal(18, 6)
   missionsTax      Decimal?          @map("impuesto_misiones") @db.Decimal(18, 4)
+  amexPct          Decimal?          @map("porcentaje_amex") @db.Decimal(9, 4)
   volumetricWeight Decimal?          @map("peso_volumetrico") @db.Decimal(18, 4)
   packages         Decimal?          @map("bultos") @db.Decimal(18, 4)
   origin           String?           @map("origen") @db.VarChar(255)

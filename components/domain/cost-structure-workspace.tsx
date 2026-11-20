@@ -1,7 +1,7 @@
 "use client";
 
 import { costRowChanged, displayedPvcPeriod } from "@/lib/cost-structure-rows";
-import { calculate, proposedPvcNoVat, selectRateConfig } from "@/lib/cost-structure-calculation";
+import { calculate, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig } from "@/lib/cost-structure-calculation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -142,6 +142,13 @@ export function CostStructureWorkspace() {
   const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  // Amex: porcentaje del período que se suma (solo informativo) al PP c/IVA y al PVC s/IVA.
+  const [amexPct, setAmexPct] = useState(0);
+  const [originalAmexPct, setOriginalAmexPct] = useState(0);
+  const isAmex = isAmexClient(client);
+  const amexPctChanged = isAmex && Math.abs(amexPct - originalAmexPct) > 0.0001;
+  const columnCount = isAmex ? 24 : 22;
+
   const [inactiveStockOpen, setInactiveStockOpen] = useState(true);
   const [inactiveOpen, setInactiveOpen] = useState(false);
 
@@ -272,16 +279,20 @@ export function CostStructureWorkspace() {
       const res = await fetch(
         `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&month=${m}&year=${y}`,
       );
-      const data = (await res.json()) as { rows: CostRow[]; message?: string };
+      const data = (await res.json()) as { rows: CostRow[]; amexPct?: number | null; message?: string };
       if (loadId !== latestLoad.current) return;
       if (!res.ok) throw new Error(data.message || "No pude cargar");
       setRows(data.rows);
       setOriginalRows(data.rows);
+      setAmexPct(data.amexPct ?? 0);
+      setOriginalAmexPct(data.amexPct ?? 0);
       setStatus(data.message || "Estructura cargada.");
       try { localStorage.setItem("dg:cost-structure:period", `${y}-${String(m).padStart(2, "0")}`); } catch { /* Storage is optional. */ }
     } catch (err) {
       if (loadId !== latestLoad.current) return;
       setRows([]);
+      setAmexPct(0);
+      setOriginalAmexPct(0);
       setStatus(err instanceof Error ? err.message : "Error al cargar.");
     } finally {
       if (loadId === latestLoad.current) setLoading(false);
@@ -368,9 +379,13 @@ export function CostStructureWorkspace() {
     return rows.filter(row => costRowChanged(row, origMap.get(row.id)));
   }
 
+  function hasPendingChanges() {
+    return pendingChanges().length > 0 || amexPctChanged;
+  }
+
   async function saveStructure() {
     const changes = pendingChanges();
-    if (changes.length === 0) return;
+    if (changes.length === 0 && !amexPctChanged) return;
     setSaving(true);
     setSaveError(null);
     setStatus("Guardando...");
@@ -378,7 +393,7 @@ export function CostStructureWorkspace() {
       const res = await fetch("/api/local-db/cost-structures", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, month: Number(saveMonth), year: Number(saveYear), rows: changes }),
+        body: JSON.stringify({ client, month: Number(saveMonth), year: Number(saveYear), rows: changes, ...(isAmex ? { amexPct } : {}) }),
       });
       const responseText = await res.text();
       let data: { ok?: boolean; message?: string } = {};
@@ -404,6 +419,7 @@ export function CostStructureWorkspace() {
         : row);
       setRows(committed);
       setOriginalRows(committed);
+      setOriginalAmexPct(amexPct);
       setShowConfirmModal(false);
       setSaved(true);
     } catch (err) {
@@ -411,7 +427,9 @@ export function CostStructureWorkspace() {
       const affected = changes.slice(0, 4).map((row) => row.clientCode || row.uniqueCode).join(", ");
       setStatus("No se pudieron guardar los cambios.");
       setSaveError({
-        summary: `No se guardaron las ${changes.length} fila${changes.length === 1 ? "" : "s"} modificada${changes.length === 1 ? "" : "s"}${affected ? ` (${affected}${changes.length > 4 ? ", ..." : ""})` : ""}.`,
+        summary: changes.length === 0
+          ? "No se guardó el porcentaje de Amex."
+          : `No se guardaron las ${changes.length} fila${changes.length === 1 ? "" : "s"} modificada${changes.length === 1 ? "" : "s"}${affected ? ` (${affected}${changes.length > 4 ? ", ..." : ""})` : ""}.`,
         solution: "Revisá que la base de datos esté disponible y volvé a presionar Guardar. Tus cambios siguen visibles en pantalla.",
         technical,
       });
@@ -660,11 +678,13 @@ export function CostStructureWorkspace() {
             <select
               value={client}
               onChange={(e) => {
-                if (pendingChanges().length > 0 && !window.confirm("Hay cambios sin guardar. ¿Cambiar de cliente y descartarlos?")) return;
+                if (hasPendingChanges() && !window.confirm("Hay cambios sin guardar. ¿Cambiar de cliente y descartarlos?")) return;
                 setClient(e.target.value);
                 setSaved(false);
                 setSaveError(null);
                 setRows([]);
+                setAmexPct(0);
+                setOriginalAmexPct(0);
               }}
               disabled={clientsLoading}
               className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
@@ -708,6 +728,26 @@ export function CostStructureWorkspace() {
             </button>
           )}
         </div>
+
+        {isAmex && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#d9c7ef] bg-[#f6f0fd] px-4 py-3">
+            <label className="flex items-center gap-2 text-[11px] font-extrabold text-[#4a2d73]">
+              Porcentaje Amex
+              <span className="relative">
+                <MoneyInput
+                  value={amexPct}
+                  onChange={(v) => { setAmexPct(v); setSaved(false); }}
+                  className="h-8 w-24 rounded-lg border border-[#c9b3e6] bg-white pl-2 pr-6 text-right text-xs tabular-nums outline-none focus:border-[#6b3fa8] focus:ring-2 focus:ring-[#e6dbf5]"
+                />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[#6b5a85]">%</span>
+              </span>
+            </label>
+            <span className="text-[11px] text-[#5a4a73]">
+              Uno para todo el período {months[Number(saveMonth) - 1]} {saveYear}. Se suma al PP c/IVA y al PVC s/IVA: precio × (1 + % / 100). Es informativo: no cambia la utilidad.
+              {amexPctChanged && <span className="ml-1 font-bold text-[#6b3fa8]">Pendiente de guardar.</span>}
+            </span>
+          </div>
+        )}
 
         {saveError && (
           <div className="mt-3 rounded-xl border border-[#efb8b5] bg-[#fff1f0] px-4 py-3 text-[11px] text-[#7c2f2b]" role="alert">
@@ -844,7 +884,7 @@ export function CostStructureWorkspace() {
                 onChange={(e) => {
                   const newMonth = e.target.value;
                   if (rows.length > 0) {
-                    if (pendingChanges().length > 0 && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${saveYear} y descartar?`)) return;
+                    if (hasPendingChanges() && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${saveYear} y descartar?`)) return;
                     setSaveMonth(newMonth);
                   } else {
                     setSaveMonth(newMonth);
@@ -866,7 +906,7 @@ export function CostStructureWorkspace() {
                     ? String(currentMonth)
                     : saveMonth;
                   if (rows.length > 0) {
-                    if (pendingChanges().length > 0 && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${newYear} y descartar?`)) return;
+                    if (hasPendingChanges() && !window.confirm(`Hay cambios sin guardar. ¿Cambiar al período ${months[Number(newMonth) - 1]} ${newYear} y descartar?`)) return;
                     setSaveYear(String(newYear));
                     setSaveMonth(newMonth);
                   } else {
@@ -905,7 +945,7 @@ export function CostStructureWorkspace() {
             </Button>
             <Button
               onClick={() => setShowConfirmModal(true)}
-              disabled={pendingChanges().length === 0 || saving || loading}
+              disabled={!hasPendingChanges() || saving || loading}
               size="sm"
               className="h-8 text-[11px]"
             >
@@ -917,7 +957,7 @@ export function CostStructureWorkspace() {
 
         {/* Table */}
         <div className="max-h-[calc(100vh-270px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
-          <table className="cost-table w-[1504px] table-fixed border-separate text-left text-[11px]" style={{ borderSpacing: 0 }}>
+          <table className={`cost-table ${isAmex ? "w-[1664px]" : "w-[1504px]"} table-fixed border-separate text-left text-[11px]`} style={{ borderSpacing: 0 }}>
             <colgroup>
               <col style={{ width: 36 }} />
               <col style={{ width: 64 }} />
@@ -929,6 +969,7 @@ export function CostStructureWorkspace() {
               <col style={{ width: 80 }} />
               <col style={{ width: 72 }} />
               <col style={{ width: 72 }} />
+              {isAmex && <col style={{ width: 80 }} />}
               <col style={{ width: 56 }} />
               <col style={{ width: 64 }} />
               <col style={{ width: 80 }} />
@@ -937,6 +978,7 @@ export function CostStructureWorkspace() {
               <col style={{ width: 64 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 80 }} />
+              {isAmex && <col style={{ width: 80 }} />}
               <col style={{ width: 64 }} />
               <col style={{ width: 48 }} />
               <col style={{ width: 40 }} />
@@ -997,6 +1039,11 @@ export function CostStructureWorkspace() {
                 <th title="último precio público positivo hasta el período; si falta, precio público guardado." className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
                   PP c/IVA
                 <ColumnFormula text="último precio público positivo hasta el período; si falta, precio público guardado." /></th>
+                {isAmex && (
+                  <th title="Amex: precio público con IVA × (1 + porcentaje Amex / 100). Informativo." className="sticky top-0 z-10 w-20 border-b border-[#c9b3e6] bg-[#efe6fb] px-1 py-2 text-center font-black text-[#4a2d73]">
+                    PP c/IVA + %
+                  <ColumnFormula text="Amex: precio público con IVA × (1 + porcentaje Amex / 100). Informativo." /></th>
+                )}
                 {/* Reference cols (anterior) — Fecha PVC ant primero */}
                 <th title="Período del último ajuste guardado de este producto, independientemente del período seleccionado arriba."
                   className="sticky top-0 z-10 w-14 cursor-pointer select-none border-b border-[#e8cec8] bg-[#fff5f3]  px-1 py-2 text-center font-black text-[#7a4a3a] hover:bg-[#fce6df]"
@@ -1031,6 +1078,11 @@ export function CostStructureWorkspace() {
                 <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
                   PVC c/IVA
                 <ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
+                {isAmex && (
+                  <th title="Amex: PVC sin IVA × (1 + porcentaje Amex / 100). Informativo: no cambia la utilidad." className="sticky top-0 z-10 w-20 border-b border-[#c9b3e6] bg-[#efe6fb] px-1 py-2 text-center font-black text-[#4a2d73]">
+                    PVC s/IVA + %
+                  <ColumnFormula text="Amex: PVC sin IVA × (1 + porcentaje Amex / 100). Informativo: no cambia la utilidad." /></th>
+                )}
                 <th title="PVC sin IVA − costo total. Costo total = costo DG + flete + cargos sobre costo y precio."
                   className="sticky top-0 z-10 w-16 cursor-pointer select-none border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f] hover:bg-[#d8e8cb]"
                   onClick={() => toggleSort("profitAmt")}
@@ -1088,7 +1140,7 @@ export function CostStructureWorkspace() {
                   <Fragment key={seg}>
                     <tr>
                       <td
-                        colSpan={22}
+                        colSpan={columnCount}
                         className={`border-b border-t border-[#d0dbe8] px-4 py-1.5 text-[11px] font-extrabold uppercase tracking-wider ${labelBg}`}
                       >
                         {isCollapsible ? (
@@ -1195,6 +1247,11 @@ export function CostStructureWorkspace() {
                       <td className="bg-[#eef5fc] px-2 py-1 text-right tabular-nums text-[#1a3a5c]">
                         {money(row.publicPrice)}
                       </td>
+                      {isAmex && (
+                        <td className="bg-[#f6f0fd] px-2 py-1 text-right font-bold tabular-nums text-[#4a2d73]">
+                          {money(plusPercentage(row.publicPrice, amexPct))}
+                        </td>
+                      )}
                       {/* Reference cols — last loaded values (Fecha PVC ant primero) */}
                       <td className="bg-[#fff5f3] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#7a4a3a]">
                         {displayPeriod(row.previousAdjustment?.period ?? null)}
@@ -1236,6 +1293,11 @@ export function CostStructureWorkspace() {
                           className={numberInput}
                         />
                       </td>
+                      {isAmex && (
+                        <td className="bg-[#f6f0fd] px-2 py-1 text-right font-bold tabular-nums text-[#4a2d73]">
+                          {money(plusPercentage(row.pvcNoVat, amexPct))}
+                        </td>
+                      )}
                       {/* Utilidad */}
                       <td
                         className={`${formulaCell} font-bold ${profitColor(calc.profitPct)}`}
@@ -1274,7 +1336,7 @@ export function CostStructureWorkspace() {
                     {isExpanded && (
                       <tr key={`${row.id}-detail`} className="bg-[#f8fafd]">
                         <td
-                          colSpan={22}
+                          colSpan={columnCount}
                           className="border-b border-[#dbe4ef] px-8 py-4"
                         >
 
@@ -1379,6 +1441,18 @@ export function CostStructureWorkspace() {
                                 <span>PP s/IVA</span>
                                 <span className="tabular-nums">${money(calc.ppNoVat)}</span>
                               </div>
+                              {isAmex && (
+                                <>
+                                  <div className="flex justify-between py-0.5 font-bold text-[#4a2d73]">
+                                    <span>PP c/IVA + {amexPct}%</span>
+                                    <span className="tabular-nums">${money(plusPercentage(row.publicPrice, amexPct))}</span>
+                                  </div>
+                                  <div className="flex justify-between py-0.5 font-bold text-[#4a2d73]">
+                                    <span>PVC s/IVA + {amexPct}%</span>
+                                    <span className="tabular-nums">${money(plusPercentage(row.pvcNoVat, amexPct))}</span>
+                                  </div>
+                                </>
+                              )}
                               <div className="flex justify-between py-0.5 text-[#334b6b]">
                                 <span>IVA</span>
                                 <span>{row.vatRate}%</span>
@@ -1682,7 +1756,12 @@ export function CostStructureWorkspace() {
               </div>
 
               <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
-                {changes.length === 0 ? (
+                {amexPctChanged && (
+                  <div className="mb-3 rounded-lg border border-[#d9c7ef] bg-[#f6f0fd] px-3 py-2 text-[11px] text-[#4a2d73]">
+                    Porcentaje Amex del período: <span className="line-through opacity-70">{originalAmexPct}%</span> → <span className="font-bold">{amexPct}%</span>
+                  </div>
+                )}
+                {changes.length === 0 && amexPctChanged ? null : changes.length === 0 ? (
                   <div className="py-8 text-center text-xs text-[#5a6a82]">
                     No hay cambios respecto a la última carga.
                   </div>
@@ -1730,8 +1809,8 @@ export function CostStructureWorkspace() {
               <div className="flex items-center justify-between border-t border-[#dbe4ef] px-6 py-4">
                 <div className="text-[11px] text-[#5a6a82]">
                   {changes.length > 0
-                    ? `${changes.length} fila${changes.length > 1 ? "s" : ""} con cambios`
-                    : "Sin cambios detectados"}
+                    ? `${changes.length} fila${changes.length > 1 ? "s" : ""} con cambios${amexPctChanged ? " y el porcentaje Amex" : ""}`
+                    : amexPctChanged ? "Solo cambia el porcentaje Amex" : "Sin cambios detectados"}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -1741,7 +1820,7 @@ export function CostStructureWorkspace() {
                   >
                     Cancelar
                   </Button>
-                  <Button size="sm" onClick={saveStructure} disabled={saving || changes.length === 0}>
+                  <Button size="sm" onClick={saveStructure} disabled={saving || (changes.length === 0 && !amexPctChanged)}>
                     <Save size={13} />
                     {saving ? "Guardando..." : "Confirmar y guardar"}
                   </Button>
