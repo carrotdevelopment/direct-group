@@ -3,7 +3,6 @@ import {
   certificate, certificateBase, certificatePrefix, nextCertificateNumber, excelSerial, requestFileName, urbanoIdSheet, urbanoTemplate, urbanoTemplateFileName, urbanoTemplateSheet,
   urbanoUploadFileName, urbanoUploadSheet, type ExportPasaje,
 } from "@/lib/pasaje-export";
-import { parseSolicitudSheet } from "@/lib/pasaje-solicitud";
 
 const pasaje: ExportPasaje = {
   requestDate: "2026-11-12", fromShipper: "1258", fromClient: "Amex", fromClientCode: "DG99-3026",
