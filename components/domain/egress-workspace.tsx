@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
 import { EGRESS_EXPORT_MAX_ROWS, egressExportFileName, egressExportSheet } from "@/lib/egress-history-export";
-import { locateEgressData } from "@/lib/egress-file-layout";
+import { locateEgressData, repairMojibake, slashDate } from "@/lib/egress-file-layout";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
 import { EgressProductChangeModal } from "@/components/domain/egress-product-change-modal";
@@ -161,7 +161,9 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
   const XLSX = await import("xlsx");
   const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
   const ws   = wb.Sheets[wb.SheetNames[sheetIdx] ?? wb.SheetNames[0]];
-  const all  = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as string[][];
+  // Los acentos rotos del sistema del cliente ("SÃBANAS") se arreglan al leer.
+  const all  = (XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as unknown[][])
+    .map((row) => row.map((cell) => (typeof cell === "string" ? repairMojibake(cell) : cell))) as string[][];
   const layout = locateEgressData(all, cols, startRow);
   const headers = (all[layout.headerIndex] ?? cols).map((cell) => String(cell ?? "").trim());
   const values = all.slice(layout.dataStart).filter((r) => r.some((c) => String(c).trim()));
@@ -170,7 +172,7 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
     cols.forEach((c, i) => { row[c] = String(cells[layout.positions[i]] ?? "").trim(); });
     return row;
   });
-  return { filas, values, headers, sheets: wb.SheetNames, headerFound: layout.headerFound, dataStart: layout.dataStart };
+  return { filas, values, headers, sheets: wb.SheetNames, headerFound: layout.headerFound, dataStart: layout.dataStart, all };
 }
 
 // Fecha de una celda en formato AAAA-MM-DD: número de serie de Excel, AAAA-MM-DD o DD/MM/AAAA.
@@ -182,9 +184,7 @@ export function isoDateFromCell(value: string | undefined) {
   }
   const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
-  const local = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
-  if (local) return `${local[3].length === 2 ? "20" + local[3] : local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
-  return "";
+  return slashDate(raw)?.iso ?? "";
 }
 
 // Mapeo guardado en la base → mapeo de la pantalla. Si día, mes y año apuntan a la misma columna,
@@ -713,10 +713,32 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
   );
 }
 
+// Cliente dueño de los códigos de un Excel: el que tiene en Códigos cliente la mayoría de los códigos que
+// aparecen (en cualquier columna). Vacío si no hay un dueño claro.
+function codesOwner(rows: unknown[][], codesByClient: Record<string, string[]>) {
+  const owners = new Map<string, Set<string>>();
+  for (const [client, codes] of Object.entries(codesByClient)) {
+    for (const code of codes) {
+      const key = code.trim().toLowerCase();
+      if (!key) continue;
+      if (!owners.has(key)) owners.set(key, new Set());
+      owners.get(key)!.add(client);
+    }
+  }
+  const hits = new Map<string, number>();
+  for (const row of rows) {
+    const found = new Set<string>();
+    for (const cell of row) for (const client of owners.get(String(cell ?? "").trim().toLowerCase()) ?? []) found.add(client);
+    for (const client of found) hits.set(client, (hits.get(client) ?? 0) + 1);
+  }
+  const [best] = [...hits.entries()].sort((a, b) => b[1] - a[1]);
+  return best && best[1] >= Math.max(1, Math.ceil(rows.length / 2)) ? best[0] : "";
+}
+
 // ── CargaCanjeForm ────────────────────────────────────────────────────────────
 
-function CargaCanjeForm({ config, onSave, onCancel }: {
-  config: ClienteConfig; onSave: (l: Omit<Lote, "id">) => void; onCancel: () => void;
+function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
+  config: ClienteConfig; codesByClient: Record<string, string[]>; onSave: (l: Omit<Lote, "id">) => void; onCancel: () => void;
 }) {
   const [fecha,      setFecha]      = useState(TODAY);
   const [mode,       setMode]       = useState<"paste" | "excel">("paste");
@@ -729,6 +751,10 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
   const [xlHeaders,  setXlHeaders]  = useState<string[]>([]);
   const [xlHash,     setXlHash]     = useState("");
   const [xlLoading,  setXlLoading]  = useState(false);
+  // Se avisa antes de cargar si los códigos del Excel son de otro cliente (se eligió mal el cliente) o si
+  // el Excel no tiene los títulos configurados para este cliente (las columnas se leen por posición y
+  // pueden quedar corridas).
+  const [xlMismatch, setXlMismatch] = useState<{ owner: string; headerFound: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cols    = config.canje.columnas;
 
@@ -742,16 +768,21 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
       const r = await readExcel(file, xlSheetIdx, config.canje.filaInicio, cols);
       const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
       setXlHash(Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join(""));
-      setXlSheets(r.sheets); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers);
+      setXlSheets(r.sheets); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); checkLayout(r);
     }
-    catch { setXlFilas([]); }
+    catch { setXlFilas([]); setXlMismatch(null); }
     finally { setXlLoading(false); }
+  }
+  function checkLayout(r: { headerFound: boolean; all: unknown[][]; values: unknown[][] }) {
+    const owner = codesOwner(r.values, codesByClient);
+    const wrongClient = !!owner && owner.toLowerCase() !== config.nombre.toLowerCase();
+    setXlMismatch(wrongClient || !r.headerFound ? { owner: wrongClient ? owner : "", headerFound: r.headerFound } : null);
   }
   async function onSheetChange(idx: number) {
     setXlSheetIdx(idx); if (!xlFile || !cols.length) return;
     setXlLoading(true);
-    try   { const r = await readExcel(xlFile, idx, config.canje.filaInicio, cols); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); }
-    catch { setXlFilas([]); }
+    try   { const r = await readExcel(xlFile, idx, config.canje.filaInicio, cols); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); checkLayout(r); }
+    catch { setXlFilas([]); setXlMismatch(null); }
     finally { setXlLoading(false); }
   }
 
@@ -811,12 +842,22 @@ function CargaCanjeForm({ config, onSave, onCancel }: {
               {xlLoading && <span className="text-[11px] text-[#5a6a82]">Leyendo…</span>}
             </div>
           )}
+          {mode === "excel" && xlMismatch && (
+            <div role="alert" className="mt-3 rounded-xl border border-[#f4c16d] bg-[#fff6e5] px-4 py-3 text-[11px] font-semibold text-[#7a4a00]">
+              {xlMismatch.owner && <><strong>Los códigos del Excel son de {xlMismatch.owner}, no de {config.nombre}:</strong> ¿elegiste el cliente correcto?{" "}</>}
+              {!xlMismatch.headerFound && <><strong>{xlMismatch.owner ? "Además, las" : "Las"} columnas del Excel no coinciden con las configuradas para {config.nombre}:</strong> se leen por posición y pueden quedar corridas (mirá la vista previa). Si el cliente cambió el formato del archivo, actualizá las columnas en «Configurar columnas CANJE».</>}
+            </div>
+          )}
           <PreviewTable cols={cols} rows={active} />
         </>
       )}
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
-        <Button onClick={() => active.length && onSave({
+        <Button onClick={() => active.length
+          && (mode !== "excel" || !xlMismatch || window.confirm(xlMismatch.owner
+            ? `Los códigos del Excel son de ${xlMismatch.owner}, no de ${config.nombre}. ¿Cargar igual como ${config.nombre}?`
+            : `Las columnas del Excel no coinciden con las configuradas para ${config.nombre}: los datos pueden quedar corridos. ¿Cargar igual?`))
+          && onSave({
           tipo: "CANJE",
           cliente: config.nombre,
           fecha,
@@ -1753,7 +1794,7 @@ export function EgressWorkspace() {
           onClose={() => setView("list")} />
       )}
       {view === "ops"   && <CargaOtrasOp cliente={cliente} cfg={cfg} validCodes={new Set(validCodesByClient[cliente] ?? [])} onSave={addLote} onCancel={() => setView("list")} />}
-      {view === "canje" && <CargaCanjeForm config={cfg} onSave={addLote} onCancel={() => setView("list")} />}
+      {view === "canje" && <CargaCanjeForm config={cfg} codesByClient={validCodesByClient} onSave={addLote} onCancel={() => setView("list")} />}
 
       <EgressBulkDeactivate key={cliente} client={cliente} batches={batches} onComplete={() => loadEgresses(cliente)} />
       <FlatHistoryTable

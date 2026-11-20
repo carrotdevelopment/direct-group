@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { locateEgressData } from "@/lib/egress-file-layout";
+import { locateEgressData, repairMojibake, slashDate } from "@/lib/egress-file-layout";
 
 const columns = ["Producto", "Código Producto", "Nº Seg", "Usuario", "Email", "Fecha Canje"];
 
@@ -40,5 +40,31 @@ describe("ubicación de los datos en un archivo de egresos", () => {
   it("una fila de datos que repite un valor de columna no se toma como encabezado", () => {
     const rows = [["Producto", "Código Producto", "Nº Seg", "Usuario", "Email", "Fecha Canje"], ["Producto", "URB-1", 1, "U", "e", 46308]];
     expect(locateEgressData(rows, columns, 2).headerIndex).toBe(0);
+  });
+});
+
+describe("acentos rotos en el Excel del cliente", () => {
+  it("recompone el texto UTF-8 que llegó leído como Latin-1", () => {
+    expect(repairMojibake("JUEGO DE SÃ\u0081BANAS -QUEEN- 2 Â½ PLAZAS")).toBe("JUEGO DE SÁBANAS -QUEEN- 2 ½ PLAZAS");
+    expect(repairMojibake("SET X 2 ALMOHADAS VELLÃ“N SILICONADO")).toBe("SET X 2 ALMOHADAS VELLÓN SILICONADO");
+    expect(repairMojibake("NÂº Seguimiento")).toBe("Nº Seguimiento");
+  });
+  it("deja igual el texto que ya está bien", () => {
+    expect(repairMojibake("Sábanas de algodón")).toBe("Sábanas de algodón");
+    expect(repairMojibake("HUMIFICADOR")).toBe("HUMIFICADOR");
+  });
+});
+
+describe("fechas con barras del Excel del cliente", () => {
+  it("lee día/mes, lo habitual", () => {
+    expect(slashDate("05/11/2026")?.iso).toBe("2026-11-05");
+    expect(slashDate("18/11/26")?.iso).toBe("2026-11-18");
+  });
+  it("lee mes/día cuando viene con el formato de EE.UU.", () => {
+    expect(slashDate("11/18/2026 8:25:00 PM")?.iso).toBe("2026-11-18");
+    expect(slashDate("11/05/2026 10:08:00 AM")?.iso).toBe("2026-11-05");
+  });
+  it("no inventa fechas imposibles", () => {
+    expect(slashDate("31/02/2026")).toBeNull();
   });
 });

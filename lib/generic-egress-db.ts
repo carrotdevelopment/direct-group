@@ -2,6 +2,7 @@ import { Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
 import { egressSchemas, type EgressClient, type EgressRow } from "@/lib/operation-excel-db";
 import { egressSourceHash, validateEgressScope, type EgressBulkScope } from "@/lib/egress-controls";
+import { slashDate } from "@/lib/egress-file-layout";
 
 export type CanonicalEgressField =
   | "dateDay"
@@ -127,12 +128,11 @@ function dateFromRow(row: Record<string, unknown>, mapping: EgressFieldMapping) 
     if (serial > 30000 && serial < 80000) return new Date(Date.UTC(1899, 11, 30) + serial * 86_400_000);
   }
   const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  const local = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/);
   if (iso) return new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
-  if (local) {
-    const year = Number(local[3]) < 100 ? 2000 + Number(local[3]) : Number(local[3]);
-    return new Date(Date.UTC(year, Number(local[2]) - 1, Number(local[1])));
-  }
+  // Día/mes, o mes/día cuando el Excel viene con el formato de EE.UU. ("11/18/2026 8:25:00 PM").
+  const local = slashDate(raw);
+  if (local) return local.date;
+  if (/^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(raw)) return null;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
