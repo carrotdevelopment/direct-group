@@ -93,6 +93,11 @@ const months = [
   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
 ];
 
+const monthNames = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
 function money(value: number) {
   return new Intl.NumberFormat("es-AR", {
     minimumFractionDigits: 2,
@@ -141,6 +146,11 @@ export function CostStructureWorkspace() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [proposalOpen, setProposalOpen] = useState(false);
+  const [proposalTitle, setProposalTitle] = useState("");
+  const [proposalValidity, setProposalValidity] = useState("");
+  const [proposalBusy, setProposalBusy] = useState(false);
+  const [proposalMessage, setProposalMessage] = useState("");
 
   // Amex: porcentaje del período que se suma (solo informativo) al PP c/IVA y al PVC s/IVA.
   const [amexPct, setAmexPct] = useState(0);
@@ -507,6 +517,64 @@ export function CostStructureWorkspace() {
     if (exportable.length === 0) return;
     const validity = `${String(saveMonth).padStart(2, "0")}/${saveYear}`;
     downloadBlob(createClientPricePdf(client, validity, exportable), "application/pdf", "pdf");
+  }
+
+  // Propuesta de productos (formato Pampa): solo los productos tildados en la tabla.
+  const proposalRows = rows.filter((row) => selectedIds.has(row.id));
+
+  function openProposal() {
+    setProposalValidity((current) => current || monthNames[Number(saveMonth) - 1]);
+    setProposalMessage("");
+    setProposalOpen(true);
+  }
+
+  async function downloadProposal() {
+    if (proposalRows.length === 0 || proposalBusy) return;
+    setProposalBusy(true);
+    setProposalMessage("");
+    try {
+      const res = await fetch("/api/local-db/cost-structures/proposal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client,
+          title: proposalTitle,
+          validity: proposalValidity,
+          items: proposalRows.map((row) => ({
+            uniqueCode: row.uniqueCode,
+            clientCode: row.clientCode,
+            product: row.product,
+            category: row.category,
+            price: row.pvcWithVat,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(data?.message || "No pude armar la propuesta.");
+      }
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1];
+      const fileName = encoded ? decodeURIComponent(encoded) : "propuesta.xlsx";
+      const url = URL.createObjectURL(await res.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      const missing = Number(res.headers.get("X-Missing-Images") ?? "0");
+      if (missing > 0) {
+        setProposalMessage(
+          `Descargada. ${missing} de ${proposalRows.length} producto${proposalRows.length > 1 ? "s" : ""} sin foto: se cargan en Productos.`,
+        );
+      } else {
+        setProposalOpen(false);
+      }
+    } catch (err) {
+      setProposalMessage(err instanceof Error ? err.message : "No pude armar la propuesta.");
+    } finally {
+      setProposalBusy(false);
+    }
   }
 
   function updateFreight(id: string, newFreight: number) {
@@ -942,6 +1010,19 @@ export function CostStructureWorkspace() {
               title="Descargar precios activos en PDF"
             >
               <Download size={13} /> PDF
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={proposalRows.length === 0 || loading}
+              onClick={openProposal}
+              className="h-8 text-[11px]"
+              title={proposalRows.length === 0
+                ? "Tildá en la tabla los productos que querés enviar"
+                : "Descargar la propuesta de productos con fotos, en Excel"}
+            >
+              <Download size={13} /> Propuesta{proposalRows.length > 0 ? ` (${proposalRows.length})` : ""}
             </Button>
             <Button
               onClick={() => setShowConfirmModal(true)}
@@ -1742,6 +1823,62 @@ export function CostStructureWorkspace() {
       </section>
 
       {/* ── Confirmation modal ───────────────────────────────────────────── */}
+      {proposalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <form
+            className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void downloadProposal();
+            }}
+          >
+            <div className="border-b border-[#dbe4ef] px-6 py-4">
+              <div className="text-sm font-extrabold text-[#10233f]">Propuesta de productos</div>
+              <div className="mt-0.5 text-[11px] text-[#5a6a82]">
+                {client} · {proposalRows.length} producto{proposalRows.length === 1 ? "" : "s"} seleccionado{proposalRows.length === 1 ? "" : "s"}
+              </div>
+            </div>
+            <div className="space-y-3 px-6 py-4 text-[11px] text-[#10233f]">
+              <label className="block">
+                <span className="font-bold">Nombre de la propuesta</span>
+                <input
+                  autoFocus
+                  value={proposalTitle}
+                  onChange={(e) => setProposalTitle(e.target.value)}
+                  placeholder="Ej.: Mes de la Madre"
+                  maxLength={80}
+                  className="mt-1 h-8 w-full rounded border border-[#dbe4ef] px-2 text-[12px]"
+                />
+              </label>
+              <label className="block">
+                <span className="font-bold">Vigencia</span>
+                <input
+                  value={proposalValidity}
+                  onChange={(e) => setProposalValidity(e.target.value)}
+                  placeholder="Ej.: Octubre"
+                  maxLength={60}
+                  className="mt-1 h-8 w-full rounded border border-[#dbe4ef] px-2 text-[12px]"
+                />
+              </label>
+              <p className="text-[#5a6a82]">
+                Lleva el precio con IVA que ves en la tabla, y la marca, el modelo, la descripción y la foto de cada producto. Los que el cliente todavía no tiene codificados salen como &quot;NUEVO&quot;.
+              </p>
+              {proposalMessage && (
+                <div className="rounded-lg border border-[#f0d9a8] bg-[#fff8e8] px-3 py-2 text-[#7a5300]">{proposalMessage}</div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[#dbe4ef] px-6 py-3">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setProposalOpen(false)} className="h-8 text-[11px]">
+                Cerrar
+              </Button>
+              <Button type="submit" size="sm" disabled={proposalBusy || proposalRows.length === 0} className="h-8 text-[11px]">
+                <Download size={13} /> {proposalBusy ? "Armando..." : "Descargar Excel"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {showConfirmModal && (() => {
         const changes = pendingChanges();
         const origMap = new Map(originalRows.map((r) => [r.id, r]));
