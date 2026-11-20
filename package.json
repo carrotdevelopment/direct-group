@@ -33,6 +33,7 @@
     "worker:dev": "tsx watch server/jobs/worker.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0",
     "@prisma/client": "6.19.3",
     "@tanstack/react-table": "latest",
     "@trpc/client": "latest",
@@ -48,7 +49,6 @@
     "mssql": "^12.7.2",
     "next": "latest",
     "next-auth": "beta",
-    "openai": "^7.60.0",
     "pdf-parse": "^2.4.5",
     "react": "latest",
     "react-dom": "latest",

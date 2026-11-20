@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/server/lib/prisma";
@@ -8,8 +8,7 @@ import { assistantSystemPrompt, assistantUserContext } from "@/lib/assistant/pro
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// El modelo se puede cambiar sin tocar código con OPENAI_MODEL.
-const MODEL = process.env.OPENAI_MODEL?.trim() || "gpt-4.1";
+const MODEL = "claude-opus-5-5";
 const MAX_TOOL_ROUNDS = 8;
 
 const bodySchema = z.object({
@@ -20,21 +19,13 @@ const bodySchema = z.object({
     .refine((list) => list[0].role === "user" && list[list.length - 1].role === "user"),
 });
 
-function parseArguments(raw: string) {
-  try {
-    return raw.trim() ? JSON.parse(raw) : {};
-  } catch {
-    return undefined;
-  }
-}
-
 // Respuesta en streaming: una línea JSON por evento ({type:"text"|"tool"|"error"|"done"}).
 export async function POST(request: Request) {
   const session = await auth();
   const user = session?.user;
   if (!user) return Response.json({ message: "Iniciá sesión para continuar." }, { status: 401 });
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ message: "El asistente no está configurado (falta OPENAI_API_KEY)." }, { status: 503 });
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return Response.json({ message: "El asistente no está configurado (falta ANTHROPIC_API_KEY)." }, { status: 503 });
   }
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ message: "Consulta inválida." }, { status: 400 });
@@ -42,71 +33,88 @@ export async function POST(request: Request) {
   const tools = assistantTools(user);
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const apiTools = tools.map(toApiTool);
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: assistantSystemPrompt() },
-    { role: "system", content: assistantUserContext(user, tools.map((t) => t.module)) },
-    ...parsed.data.messages.map((m) => ({ role: m.role, content: m.content })),
-  ];
+  const messages: Anthropic.Beta.BetaMessageParam[] = parsed.data.messages.map((m) => ({ role: m.role, content: m.content }));
   const question = parsed.data.messages[parsed.data.messages.length - 1].content;
-  const client = new OpenAI();
+  const client = new Anthropic();
   const encoder = new TextEncoder();
   const usedTools: string[] = [];
 
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: Record<string, unknown>) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      let jsonRetries = 0;
       try {
         for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-          const turn = client.chat.completions.stream({ model: MODEL, messages, tools: apiTools }, { signal: request.signal });
-          turn.on("content", (delta) => send({ type: "text", text: delta }));
-          const choice = (await turn.finalChatCompletion()).choices[0];
-          const message = choice?.message;
+          const turn = client.beta.messages.stream(
+            {
+              model: MODEL,
+              max_tokens: 16000,
+              betas: ["server-side-fallback-2026-07-01"],
+              fallbacks: "default",
+              output_config: { effort: "low" },
+              system: [
+                { type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } },
+                { type: "text", text: assistantUserContext(user, tools.map((t) => t.module)) },
+              ],
+              tools: apiTools,
+              messages,
+            },
+            { signal: request.signal },
+          );
+          turn.on("text", (text) => send({ type: "text", text }));
 
-          if (choice?.finish_reason === "content_filter") {
+          let message: Anthropic.Beta.BetaMessage;
+          try {
+            message = await turn.finalMessage();
+            jsonRetries = 0;
+          } catch (error) {
+            if (error instanceof Anthropic.APIError || jsonRetries++ >= 2) throw error;
+            round--;
+            continue;
+          }
+
+          if (message.stop_reason === "refusal") {
             send({ type: "text", text: "\n\nNo puedo responder esa consulta." });
             break;
           }
-          const calls = (message?.tool_calls ?? []).filter((c) => c.type === "function");
-          if (!message || calls.length === 0) break;
+          if (message.stop_reason === "pause_turn") {
+            messages.push({ role: "assistant", content: message.content });
+            continue;
+          }
+          const toolUses = message.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
+          if (toolUses.length === 0) break;
+          if (message.stop_reason === "max_tokens") throw new Error("La respuesta quedó cortada.");
           if (round === MAX_TOOL_ROUNDS) {
             send({ type: "text", text: "\n\nLa consulta necesitó demasiados pasos; probá con una pregunta más concreta." });
             break;
           }
 
-          messages.push({
-            role: "assistant",
-            content: message.content ?? null,
-            tool_calls: calls.map((c) => ({ id: c.id, type: "function", function: { name: c.function.name, arguments: c.function.arguments } })),
-          });
+          messages.push({ role: "assistant", content: message.content });
           const results = await Promise.all(
-            calls.map(async (call) => {
-              const t = toolsByName.get(call.function.name);
-              usedTools.push(call.function.name);
-              send({ type: "tool", name: call.function.name });
-              const input = parseArguments(call.function.arguments);
-              const result = !t ? { content: "Herramienta no disponible." }
-                : input === undefined ? { content: "Los parámetros no son un JSON válido." }
-                : await runAssistantTool(t, input);
-              return { role: "tool" as const, tool_call_id: call.id, content: result.content };
+            toolUses.map(async (use): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
+              const t = toolsByName.get(use.name);
+              usedTools.push(use.name);
+              send({ type: "tool", name: use.name });
+              const result = t ? await runAssistantTool(t, use.input) : { ok: false, content: "Herramienta no disponible." };
+              return { type: "tool_result", tool_use_id: use.id, content: result.content, is_error: !result.ok };
             }),
           );
-          messages.push(...results);
+          messages.push({ role: "user", content: results });
         }
         send({ type: "done" });
       } catch (error) {
         if (!request.signal.aborted) {
           console.error("[asistente]", error);
           const message =
-            error instanceof OpenAI.RateLimitError ? "El asistente está con mucha demanda o sin saldo; probá en un rato."
-            : error instanceof OpenAI.AuthenticationError ? "La clave de OpenAI no es válida."
-            : error instanceof OpenAI.APIError ? "El asistente no está disponible en este momento."
+            error instanceof Anthropic.RateLimitError ? "El asistente está con mucha demanda; probá en un rato."
+            : error instanceof Anthropic.APIError ? "El asistente no está disponible en este momento."
             : "No se pudo completar la consulta.";
           send({ type: "error", message });
         }
       } finally {
         controller.close();
         await prisma.auditLog
-          .create({ data: { userId: user.id, action: "ASSISTANT_QUERY", entity: "Assistant", recordId: user.id, newData: { question, tools: usedTools, model: MODEL } } })
+          .create({ data: { userId: user.id, action: "ASSISTANT_QUERY", entity: "Assistant", recordId: user.id, newData: { question, tools: usedTools } } })
           .catch((error) => console.error("[asistente] auditoría", error));
       }
     },
