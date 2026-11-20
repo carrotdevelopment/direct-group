@@ -49,6 +49,52 @@ export async function previewClientCodeMigration(input: { client?: unknown; oldC
   return { ...check, product: product?.product ?? null, oldStock, newStock };
 }
 
+type Plan = Awaited<ReturnType<typeof previewClientCodeMigration>>;
+type Tx = Parameters<Parameters<typeof excelPostgres.$transaction>[0]>[0];
+
+// Egreso del stock en el código viejo e ingreso en el nuevo, por la misma cantidad.
+async function moveStock(tx: Tx, plan: Plan, quantity: number, actor: string, comment: string, now: Date) {
+  if (quantity <= 0) return;
+  await tx.egress.create({
+    data: {
+      client: plan.client, clientCode: plan.oldCode, uniqueCode: plan.uniqueCode, product: plan.product,
+      operation: "PASAJE", quantity, date: now, destination: plan.client, comments: comment, createdBy: actor,
+    },
+  });
+  await tx.tangoIncome.create({
+    data: {
+      client: plan.client, clientCode: plan.newCode, operation: "PASAJE", orderDate: now, deliveryDate: now,
+      quantity, deliveredQuantity: quantity, transferOrigin: plan.client, comments: comment,
+      // No viene de Tango: así la sincronización no lo toma como un ingreso pendiente de conciliar.
+      pendingTangoEntry: true, createdBy: actor,
+    },
+  });
+}
+
+// Reemplazo de un código desde la carga de Códigos cliente: los códigos ya quedaron guardados (el viejo
+// inactivo, el nuevo vigente); acá solo se pasa el stock del viejo al nuevo y queda registrado.
+export async function transferClientCodeStock(input: { client?: unknown; oldCode?: unknown; newCode?: unknown }, actor: string) {
+  const plan = await previewClientCodeMigration(input);
+  if (!plan.newExists) throw new ClientCodeMigrationError(`El código ${plan.newCode} no está dado de alta en ${plan.client}.`);
+  const quantity = plan.oldStock.stock;
+  if (quantity < 0) {
+    throw new ClientCodeMigrationError(`el código ${plan.oldCode} tiene stock negativo (${quantity})`);
+  }
+  const now = new Date();
+  const comment = `Reemplazo de código cliente ${plan.oldCode} → ${plan.newCode}`;
+  await excelPostgres.$transaction(async (tx) => {
+    await moveStock(tx, plan, quantity, actor, comment, now);
+    await tx.clientCodeMigration.create({
+      data: {
+        client: plan.client, oldCode: plan.oldCode, newCode: plan.newCode, uniqueCode: plan.uniqueCode,
+        product: plan.product, quantity, createdBy: actor,
+      },
+    });
+  });
+  if (quantity > 0) invalidateIncomeGroups();
+  return { quantity };
+}
+
 function currentPeriod() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit" }).formatToParts(new Date());
   return { year: Number(parts.find((part) => part.type === "year")?.value), month: Number(parts.find((part) => part.type === "month")?.value) };
@@ -67,22 +113,7 @@ export async function executeClientCodeMigration(input: { client?: unknown; oldC
   const { year, month } = currentPeriod();
 
   const migration = await excelPostgres.$transaction(async (tx) => {
-    if (quantity > 0) {
-      await tx.egress.create({
-        data: {
-          client: plan.client, clientCode: plan.oldCode, uniqueCode: plan.uniqueCode, product: plan.product,
-          operation: "PASAJE", quantity, date: now, destination: plan.client, comments: comment, createdBy: actor,
-        },
-      });
-      await tx.tangoIncome.create({
-        data: {
-          client: plan.client, clientCode: plan.newCode, operation: "PASAJE", orderDate: now, deliveryDate: now,
-          quantity, deliveredQuantity: quantity, transferOrigin: plan.client, comments: comment,
-          // No viene de Tango: así la sincronización no lo toma como un ingreso pendiente de conciliar.
-          pendingTangoEntry: true, createdBy: actor,
-        },
-      });
-    }
+    await moveStock(tx, plan, quantity, actor, comment, now);
     await tx.excelClientCode.updateMany({
       where: { client: { equals: plan.client, mode: "insensitive" }, clientCode: { equals: plan.oldCode, mode: "insensitive" }, voidedAt: null },
       data: { active: false },

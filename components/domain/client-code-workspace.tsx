@@ -11,7 +11,6 @@ import {
 import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
-import { ClientCodeMigration } from "@/components/domain/client-code-migration";
 
 type Mapping = {
   id: string;
@@ -38,6 +37,9 @@ type DraftRow = {
   uniqueCode: string;
   clientCode: string;
   isNew: boolean;
+  // Qué hacer si el producto ya tiene códigos vigentes: "" se suma; un código cliente, lo reemplaza.
+  // Sin definir: lo que corresponde al cliente (ver addsByDefault).
+  replace?: string;
   assignedMonth?: number;
   assignedYear?: number;
 };
@@ -61,6 +63,8 @@ type PendingChange = {
 
 type PendingState = {
   changes: PendingChange[];
+  // Reemplazos: el stock del código viejo pasa al nuevo después de guardar.
+  transfers?: { oldCode: string; newCode: string }[];
   unchangedCount: number;
   finalMappings: Mapping[];
   client: string;
@@ -140,6 +144,23 @@ function canonicalClient(value: string) {
 
 function codeKey(value: string) {
   return value.trim().toUpperCase();
+}
+
+// Clientes que usan más de un código vigente para el mismo producto (Amex con DG99 y OFED, Credicoop): un
+// código nuevo para un producto que ya tiene código se suma por defecto. En el resto lo reemplaza.
+const MULTI_CODE_CLIENTS = new Set(["amex", "credicoop"]);
+function addsByDefault(client: string) {
+  return MULTI_CODE_CLIENTS.has(normalizeClient(client).toLowerCase());
+}
+
+// Código vigente que reemplaza la fila ("" si se suma o si el producto no tiene otro código vigente).
+function replaceChoice(row: Pick<DraftRow, "clientCode" | "replace">, actives: Mapping[], client: string) {
+  const others = actives.filter((m) => codeKey(m.clientCode) !== codeKey(row.clientCode));
+  if (others.length === 0 || !row.clientCode.trim()) return "";
+  if (row.replace !== undefined) {
+    return others.find((m) => codeKey(m.clientCode) === codeKey(row.replace ?? ""))?.clientCode ?? "";
+  }
+  return addsByDefault(client) ? "" : others[0].clientCode;
 }
 
 function compareValues(left: string | number | boolean, right: string | number | boolean) {
@@ -334,13 +355,15 @@ export function ClientCodeWorkspace() {
       .filter((option) => option.value <= maxMonth);
   }, [year]);
 
+  // Códigos vigentes de cada producto para el cliente elegido (puede haber más de uno).
   const activeAssignmentByCode = useMemo(() => {
-    const index = new Map<string, Mapping>();
+    const index = new Map<string, Mapping[]>();
     if (!client) return index;
     const canonicalized = canonicalClient(client);
     for (const m of mappings) {
       if (!m.active || m.voidedAt || canonicalClient(m.client) !== canonicalized) continue;
-      index.set(codeKey(m.uniqueCode), m);
+      const key = codeKey(m.uniqueCode);
+      index.set(key, [...(index.get(key) ?? []), m]);
     }
     return index;
   }, [client, mappings]);
@@ -360,8 +383,9 @@ export function ClientCodeWorkspace() {
         .map((r) => ({
           uniqueCode: r.uniqueCode.trim(),
           clientCode: r.clientCode.trim(),
+          replace: replaceChoice(r, activeAssignmentByCode.get(codeKey(r.uniqueCode)) ?? [], client),
         })),
-    [draftRows],
+    [activeAssignmentByCode, client, draftRows],
   );
 
   const invalidPreviewUniqueCodes = useMemo(() => {
@@ -392,17 +416,16 @@ export function ClientCodeWorkspace() {
     [draftRows],
   );
 
+  // Filas de productos que ya tienen código vigente: las que reemplazan uno y las que se suman.
   const draftUpdates = useMemo(
     () =>
       draftRows.flatMap((row) => {
         if (!row.uniqueCode.trim() || !row.clientCode.trim()) return [];
-        const current = activeAssignmentByCode.get(codeKey(row.uniqueCode));
-        if (!current || codeKey(current.clientCode) === codeKey(row.clientCode)) {
-          return [];
-        }
-        return [{ row, current }];
+        const actives = activeAssignmentByCode.get(codeKey(row.uniqueCode)) ?? [];
+        if (actives.length === 0 || actives.some((m) => codeKey(m.clientCode) === codeKey(row.clientCode))) return [];
+        return [{ row, actives, replaces: replaceChoice(row, actives, client) }];
       }),
-    [activeAssignmentByCode, draftRows],
+    [activeAssignmentByCode, client, draftRows],
   );
 
   const saveDisabledReason = useMemo(() => {
@@ -477,7 +500,11 @@ export function ClientCodeWorkspace() {
   }
 
   function activeAssigned(uniqueCode: string) {
-    return activeAssignmentByCode.get(codeKey(uniqueCode));
+    return activeAssignmentByCode.get(codeKey(uniqueCode)) ?? [];
+  }
+
+  function setDraftReplace(index: number, replace: string) {
+    setDraftRows((rows) => rows.map((row, i) => (i === index ? { ...row, replace } : row)));
   }
 
   async function persist(next: Mapping[]) {
@@ -491,8 +518,10 @@ export function ClientCodeWorkspace() {
       });
       if (!response.ok) throw new Error("write failed");
       setDbStatus("");
+      return true;
     } catch {
       setDbStatus("No se pudo guardar.");
+      return false;
     }
   }
 
@@ -720,30 +749,15 @@ export function ClientCodeWorkspace() {
       return;
     }
 
-    const seenUnique = new Set<string>();
-    const dupUnique: string[] = [];
-    for (const row of preview) {
-      const uniqueKey = codeKey(row.uniqueCode);
-      if (seenUnique.has(uniqueKey)) {
-        if (!dupUnique.includes(row.uniqueCode)) dupUnique.push(row.uniqueCode);
-      } else seenUnique.add(uniqueKey);
-    }
-    if (dupUnique.length > 0) {
-      setHighlightedDuplicates({
-        uniqueCodes: new Set(dupUnique.map(codeKey)),
-        clientCodes: new Set(),
-      });
-      setDraftError(
-        `Código de producto repetido: ${dupUnique.join(", ")}. Para un mismo cliente solo puede quedar activa una relación por código de producto.`,
-      );
-      return;
-    }
+    // Un producto puede venir en varias filas con códigos cliente distintos (se suman); el mismo código
+    // cliente repetido ya se frena arriba.
 
     setDraftError("");
     setHighlightedDuplicates({ uniqueCodes: new Set(), clientCodes: new Set() });
     const canonicalized = canonicalClient(client);
     const nextMappings = [...mappings];
     const changes: PendingChange[] = [];
+    const transfers: { oldCode: string; newCode: string }[] = [];
     let unchangedCount = 0;
 
     for (const row of preview) {
@@ -764,22 +778,23 @@ export function ClientCodeWorkspace() {
         return;
       }
 
-      const idx = nextMappings.findIndex(
-        (m) =>
-          m.active &&
-          !m.voidedAt &&
-          canonicalClient(m.client) === canonicalized &&
-          codeKey(m.uniqueCode) === codeKey(row.uniqueCode),
-      );
+      const activeForProduct = (code?: string) =>
+        nextMappings.findIndex(
+          (m) =>
+            m.active &&
+            !m.voidedAt &&
+            canonicalClient(m.client) === canonicalized &&
+            codeKey(m.uniqueCode) === codeKey(row.uniqueCode) &&
+            (code === undefined || codeKey(m.clientCode) === codeKey(code)),
+        );
+      if (activeForProduct(row.clientCode) !== -1) {
+        unchangedCount++;
+        continue;
+      }
+      // Solo se da de baja el código que eligieron reemplazar; si se suma, los vigentes quedan como están.
+      const idx = row.replace ? activeForProduct(row.replace) : -1;
       if (idx !== -1) {
         const existing = nextMappings[idx];
-        if (
-          codeKey(existing.uniqueCode) === codeKey(row.uniqueCode) &&
-          codeKey(existing.clientCode) === codeKey(row.clientCode)
-        ) {
-          unchangedCount++;
-          continue;
-        }
         nextMappings[idx] = { ...existing, active: false };
         changes.push({
           kind: "updated",
@@ -787,6 +802,7 @@ export function ClientCodeWorkspace() {
           clientCode: row.clientCode,
           previousClientCode: existing.clientCode.trim(),
         });
+        transfers.push({ oldCode: existing.clientCode.trim(), newCode: row.clientCode });
       } else {
         changes.push({ kind: "new", uniqueCode: row.uniqueCode, clientCode: row.clientCode });
       }
@@ -807,6 +823,7 @@ export function ClientCodeWorkspace() {
     }
     setPending({
       changes,
+      transfers,
       unchangedCount,
       finalMappings: nextMappings,
       client: canonicalized,
@@ -825,9 +842,27 @@ export function ClientCodeWorkspace() {
       assignedMonth: pendingMonth,
       assignedYear: pendingYear,
       source,
+      transfers = [],
     } = pending;
     setPending(null);
-    await persist(finalMappings);
+    if (!(await persist(finalMappings))) return;
+    // Reemplazos: el stock del código viejo pasa al nuevo (egreso en el viejo, ingreso en el nuevo).
+    const moved: string[] = [];
+    const transferErrors: string[] = [];
+    for (const transfer of transfers) {
+      try {
+        const response = await fetch("/api/local-db/client-codes/migracion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client: pendingClient, ...transfer, onlyStock: true }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "No se pudo pasar el stock.");
+        if (data.quantity > 0) moved.push(`${transfer.oldCode} → ${transfer.newCode}: ${data.quantity} u.`);
+      } catch (error) {
+        transferErrors.push(`${transfer.oldCode} → ${transfer.newCode}: ${error instanceof Error ? error.message : "no se pudo pasar el stock"}`);
+      }
+    }
 
     if (source === "assignment") {
       resetDraft();
@@ -849,7 +884,9 @@ export function ClientCodeWorkspace() {
     if (de > 0) parts.push(`${de} desactivada${de !== 1 ? "s" : ""}`);
     if (re > 0) parts.push(`${re} reactivada${re !== 1 ? "s" : ""}`);
     if (vo > 0) parts.push(`${vo} anulada${vo !== 1 ? "s" : ""}`);
-    const resultMessage = `${parts.join(" · ")} para ${pendingClient} · ${periodLabel(pendingMonth, pendingYear)}`;
+    const resultMessage = `${parts.join(" · ")} para ${pendingClient} · ${periodLabel(pendingMonth, pendingYear)}`
+      + (moved.length ? `. Stock pasado al código nuevo: ${moved.join("; ")}` : "")
+      + (transferErrors.length ? `. No se pudo pasar el stock de ${transferErrors.join("; ")}: revisalo en Stock.` : "");
     if (source === "history") {
       setHistoryActionMessage(resultMessage);
       setHistoryActionError("");
@@ -918,6 +955,7 @@ export function ClientCodeWorkspace() {
         return { ...row, active: false, reactivatedAt: now };
       }
       if (
+        !addsByDefault(canonicalized) &&
         row.active &&
         !row.voidedAt &&
         canonicalClient(row.client) === canonicalized &&
@@ -1082,17 +1120,13 @@ export function ClientCodeWorkspace() {
                   {filteredDraftEntries.map(({ row, originalIndex }) => {
                     const isBlank =
                       !row.uniqueCode.trim() && !row.clientCode.trim();
-                    const activeAssignment = activeAssigned(row.uniqueCode);
-                    const isUpdate =
-                      Boolean(activeAssignment) &&
-                      Boolean(row.clientCode.trim()) &&
-                      codeKey(activeAssignment?.clientCode ?? "") !==
-                        codeKey(row.clientCode);
+                    const actives = activeAssigned(row.uniqueCode);
                     const isUnchanged =
-                      Boolean(activeAssignment) &&
                       Boolean(row.clientCode.trim()) &&
-                      codeKey(activeAssignment?.clientCode ?? "") ===
-                        codeKey(row.clientCode);
+                      actives.some((m) => codeKey(m.clientCode) === codeKey(row.clientCode));
+                    const isUpdate =
+                      actives.length > 0 && Boolean(row.clientCode.trim()) && !isUnchanged;
+                    const replaces = replaceChoice(row, actives, client);
                     const unknownUniqueCode =
                       Boolean(row.uniqueCode.trim()) &&
                       productCatalogLoaded &&
@@ -1181,10 +1215,10 @@ export function ClientCodeWorkspace() {
                                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fce9e8] px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-[#b42318]">
                                   No existe
                                 </span>
-                              ) : activeAssignment ? (
+                              ) : actives.length > 0 ? (
                                 <span
                                   className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-[#fff3cd] px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-[#9a5c00]"
-                                  title="Este producto ya tiene una asignación activa"
+                                  title={`Códigos vigentes: ${actives.map((m) => m.clientCode).join(", ")}`}
                                 >
                                   Ya asignado
                                 </span>
@@ -1238,19 +1272,21 @@ export function ClientCodeWorkspace() {
                         {/* Action */}
                         <td className="px-2 py-1 text-center">
                           {isUpdate ? (
-                            <span
-                              className="rounded-full bg-[#fff3cd] px-2 py-1 text-[11px] font-extrabold text-[#9a5c00]"
-                              title={`Código vigente: ${activeAssignment?.clientCode}`}
+                            <select
+                              value={replaces}
+                              onChange={(e) => setDraftReplace(originalIndex, e.target.value)}
+                              aria-label={`Qué hacer con el código vigente de ${row.uniqueCode}`}
+                              title={`Códigos vigentes: ${actives.map((m) => m.clientCode).join(", ")}`}
+                              className={`h-7 max-w-[11rem] rounded-md border px-1.5 text-[11px] font-extrabold outline-none ${replaces ? "border-[#f2d58b] bg-[#fff3cd] text-[#9a5c00]" : "border-[#bcd3f0] bg-[#e5effb] text-[#0b5bbb]"}`}
                             >
-                              Actualización
-                            </span>
+                              <option value="">Se suma</option>
+                              {actives.map((m) => (
+                                <option key={m.id} value={m.clientCode}>Reemplaza a {m.clientCode}</option>
+                              ))}
+                            </select>
                           ) : isUnchanged ? (
                             <span className="rounded-full bg-[#f3f4f6] px-2 py-1 text-[11px] font-extrabold text-[#5a6a82]">
                               Sin cambios
-                            </span>
-                          ) : activeAssignment ? (
-                            <span className="rounded-full bg-[#fff3cd] px-2 py-1 text-[11px] font-extrabold text-[#9a5c00]">
-                              Ya asignado
                             </span>
                           ) : row.uniqueCode.trim() ? (
                             <span className="rounded-full bg-[#e6f4ea] px-2 py-1 text-[11px] font-extrabold text-[#2d7a3a]">
@@ -1269,19 +1305,20 @@ export function ClientCodeWorkspace() {
               <div className="mt-3 rounded-xl border border-[#f2d58b] bg-[#fffaf0] px-4 py-3 text-[11px] text-[#7a5200]">
                 <p className="font-black">
                   {draftUpdates.length === 1
-                    ? "Estás actualizando una asignación existente."
-                    : `Estás actualizando ${draftUpdates.length} asignaciones existentes.`}
+                    ? "Un producto de la carga ya tiene código vigente."
+                    : `${draftUpdates.length} productos de la carga ya tienen código vigente.`}{" "}
+                  Elegí en cada fila si el código nuevo se suma o reemplaza a uno vigente.
                 </p>
                 <ul className="mt-1 space-y-0.5 font-semibold">
-                  {draftUpdates.map(({ row, current }) => (
-                    <li key={codeKey(row.uniqueCode)}>
-                      {row.uniqueCode}: {current.clientCode} → {row.clientCode}
+                  {draftUpdates.map(({ row, actives, replaces }) => (
+                    <li key={`${codeKey(row.uniqueCode)}-${codeKey(row.clientCode)}`}>
+                      {row.uniqueCode}:{" "}
+                      {replaces
+                        ? `${replaces} → ${row.clientCode} (${replaces} queda inactivo y su stock pasa a ${row.clientCode})`
+                        : `se suma ${row.clientCode} (quedan vigentes ${[...actives.map((m) => m.clientCode), row.clientCode].join(", ")})`}
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-[11px] font-semibold text-[#8a6a27]">
-                  Al guardar, el código anterior quedará inactivo y la nueva asignación quedará activa.
-                </p>
               </div>
             )}
 
@@ -1626,12 +1663,6 @@ export function ClientCodeWorkspace() {
       </section>
 
       {/* CONFIRMATION MODAL */}
-      <ClientCodeMigration
-        clients={clients}
-        mappings={mappings}
-        defaultClient={client}
-        onMigrated={loadMappingsFromExcel}
-      />
 
       {pending && (
         <div
@@ -1701,7 +1732,7 @@ export function ClientCodeWorkspace() {
                 </thead>
                 <tbody className="divide-y divide-[#f0f4f8]">
                   {pending.changes.map((change) => (
-                    <tr key={`${change.kind}-${change.uniqueCode}`}>
+                    <tr key={`${change.kind}-${change.uniqueCode}-${change.clientCode}`}>
                       <td className="px-4 py-2 font-mono text-[#10233f]">
                         {change.uniqueCode}
                       </td>
