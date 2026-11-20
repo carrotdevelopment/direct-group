@@ -115,6 +115,7 @@ export function AssistantPanel() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let afterTool = false;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -125,9 +126,14 @@ export function AssistantPanel() {
           if (!line.trim()) continue;
           const event = JSON.parse(line) as { type: string; text?: string; name?: string; message?: string };
           if (event.type === "text" && event.text) {
+            const text = event.text;
+            const separate = afterTool;
+            afterTool = false;
             setStatus("");
-            update((m) => ({ ...m, content: m.content + event.text }));
+            // El texto que sigue a una consulta va en un párrafo aparte del anterior.
+            update((m) => ({ ...m, content: m.content + (separate && m.content && !m.content.endsWith("\n") ? "\n\n" : "") + text }));
           } else if (event.type === "tool") {
+            afterTool = true;
             setStatus(TOOL_LABELS[event.name ?? ""] ?? "Consultando");
           } else if (event.type === "error") {
             update((m) => ({ ...m, content: `${m.content}${m.content ? "\n\n" : ""}${event.message}`, error: true }));
