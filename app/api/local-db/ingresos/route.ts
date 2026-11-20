@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, currentClientScope } from "@/server/lib/access";
+import { restrictRequestedClients } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import {
   getTangoIncomeOptions,
@@ -15,7 +16,8 @@ export async function GET(request: Request) {
   const denied = await checkApiAccess(["compras"], false);
   if (denied) return denied;
   const url = new URL(request.url);
-  const clients = url.searchParams.getAll("client").filter(Boolean);
+  const scope = await currentClientScope();
+  const clients = restrictRequestedClients(scope, url.searchParams.getAll("client").filter(Boolean));
   const operation = url.searchParams.get("operation") || undefined;
   const status = url.searchParams.get("status") || undefined;
   const search = url.searchParams.get("search") || undefined;
@@ -40,7 +42,7 @@ export async function GET(request: Request) {
     limit: metaOnly ? 1 : limit,
   };
   if (usesPostgres()) {
-    const result = await readTangoIncomeViewFromPostgres(filters);
+    const result = await readTangoIncomeViewFromPostgres(filters, scope);
     return NextResponse.json({
       schema: incomeSchema,
       summary: result.summary,

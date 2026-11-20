@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { inClientScope } from "@/lib/client-scope";
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return bad(parsed.error.issues[0]?.message || "Revisá los datos del movimiento.");
   }
+  if (!inClientScope(await currentClientScope(), parsed.data.client)) return clientForbidden();
   const session = await auth();
   const actor = session?.user?.email ?? session?.user?.id ?? "desconocido";
   const created = await createManualTangoIncome(parsed.data, actor);

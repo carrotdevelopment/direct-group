@@ -94,7 +94,7 @@ function packageRound(value: number, size: number) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function StockWorkspace() {
-  const [clients, setClients] = useState<string[]>(["Santander"]);
+  const [clients, setClients] = useState<string[]>([]);
   // Vacío hasta leer el último cliente elegido, para no cargar Santander de más al entrar.
   const [client, setClient] = useState("");
   const [rows, setRows] = useState<StockRow[]>([]);
@@ -127,7 +127,7 @@ export function StockWorkspace() {
     } catch {}
     // Restore the client chosen last time in this browser.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setClient(last || "Santander");
+    setClient(last);
   }, []);
 
   function chooseClient(next: string) {
@@ -142,10 +142,15 @@ export function StockWorkspace() {
       .then((response) => response.json() as Promise<{ clients?: string[] }>)
       .then((data) => {
         const names = data.clients;
+        if (names && names.length === 0) {
+          setClients([]);
+          setClient("");
+          setStatus("No tenés clientes asignados. Pedile a un administrador que te los asigne en Permisos.");
+        }
         if (!names?.length) return;
         setClients(names);
-        // Si el último cliente guardado ya no está en la lista, se usa el primero.
-        setClient((current) => (current && !names.includes(current) ? names[0] : current));
+        // Si el último cliente guardado ya no está en la lista (o no hay), se usa el primero.
+        setClient((current) => (names.includes(current) ? current : names[0]));
       })
       .catch(() => undefined);
   }, []);

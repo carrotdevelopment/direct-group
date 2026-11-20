@@ -14,6 +14,7 @@ import {
   type TangoIncomeViewSummary,
 } from "@/lib/operation-excel-db";
 import { TANGO_ONLY_PURCHASES_FROM } from "@/lib/stock-operations";
+import { filterByClientScope, type ClientScope } from "@/lib/client-scope";
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -111,6 +112,15 @@ export async function readPendingPurchaseOrdersFromPostgres(client: string) {
     WHERE ${Prisma.raw(norm(RESOLVED_CLIENT))} = ${normalizeSearch(client)}
     GROUP BY t.k`;
   return rows.map((row) => ({ clientCode: text(row.codigo_cliente), quantity: number(row.pendiente) }));
+}
+
+// Cliente al que pertenece un ingreso (resuelto por su código cliente, igual que en la pantalla de Ingresos).
+export async function incomeRowClient(id: string) {
+  if (!/^\d{1,18}$/.test(id)) return null;
+  const rows = await excelPostgres.$queryRaw<{ cliente_res: string }[]>(Prisma.sql`
+    WITH ${RESOLVED_INCOME_CTE}
+    SELECT cliente_res FROM r WHERE id = ${BigInt(id)}`);
+  return rows[0]?.cliente_res ?? null;
 }
 
 type IncomeDbRow = {
@@ -218,7 +228,9 @@ function readIncomeGroups() {
 
 // Todo el filtrado, orden y totales se resuelven en PostgreSQL: antes se traían
 // las ~128 mil filas a memoria en cada consulta (cada filtro, cada carga de página).
-export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilters = {}) {
+// scope limita los totales y las opciones de los filtros a los clientes que puede ver el usuario; las filas
+// ya vienen limitadas por options.clients.
+export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilters = {}, scope: ClientScope = null) {
   const where = incomeConditions(options);
   const limit = Math.max(1, Math.min(Number(options.limit ?? 750), 5000));
 
@@ -244,7 +256,7 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
       ORDER BY fecha_entrega DESC NULLS LAST, fecha_pedido DESC NULLS LAST, id DESC
       LIMIT ${limit}`),
     readIncomeGroups(),
-  ]);
+  ]).then(([incomeRows, allGroups]) => [incomeRows, filterByClientScope(scope, allGroups, (group) => group.cliente_res)] as const);
 
   const filteredAggregate: IncomeAggregate[] = rows.length
     ? [{

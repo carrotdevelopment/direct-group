@@ -1,4 +1,5 @@
-import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope, currentPasajeActor } from "@/server/lib/access";
+import { filterByClientScope, inClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import {
   ClientCodeMigrationError,
@@ -13,7 +14,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const denied = await checkApiAccess(["clientes"], false);
   if (denied) return denied;
-  return NextResponse.json({ migrations: await listClientCodeMigrations() });
+  return NextResponse.json({ migrations: filterByClientScope(await currentClientScope(), await listClientCodeMigrations(), (migration) => migration.client) });
 }
 
 // Con preview=true valida y muestra el stock que se va a pasar; con onlyStock=true pasa el stock de un
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
   }
   const denied = await checkApiAccess(["clientes"], !body.preview);
   if (denied) return denied;
+  if (!inClientScope(await currentClientScope(), body.client)) return clientForbidden();
   try {
     if (body.preview) return NextResponse.json({ plan: await previewClientCodeMigration(body) });
     // Reemplazo de código desde la carga de Códigos cliente: solo pasa el stock del viejo al nuevo.

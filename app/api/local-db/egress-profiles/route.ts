@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { filterByClientScope, inClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import { egressSchemas, type EgressClient } from "@/lib/operation-excel-db";
 import {
@@ -18,9 +19,8 @@ function isClient(value: string): value is EgressClient {
 export async function GET() {
   const denied = await checkApiAccess(["ventas"], false);
   if (denied) return denied;
-  return NextResponse.json({
-    profiles: usesPostgres() ? await seedAndReadEgressProfiles() : defaultEgressProfiles(),
-  });
+  const profiles = usesPostgres() ? await seedAndReadEgressProfiles() : defaultEgressProfiles();
+  return NextResponse.json({ profiles: filterByClientScope(await currentClientScope(), profiles, (profile) => profile.client) });
 }
 
 export async function PUT(request: Request) {
@@ -34,6 +34,7 @@ export async function PUT(request: Request) {
     mapping?: EgressFieldMapping;
   };
   const client = body.client || "";
+  if (client && !inClientScope(await currentClientScope(), client)) return clientForbidden();
   if (!isClient(client) || !Array.isArray(body.columns) || !body.mapping) {
     return NextResponse.json({ ok: false, message: "La configuración de importación está incompleta." }, { status: 400 });
   }

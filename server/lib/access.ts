@@ -1,6 +1,7 @@
 import "server-only";
 import { auth } from "@/auth";
 import { hasModule, PASAJES_ALL } from "@/lib/module-access";
+import { clientScopeFor, type ClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 
@@ -26,6 +27,16 @@ export async function checkApiAccess(modules: string[], write = false) {
     return NextResponse.json({ message: "No tenés permiso para realizar esta operación." }, { status: 403 });
   }
   return null;
+}
+
+// Clientes cuyos datos puede ver el usuario fuera de Pasajes (null = todos). Se lee de la base en cada
+// pedido, así un cambio en Permisos vale enseguida.
+export async function currentClientScope(): Promise<ClientScope> {
+  return clientScopeFor((await auth())?.user);
+}
+
+export function clientForbidden() {
+  return NextResponse.json({ ok: false, message: "No tenés acceso a los datos de ese cliente." }, { status: 403 });
 }
 
 export async function currentPasajeActor() {

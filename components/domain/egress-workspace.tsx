@@ -9,6 +9,7 @@ import { EGRESS_EXPORT_MAX_ROWS, egressExportFileName, egressExportSheet } from 
 import { locateEgressData, repairMojibake, slashDate } from "@/lib/egress-file-layout";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
+import { inClientScope, useClientScope } from "@/lib/use-client-scope";
 import { EgressProductChangeModal } from "@/components/domain/egress-product-change-modal";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1521,6 +1522,17 @@ export function EgressWorkspace() {
   const [status,  setStatus]  = useState("Leyendo egresos desde PostgreSQL...");
   const [saving,  setSaving]  = useState(false);
   const [validCodesByClient, setValidCodesByClient] = useState<Record<string, string[]>>({});
+  const clientScope = useClientScope();
+
+  // Quien ve solo algunos clientes elige entre los suyos; los datos no se piden hasta saber cuáles son.
+  useEffect(() => {
+    if (!clientScope.loaded || clientScope.scope === null) return;
+    const allowed = INITIAL_CONFIGS.filter((c) => inClientScope(clientScope.scope, c.nombre));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setConfigs((current) => current.filter((c) => allowed.some((a) => a.nombre === c.nombre)));
+    setCliente((current) => (allowed.some((a) => a.nombre === current) ? current : allowed[0]?.nombre ?? ""));
+    if (allowed.length === 0) setStatus("No tenés clientes asignados. Pedile a un administrador que te los asigne en Permisos.");
+  }, [clientScope.loaded, clientScope.scope]);
 
   const cfg          = configs.find((c) => c.nombre === cliente) ?? configs[0];
   const clienteLotes = lotes.filter((l) => l.cliente === cliente);
@@ -1552,11 +1564,12 @@ export function EgressWorkspace() {
   }, [historyRange]);
 
   useEffect(() => {
+    if (!clientScope.loaded || !cliente) return;
     // The async loader synchronizes the UI with the canonical egress table.
     void loadEgresses(cliente).catch((error: unknown) => {
       setStatus(error instanceof Error ? error.message : "No se pudo leer la base de egresos.");
     });
-  }, [cliente, loadEgresses]);
+  }, [cliente, loadEgresses, clientScope.loaded]);
 
   useEffect(() => {
     fetch("/api/local-db/egress-profiles")

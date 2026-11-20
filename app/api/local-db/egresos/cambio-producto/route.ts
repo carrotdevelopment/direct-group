@@ -1,5 +1,7 @@
 import { auth } from "@/auth";
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { inClientScope } from "@/lib/client-scope";
+import { excelPostgres } from "@/lib/excel-postgres-client";
 import { NextResponse } from "next/server";
 import {
   applyEgressProductChange,
@@ -15,6 +17,11 @@ export async function GET(request: Request) {
   const denied = await checkApiAccess(["ventas"], false);
   if (denied) return denied;
   const id = Number(new URL(request.url).searchParams.get("id"));
+  const scope = await currentClientScope();
+  if (scope !== null) {
+    const egress = Number.isSafeInteger(id) && id > 0 ? await excelPostgres.egress.findUnique({ where: { id: BigInt(id) }, select: { client: true } }) : null;
+    if (!egress || !inClientScope(scope, egress.client)) return NextResponse.json({ changes: [] });
+  }
   return NextResponse.json({ changes: await listEgressProductChanges(id) });
 }
 
@@ -28,6 +35,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ message: "El pedido no llegó con JSON válido." }, { status: 400 });
   }
+  if (!inClientScope(await currentClientScope(), body.client)) return clientForbidden();
   const input = {
     id: Number(body.id),
     client: String(body.client ?? ""),

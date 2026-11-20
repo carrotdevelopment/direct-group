@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { inClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
   if (!client) {
     return NextResponse.json({ ok: false, message: "Falta el cliente." }, { status: 400 });
   }
+  if (!inClientScope(await currentClientScope(), client)) return clientForbidden();
   if (items.length === 0) {
     return NextResponse.json({ ok: false, message: "Seleccioná al menos un producto." }, { status: 400 });
   }

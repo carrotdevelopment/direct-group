@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, currentClientScope } from "@/server/lib/access";
+import { filterByClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import {
   UrbanoStockError,
@@ -30,7 +31,10 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const loadId = params.get("load");
   if (loadId && !UUID.test(loadId)) return NextResponse.json({ message: "La carga no existe." }, { status: 404 });
-  if (loadId) return NextResponse.json({ items: await urbanoStockItems(loadId) });
+  if (loadId) {
+    const scope = await currentClientScope();
+    return NextResponse.json({ items: filterByClientScope(scope, await urbanoStockItems(loadId), (item) => item.client) });
+  }
   return NextResponse.json({ loads: await listUrbanoStockLoads(), portalConfigured: !!(urbanoApiConfig() || urbanoPortalConfig()) });
 }
 

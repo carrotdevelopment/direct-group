@@ -1,4 +1,6 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { inClientScope } from "@/lib/client-scope";
+import { incomeRowClient } from "@/lib/postgres-operation-db";
 import { NextResponse } from "next/server";
 import { setTangoIncomePendingFlag } from "@/lib/tango-manual-entry";
 
@@ -8,6 +10,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const denied = await checkApiAccess(["compras"], true);
   if (denied) return denied;
   const { id } = await params;
+  const scope = await currentClientScope();
+  if (scope !== null && !inClientScope(scope, await incomeRowClient(id))) return clientForbidden();
   const body = (await request.json()) as { pendingTangoEntry?: boolean };
   if (typeof body.pendingTangoEntry !== "boolean") {
     return NextResponse.json({ message: "Falta indicar el nuevo estado." }, { status: 400 });

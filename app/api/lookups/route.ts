@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, currentClientScope } from "@/server/lib/access";
+import { filterByClientScope } from "@/lib/client-scope";
 import { usesPostgres } from "@/lib/data-source";
 import { readProductsFromExcel, readSuppliersFromExcel, readClientsFromExcel, readClientRatesFromExcel, readClientCodesFromExcel, type ExcelClientRateItem } from "@/lib/local-excel-db";
 import { readProductsFromPostgres, readSuppliersFromPostgres, readClientsFromPostgres, readClientRatesFromPostgres, readClientCodesFromPostgres } from "@/lib/postgres-replica-db";
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
     ratesByClient[key].push(item);
   }
 
-  const result = clients.map((client) => {
+  const result = filterByClientScope(await currentClientScope(), clients, (client) => client.name).map((client) => {
     const allItems = (ratesByClient[client.id] ?? []).sort((a, b) =>
       b.effectiveFrom.localeCompare(a.effectiveFrom),
     );

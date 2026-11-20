@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, currentClientScope } from "@/server/lib/access";
+import { inClientScope } from "@/lib/client-scope";
 ﻿import { NextResponse } from "next/server";
 import {
   readClientCodesFromExcel,
@@ -121,6 +122,7 @@ function latestCostByCode(
 export async function GET(request: Request) {
   const denied = await checkApiAccess(["stock"], false);
   if (denied) return denied;
+  const scope = await currentClientScope();
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
   const today = new Date();
@@ -135,10 +137,10 @@ export async function GET(request: Request) {
     const [clients, withActiveCodes] = await Promise.all([readClientsFromPostgres(), readClientNamesWithActiveCodes()]);
     const withCodes = new Set(withActiveCodes.map(canonicalClient));
     const names = clients
-      .filter((c) => c.active !== false && withCodes.has(canonicalClient(c.name)))
+      .filter((c) => c.active !== false && withCodes.has(canonicalClient(c.name)) && inClientScope(scope, c.name))
       .map((c) => c.name)
       .sort((a, b) => (canonicalClient(a) === "santander" ? -1 : canonicalClient(b) === "santander" ? 1 : a.localeCompare(b, "es")));
-    return NextResponse.json({ clients: names.length ? names : ["Santander"] });
+    return NextResponse.json({ clients: names.length || scope ? names : ["Santander"] });
   }
 
   let clientName = "Santander";
@@ -152,6 +154,9 @@ export async function GET(request: Request) {
       rows: [],
       message: "Por ahora solo está cargada la vista de stock Santander.",
     });
+  }
+  if (!inClientScope(scope, clientName)) {
+    return NextResponse.json({ rows: [], message: "No tenés acceso a los datos de ese cliente." }, { status: 403 });
   }
   const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 

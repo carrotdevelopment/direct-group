@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, currentClientScope } from "@/server/lib/access";
+import { inClientScope } from "@/lib/client-scope";
 ﻿import { NextResponse } from "next/server";
 import {
   type ExcelPrice,
@@ -71,6 +72,8 @@ function periodLabel(year: number, month: number) {
 async function costClientName(client: string) {
   const wanted = canonicalClient(client);
   if (!wanted) return null;
+  // Quien ve solo algunos clientes no puede consultar ni cargar la estructura de los demás.
+  if (!inClientScope(await currentClientScope(), client)) return null;
   const clients = await readClientsFromPostgres();
   return clients.find((item) => item.active !== false && canonicalClient(item.name) === wanted)?.name ?? null;
 }

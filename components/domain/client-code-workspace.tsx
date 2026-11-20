@@ -11,6 +11,7 @@ import {
 import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { inClientScope, useClientScope } from "@/lib/use-client-scope";
 
 type Mapping = {
   id: string;
@@ -260,6 +261,7 @@ export function ClientCodeWorkspace() {
   const selectedMonth = Number(month);
   const selectedYear = Number(year);
 
+  const clientScope = useClientScope();
   const clients = useMemo(
     () =>
       Array.from(
@@ -269,8 +271,10 @@ export function ClientCodeWorkspace() {
         ]),
       )
         .filter(Boolean)
+        // Quien ve solo algunos clientes elige entre los suyos.
+        .filter((name) => !clientScope.loaded || inClientScope(clientScope.scope, name))
         .sort((a, b) => a.localeCompare(b, "es")),
-    [mappings],
+    [mappings, clientScope.loaded, clientScope.scope],
   );
 
   const historyYears = useMemo(

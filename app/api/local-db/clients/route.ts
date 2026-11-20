@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { filterByClientScope, inClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import {
   readClientsFromExcel,
@@ -37,7 +38,8 @@ export async function GET() {
     ratesByClient[key].push(item);
   }
 
-  const result = clients.map((client) => {
+  const scope = await currentClientScope();
+  const result = filterByClientScope(scope, clients, (client) => client.name).map((client) => {
     const allItems = (ratesByClient[client.id] ?? []).sort((a, b) =>
       b.effectiveFrom.localeCompare(a.effectiveFrom),
     );
@@ -66,6 +68,11 @@ export async function PUT(request: Request) {
     rates?: ExcelClientRateItem[];
   };
 
+  // Quien ve solo algunos clientes edita los suyos; dar de alta o tocar otros es del administrador.
+  const scope = await currentClientScope();
+  if ((body.clients ?? []).some((client) => !inClientScope(scope, client.name))) return clientForbidden();
+  if ((body.rates ?? []).some((rate) => !inClientScope(scope, rate.clientName))) return clientForbidden();
+
   if (body.clients) {
     const seen = new Map<string, string>();
     for (const client of body.clients) {
@@ -84,8 +91,13 @@ export async function PUT(request: Request) {
   }
 
   if (body.rates) {
-    if (usesPostgres()) await writeClientRatesToPostgres(body.rates);
-    else writeClientRatesToExcel(body.rates);
+    // Las tasas se reemplazan enteras: se conservan las de los clientes que el usuario no ve.
+    const kept = scope === null
+      ? []
+      : (usesPostgres() ? await readClientRatesFromPostgres() : readClientRatesFromExcel()).filter((rate) => !inClientScope(scope, rate.clientName));
+    const rates = [...kept, ...body.rates];
+    if (usesPostgres()) await writeClientRatesToPostgres(rates);
+    else writeClientRatesToExcel(rates);
   }
 
   return NextResponse.json({

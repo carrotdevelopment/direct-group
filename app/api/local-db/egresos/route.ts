@@ -1,4 +1,5 @@
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, clientForbidden, currentClientScope } from "@/server/lib/access";
+import { filterByClientScope, inClientScope } from "@/lib/client-scope";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { auth } from "@/auth";
@@ -26,6 +27,8 @@ export async function GET(request: Request) {
   if (denied) return denied;
   const url = new URL(request.url);
   const client = url.searchParams.get("client") || "";
+  const scope = await currentClientScope();
+  if (client && !inClientScope(scope, client)) return clientForbidden();
   const from = url.searchParams.get("from") || undefined;
   const to = url.searchParams.get("to") || undefined;
   if ((from && !validDate(from)) || (to && !validDate(to)) || (from && to && from > to)) return bad("Rango de fechas inválido.");
@@ -46,8 +49,10 @@ export async function GET(request: Request) {
   const maxRows = isExport ? EGRESS_EXPORT_MAX_ROWS : 5000;
   const limit = Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 1), maxRows) : 1000;
   return NextResponse.json({
-    clients: Object.keys(egressSchemas), summary: await getGenericEgressSummary(),
-    rows: await readGenericEgressRows({ client: isClient(client) ? client : undefined, from, to, limit }),
+    clients: Object.keys(egressSchemas).filter((name) => inClientScope(scope, name)),
+    summary: filterByClientScope(scope, await getGenericEgressSummary(), (item) => item.client),
+    // Quien ve solo algunos clientes no recibe filas sin elegir uno: serían las de todos.
+    rows: scope !== null && !isClient(client) ? [] : await readGenericEgressRows({ client: isClient(client) ? client : undefined, from, to, limit }),
     batches: isClient(client) ? await readEgressBatches(client) : [], source: "postgresql",
   });
 }
@@ -64,12 +69,14 @@ export async function POST(request: Request) {
         source?: Parameters<typeof appendGenericEgressRecords>[2];
       };
       const client = body.client || "";
+      if (client && !inClientScope(await currentClientScope(), client)) return clientForbidden();
       if (!isClient(client) || !Array.isArray(body.records) || !body.records.length || body.records.some(row => !row || typeof row !== "object" || Array.isArray(row))) return bad("Cliente y registros de egreso son obligatorios.");
       const result = await appendGenericEgressRecords(client, body.records, body.source, actor);
       return NextResponse.json({ ok: true, ...result, source: "postgresql", message: `${result.insertedRows} egresos guardados.` });
     }
     const form = await request.formData();
     const client = String(form.get("client") || "");
+    if (client && !inClientScope(await currentClientScope(), client)) return clientForbidden();
     const file = form.get("file");
     if (!isClient(client) || !(file instanceof File)) return bad("Cliente y archivo son obligatorios.");
     const validation = validateUploadedFile(file, { allowedExtensions: ["xlsx", "xls", "xlsm"], label: "El archivo de egresos" });
@@ -94,6 +101,7 @@ export async function PUT(request: Request) {
   if (!actor) return unauthorized();
   const body = await request.json() as { client?: string; rowIndex?: number; values?: Record<string, unknown> };
   const client = body.client || "";
+  if (client && !inClientScope(await currentClientScope(), client)) return clientForbidden();
   if (!isClient(client) || !body.values || !Number.isSafeInteger(body.rowIndex) || Number(body.rowIndex) <= 0) return bad("Cliente, ID y valores válidos son obligatorios.");
   return await updateGenericEgress(Number(body.rowIndex), client, body.values, actor)
     ? NextResponse.json({ ok: true, message: "Egreso actualizado.", source: "postgresql" }) : bad("Egreso no encontrado.", 404);
@@ -106,6 +114,7 @@ export async function DELETE(request: Request) {
   if (!actor) return unauthorized();
   const body = await request.json() as { client?: string; rowIndexes?: number[]; scope?: EgressBulkScope };
   const client = body.client || "";
+  if (client && !inClientScope(await currentClientScope(), client)) return clientForbidden();
   if (!isClient(client)) return bad("Cliente inválido.");
   if (body.scope && body.rowIndexes) return bad("Elegí filas o un alcance completo, no ambos.");
   let deletedRows: number;

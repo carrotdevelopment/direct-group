@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import { hasModule, type AccessUser } from "@/lib/module-access";
+import { clientScopeFor, inClientScope, NO_CLIENT } from "@/lib/client-scope";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { readPricesFromPostgres, readProductsFromPostgres } from "@/lib/postgres-replica-db";
 import { GET as stockGET } from "@/app/api/local-db/stock/route";
@@ -77,7 +78,10 @@ const SCREENS = [
   { module: "admin", path: "/configuracion", screen: "Configuración", what: "Ajustes generales de la plataforma (solo administradores)." },
 ];
 
-export function assistantTools(user: AccessUser) {
+export function assistantTools(user: AccessUser & { pasajeClients?: string[] }) {
+  // Fuera de Pasajes cada usuario ve solo los clientes que tiene asignados; el asistente igual.
+  const scope = clientScopeFor(user);
+  const noAccess = () => new Error("No tenés acceso a los datos de ese cliente.");
   const all = [
     tool({
       name: "guia_plataforma",
@@ -95,20 +99,31 @@ export function assistantTools(user: AccessUser) {
         busqueda: z.string().optional().describe("Texto para filtrar por código de cliente, código único o nombre del producto."),
       }),
       run: async ({ cliente, busqueda }) => {
-        if (!cliente?.trim()) return { clientes: (await callRoute(stockGET, "/api/local-db/stock", { clients: "1" })).clients };
-        const body = await callRoute(stockGET, "/api/local-db/stock", { client: cliente });
-        const rows = ((body.rows as Record<string, unknown>[]) ?? []).filter((row) => matches(busqueda, row.clientCode, row.uniqueCode, row.product));
-        rows.sort((a, b) => Number(b.vigente) - Number(a.vigente));
+        if (cliente?.trim() && !inClientScope(scope, cliente)) throw noAccess();
+        const clientList = async () => ((await callRoute(stockGET, "/api/local-db/stock", { clients: "1" })).clients as string[]) ?? [];
+        // Con una búsqueda y sin cliente, quien ve solo algunos clientes obtiene el producto de todos los suyos.
+        if (!cliente?.trim() && !(scope !== null && busqueda?.trim())) return { clientes: await clientList() };
+        const names = cliente?.trim() ? [cliente] : await clientList();
+        const found: Record<string, unknown>[] = [];
+        const resumen: string[] = [];
+        for (const name of names) {
+          const body = await callRoute(stockGET, "/api/local-db/stock", { client: name });
+          resumen.push(`${name}: ${String(body.message ?? "")}`);
+          for (const row of (body.rows as Record<string, unknown>[]) ?? []) {
+            if (matches(busqueda, row.clientCode, row.uniqueCode, row.product)) found.push({ ...row, cliente: name });
+          }
+        }
+        found.sort((a, b) => Number(b.vigente) - Number(a.vigente));
         return {
-          resumen: body.message,
-          productosEncontrados: rows.length,
-          productos: rows.slice(0, MAX_ROWS).map((row) => ({
-            vigente: row.vigente, codigoCliente: row.clientCode, codigoUnico: row.uniqueCode, producto: row.product,
+          resumen: resumen.join(" | "),
+          productosEncontrados: found.length,
+          productos: found.slice(0, MAX_ROWS).map((row) => ({
+            cliente: row.cliente, vigente: row.vigente, codigoCliente: row.clientCode, codigoUnico: row.uniqueCode, producto: row.product,
             stockReal: row.realStock, stockTeorico: row.theoreticalStock, entregasPendientes: row.pendingDeliveries,
             stockUrbano: row.urbanoStock, diferenciaUrbano: row.urbanoDifference, disponibleWeb: row.webAvailable,
             egresos: row.egress, diasDeStock: Math.round(Number(row.stockDays) || 0),
           })),
-          ...(rows.length > MAX_ROWS ? { aviso: `Se muestran ${MAX_ROWS} de ${rows.length}; pedí una búsqueda más precisa.` } : {}),
+          ...(found.length > MAX_ROWS ? { aviso: `Se muestran ${MAX_ROWS} de ${found.length}; pedí una búsqueda más precisa.` } : {}),
         };
       },
     }),
@@ -162,11 +177,15 @@ export function assistantTools(user: AccessUser) {
         busqueda: z.string().optional().describe("Código de cliente, código único o producto."),
       }),
       run: async ({ cliente, desde, hasta, busqueda }) => {
+        if (cliente?.trim() && !inClientScope(scope, cliente)) throw noAccess();
+        const allowed = scope === null ? [] : scope.map((name) => ({ client: { equals: name, mode: "insensitive" as const } }));
         const groups = await excelPostgres.egress.groupBy({
           by: ["client", "operation", "clientCode", "uniqueCode", "product"],
           where: {
             deletedAt: null,
             client: cliente ? { equals: cliente.trim(), mode: "insensitive" } : undefined,
+            // Sin cliente, quien ve solo algunos clientes recibe los de todos los suyos y nada más.
+            ...(scope !== null && !cliente?.trim() ? { OR: allowed.length ? allowed : [{ client: NO_CLIENT }] } : {}),
             date: { gte: desde ? new Date(`${desde}T00:00:00.000Z`) : undefined, lte: hasta ? new Date(`${hasta}T23:59:59.999Z`) : undefined },
           },
           _sum: { quantity: true },
