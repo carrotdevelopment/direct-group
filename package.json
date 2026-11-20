@@ -33,6 +33,7 @@
     "worker:dev": "tsx watch server/jobs/worker.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0",
     "@prisma/client": "6.19.3",
     "@tanstack/react-table": "latest",
     "@trpc/client": "latest",

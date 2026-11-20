@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { hasModule, pageModule } from "@/lib/module-access";
 import { cn } from "@/lib/utils";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
 
 type NavItem = { label: string; href: string; icon: React.ElementType };
 type NavGroup = { label: string; items: NavItem[] };
@@ -155,6 +156,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
         <main className={cn("mx-auto px-4 py-4 lg:px-6 lg:py-5", collapsed ? "max-w-none lg:pl-16" : "max-w-[1600px]")}>{children}</main>
       </div>
+      <AssistantPanel />
     </div>
   );
 }
