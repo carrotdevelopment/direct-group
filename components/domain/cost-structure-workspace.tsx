@@ -1,7 +1,7 @@
 "use client";
 
 import { costRowChanged, displayedPvcPeriod } from "@/lib/cost-structure-rows";
-import { calculate, channelRates, costChannelOrDefault, costChannels, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, rowPriceRates, type RateBase } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, costChannelOrDefault, costChannels, isAmexClient, plusPercentage, keepMarginPvc, selectRateConfig, rowPriceRates, type RateBase } from "@/lib/cost-structure-calculation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -126,7 +126,7 @@ function displayPeriod(value: string | null) {
   const [y, m] = value.split("-");
   return y && m ? `${m}/${y}` : value;
 }
-// Semáforo de utilidad % sobre costo: bordó negativa, rojo 0–15, amarillo 15–20, azul 20 o más.
+// Semáforo de utilidad % sobre el PVC sin IVA: bordó negativa, rojo 0–15, amarillo 15–20, azul 20 o más.
 function profitColor(pct: number): string {
   if (pct < 0) return "text-[#7a1428]";
   if (pct < 15) return "text-[#d13b35]";
@@ -365,16 +365,9 @@ export function CostStructureWorkspace() {
     setRows((prev) =>
       prev.map((row) => {
         if (!selectedIds.has(row.id) || row.segment !== "active") return row;
-        const calc = calculate(row, costoRates, precioRates);
         // Accept new supplier cost for alerted rows; keep current for non-alerted
         const targetCostDg = row.hasPriceAlert ? row.latestSupplierCostDg : row.costDgNoVat;
-        const newPvc = proposedPvcNoVat(
-          targetCostDg,
-          row.freightNoVat,
-          calc.profitPct,
-          costoRates,
-          rowPriceRates(row, precioRates),
-        );
+        const newPvc = keepMarginPvc(row, targetCostDg, row.freightNoVat, costoRates, precioRates);
         if (newPvc === null) return row;
         proposed.add(row.id);
         return {
@@ -586,8 +579,7 @@ export function CostStructureWorkspace() {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
-        const calc = calculate(row, costoRates, precioRates);
-        const newPvc = proposedPvcNoVat(row.costDgNoVat, newFreight, calc.profitPct, costoRates, rowPriceRates(row, precioRates));
+        const newPvc = keepMarginPvc(row, row.costDgNoVat, newFreight, costoRates, precioRates);
         if (newPvc === null) return { ...row, freightNoVat: newFreight };
         return {
           ...row,
@@ -609,8 +601,7 @@ export function CostStructureWorkspace() {
         const newFreight = freightMode === "pct"
           ? round2((row.costDgNoVat * amount) / 100)
           : round2(amount);
-        const calc = calculate(row, costoRates, precioRates);
-        const newPvc = proposedPvcNoVat(row.costDgNoVat, newFreight, calc.profitPct, costoRates, rowPriceRates(row, precioRates));
+        const newPvc = keepMarginPvc(row, row.costDgNoVat, newFreight, costoRates, precioRates);
         if (newPvc === null) return { ...row, freightNoVat: newFreight, freightMode: freightMode, freightValue: amount };
         return {
           ...row,
@@ -1206,7 +1197,7 @@ export function CostStructureWorkspace() {
                     </span>
                   </span>
                 <ColumnFormula text="PVC sin IVA − costo total. Costo total = costo DG + flete + cargos sobre costo y precio." /></th>
-                <th title="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más."
+                <th title="Utilidad / PVC sin IVA × 100. Margen sobre el precio de venta. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más."
                   className="sticky top-0 z-10 w-12 cursor-pointer select-none border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f] hover:bg-[#d8e8cb]"
                   onClick={() => toggleSort("profitPct")}
                 >
@@ -1216,7 +1207,7 @@ export function CostStructureWorkspace() {
                       {sortKey === "profitPct" ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
                     </span>
                   </span>
-                <ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
+                <ColumnFormula text="Utilidad / PVC sin IVA × 100. Margen sobre el precio de venta. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
                 <th className="sticky top-0 z-10 w-10 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
                   Stock
                 </th>
@@ -1505,7 +1496,7 @@ export function CostStructureWorkspace() {
                                 <li>1. Costo DG: ${money(row.costDgNoVat)} + flete sin IVA: ${money(row.freightNoVat)}.</li>
                                 <li>2. Cargos sobre costo: ${money(calc.costoBreakdown.reduce((sum, item) => sum + item.amount, 0))}; sobre PVC sin IVA: ${money(calc.precioBreakdown.reduce((sum, item) => sum + item.amount, 0))}.</li>
                                 <li>3. Costo total: <strong>${money(calc.totalCost)}</strong>.</li>
-                                <li>4. PVC sin IVA: ${money(row.pvcNoVat)}. Utilidad: ${money(row.pvcNoVat)} − ${money(calc.totalCost)} = <strong>${money(calc.profit)}</strong> ({calc.profitPct}% sobre costo).</li>
+                                <li>4. PVC sin IVA: ${money(row.pvcNoVat)}. Utilidad: ${money(row.pvcNoVat)} − ${money(calc.totalCost)} = <strong>${money(calc.profit)}</strong> ({calc.profitPct}% sobre el PVC sin IVA).</li>
                                 <li>5. IVA ({row.vatRate}%): ${money(round2(row.pvcNoVat * row.vatRate / 100))}. PVC con IVA calculado: <strong>${money(round2(row.pvcNoVat * (1 + row.vatRate / 100)))}</strong>.</li>
                               </ol>
                               <p className="mt-2 text-[#5a6a82]">El PVC se carga manualmente o se propone por rentabilidad. El precio público es una referencia. Los valores anteriores conservan la referencia cargada.</p>
@@ -1718,7 +1709,7 @@ export function CostStructureWorkspace() {
                       <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Flete s/IVA<ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
                       <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[11px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC s/IVA<ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
                       <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="border-b border-[#c3d0df] bg-[#fce6df] px-3 py-2 text-right text-[11px] font-extrabold uppercase tracking-wide text-[#5c2a24]">PVC c/IVA<ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
-                      <th title="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Util.%<ColumnFormula text="Utilidad / costo total × 100. Rentabilidad sobre costo. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
+                      <th title="Utilidad / PVC sin IVA × 100. Margen sobre el precio de venta. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Util.%<ColumnFormula text="Utilidad / PVC sin IVA × 100. Margen sobre el precio de venta. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
                       <th className="border-b border-[#dbe4ef] bg-[#edf4fc] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">Acciones</th>
                     </tr>
                   </thead>

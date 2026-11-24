@@ -80,7 +80,7 @@ describe("estructura de costos: API con persistencia simulada", () => {
 
   it("guarda con tasas históricas de la base, incluye conceptos adicionales e ignora tasas del navegador", async () => {
     await PUT(request("PUT", { client: "Santander", year: 2026, month: 8, rows: [saved], rates: { insurance: 99 } }));
-    expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ period: "2026-08", insurance: 2, totalCost: 122, profit: 78, profitPercentage: 63.93 })]);
+    expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ period: "2026-08", insurance: 2, totalCost: 122, profit: 78, profitPercentage: 39 })]);
     expect(db.replaceSantanderCostsInPostgres).not.toHaveBeenCalled();
   });
 
@@ -137,7 +137,7 @@ describe("estructura de costos: API con persistencia simulada", () => {
   it("editar historia usa las tasas del período y escribe solamente la fila editada", async () => {
     const response = await PATCH(request("PATCH", { client: "Santander", uniqueCode: "A", period: "2026-06", freightNoVat: 20 }));
     expect(response.status).toBe(200);
-    expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ totalCost: 132, profit: 68, profitPercentage: 51.52 })]);
+    expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ totalCost: 132, profit: 68, profitPercentage: 34 })]);
     expect(db.replaceSantanderCostsInPostgres).not.toHaveBeenCalled();
   });
 

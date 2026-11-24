@@ -87,7 +87,7 @@ precio de meses futuros. La selección es mensual, no por día de consulta.
 | Otros conceptos configurados | `base_config_tasas_clientes` | Participan del desglose en pantalla y del costo total, aunque no tengan una columna individual en la tabla histórica. |
 | Costo total | Calculado | Costo DG + flete + suma de todos los cargos habilitados. Se guarda en `costo_total`. |
 | Ganancia $ | Calculado | PVC sin IVA − costo total. Se guarda en `utilidad`. |
-| Ganancia % | Calculado | Ganancia / costo total × 100; cero si costo total es cero. Se guarda en `porcentaje`. Es rentabilidad sobre costo, no margen sobre venta. |
+| Ganancia % | Calculado | Ganancia / PVC sin IVA × 100; cero si no hay PVC. Se guarda en `porcentaje`. Es margen sobre venta, como en las planillas. |
 | Historial PVC | `base_estructura_costos_santander` | Desglose de hasta tres registros por período hasta el consultado. La búsqueda histórica separada muestra todos los períodos coincidentes. |
 | Stock / segmento inactivo con stock | Valor provisional | Este endpoint aún usa stock = 0; no se cambió Stock en este trabajo. |
 | Costo actualizado | `costo_actualizado` | Marca `OK` si fecha costo y período PVC de referencia coinciden con el período guardado. No constituye una validación integral de la fila. |
@@ -103,10 +103,10 @@ porcentaje y precio propuesto también se redondean a dos decimales.
 - Cargo sobre precio = PVC sin IVA × porcentaje / 100.
 - Costo total = costo DG sin IVA + flete sin IVA + cargos.
 - Ganancia = PVC sin IVA − costo total.
-- Rentabilidad % = ganancia / costo total × 100.
-- Propuesta de PVC sin IVA = A × (1 + p) / [1 − R × (1 + p)], donde
+- Margen % = ganancia / PVC sin IVA × 100.
+- Propuesta de PVC sin IVA = A / (1 − R − p), donde
   A = costo DG × (1 + suma de tasas sobre costo) + flete,
-  R = suma de tasas sobre precio y p = rentabilidad objetivo (en fracciones).
+  R = suma de tasas sobre precio y p = margen objetivo (en fracciones).
   Si el denominador no es positivo/finito no hay propuesta válida.
 
 El servidor lee las tasas de PostgreSQL para el período enviado; no acepta
@@ -121,7 +121,7 @@ Costo DG = 100; flete = 10; PVC sin IVA = 200; IVA = 21 %;
 PP con IVA = 242; cargo sobre costo = 2 %; cargo sobre precio = 5 %.
 
 Resultado: PP sin IVA = 200; cargos = 2 + 10; costo total = 122;
-ganancia = 78; rentabilidad = 63,93 %. La API guarda los mismos resultados
+ganancia = 78; margen = 39 %. La API guarda los mismos resultados
 que el cálculo compartido de pantalla, incluyendo conceptos personalizados.
 
 ## Validaciones y límites

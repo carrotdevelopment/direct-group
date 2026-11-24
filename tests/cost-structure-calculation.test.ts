@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { calculate, channelRates, rateBase, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, rateBase, isAmexClient, keepMarginPvc, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
 
 const rate = (valuePct: number, appliesTo: CostRate["appliesTo"]): CostRate => ({
   id: "1", rateName: "Cargo", rateKey: "cargo", applies: true, valuePct, appliesTo, sortOrder: 1,
 });
 
 describe("cálculo compartido de estructura", () => {
-  it("calcula cargos por base y rentabilidad sobre costo, con importes conocidos", () => {
+  it("calcula cargos por base y margen sobre el precio de venta, con importes conocidos", () => {
     const result = calculate({ publicPrice: 242, vatRate: 21, costDgNoVat: 100, freightNoVat: 10, pvcNoVat: 200 }, [rate(2, "COSTO")], [rate(5, "PRECIO")]);
-    expect(result).toMatchObject({ ppNoVat: 200, totalCost: 122, profit: 78, profitPct: 63.93 });
+    expect(result).toMatchObject({ ppNoVat: 200, totalCost: 122, profit: 78, profitPct: 39 });
   });
 
   it("respeta IVA cero y redondea cada cargo antes de sumar", () => {
     const result = calculate({ publicPrice: 100, vatRate: 0, costDgNoVat: 1, freightNoVat: 0, pvcNoVat: 2 }, [rate(0.5, "COSTO"), rate(0.5, "COSTO")], []);
-    expect(result).toMatchObject({ ppNoVat: 100, totalCost: 1.02, profit: 0.98, profitPct: 96.08 });
+    expect(result).toMatchObject({ ppNoVat: 100, totalCost: 1.02, profit: 0.98, profitPct: 49 });
   });
 
   it("selecciona la configuración histórica completa y no una futura", () => {
@@ -23,9 +23,24 @@ describe("cálculo compartido de estructura", () => {
   });
 
   it("propone un PVC para la rentabilidad objetivo y rechaza objetivos imposibles", () => {
-    expect(proposedPvcNoVat(100, 0, 20, [], [])).toBe(120);
-    expect(proposedPvcNoVat(100, 0, 100, [], [rate(50, "PRECIO")])).toBeNull();
+    expect(proposedPvcNoVat(100, 0, 20, [], [])).toBe(125);
+    expect(proposedPvcNoVat(100, 0, 60, [], [rate(50, "PRECIO")])).toBeNull();
     expect(calculate({ publicPrice: 0, vatRate: 0, costDgNoVat: 0, freightNoVat: 0, pvcNoVat: 0 }, [], []).profitPct).toBe(0);
+  });
+});
+
+describe("PVC que mantiene el margen", () => {
+  const row = { publicPrice: 0, vatRate: 21, costDgNoVat: 100, freightNoVat: 10, pvcNoVat: 200 };
+  it("con otro costo, el precio propuesto conserva el mismo porcentaje", () => {
+    const costo = [rate(1, "COSTO")], precio = [rate(5, "PRECIO"), rate(0.6, "PRECIO_IVA")];
+    const pvcNoVat = keepMarginPvc(row, 130, 15, costo, precio)!;
+    const after = calculate({ ...row, costDgNoVat: 130, freightNoVat: 15, pvcNoVat }, costo, precio);
+    expect(after.profitPct).toBeCloseTo(calculate(row, costo, precio).profitPct, 1);
+  });
+
+  it("sin precio de venta no inventa uno y la utilidad % es cero", () => {
+    expect(keepMarginPvc({ ...row, pvcNoVat: 0 }, 130, 15, [], [])).toBe(0);
+    expect(calculate({ ...row, pvcNoVat: 0 }, [], [])).toMatchObject({ profit: -110, profitPct: 0 });
   });
 });
 

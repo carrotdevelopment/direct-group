@@ -91,14 +91,15 @@ export function calculate(row: CostInput, costoItems: CostRate[], precioItems: C
       row.freightNoVat,
   );
   const profit = round2(row.pvcNoVat - totalCost);
-  const profitPct = totalCost === 0 ? 0 : round2((profit / totalCost) * 100);
+  // Margen sobre el precio de venta sin IVA, como en las planillas.
+  const profitPct = row.pvcNoVat > 0 ? round2((profit / row.pvcNoVat) * 100) : 0;
   return { ppNoVat, costoBreakdown, precioBreakdown, totalCost, profit, profitPct };
 }
 
-// Closed-form formula: pvcNoVat = A(1+p) / (1 - R(1+p))
+// Closed-form formula: pvcNoVat = A / (1 - R - p)
 // A = costDg × (1 + Σ costoRates) + freight
 // R = Σ precioRates (as fractions)
-// p = targetProfitPct / 100
+// p = targetProfitPct / 100 (margen sobre el PVC sin IVA)
 export function proposedPvcNoVat(
   costDg: number,
   freight: number,
@@ -110,9 +111,15 @@ export function proposedPvcNoVat(
   const costoSum = costoItems.reduce((s, r) => s + r.valuePct / 100, 0);
   const A = costDg * (1 + costoSum) + freight;
   const R = precioItems.reduce((s, r) => s + r.valuePct / 100, 0);
-  const denominator = 1 - R * (1 + p);
+  const denominator = 1 - R - p;
   if (denominator <= 0 || !Number.isFinite(denominator)) return null;
-  return round2((A * (1 + p)) / denominator);
+  return round2(A / denominator);
+}
+
+// PVC que mantiene el margen actual de la fila con otro costo o flete. Sin precio no hay margen que mantener: queda en cero.
+export function keepMarginPvc(row: CostInput, costDg: number, freight: number, costoItems: CostRate[], precioItems: CostRate[]): number | null {
+  if (row.pvcNoVat <= 0) return 0;
+  return proposedPvcNoVat(costDg, freight, calculate(row, costoItems, precioItems).profitPct, costoItems, rowPriceRates(row, precioItems));
 }
 
 // Amex usa un porcentaje propio por período que se suma, solo como dato informativo, al precio
