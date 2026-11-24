@@ -196,14 +196,15 @@ function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-// El conector corre una vez por día vía tarea programada, sin que nadie pida
-// la importación manualmente. Si no hay ningún trabajo pendiente y todavía no
-// se generó uno automático hoy, se arma uno para "ayer hasta hoy": el publish()
-// de arriba es idempotente por external_key, así que repetir el rango no duplica nada.
+// El conector consulta cada pocos minutos si alguien pidió una importación. Además, la primera consulta
+// del día desde las 5:30 (la de las 6) arma sola una de "ayer hasta hoy" si todavía no hubo ninguna: el
+// publish() de arriba es idempotente por external_key, así que repetir el rango no duplica nada.
 async function autoRequestDailySync(tx: Tx, now: Date) {
   const today = isoDate(now);
+  const start = new Date(`${today}T08:30:00Z`);
+  if (now < start) return null;
   const lastJob = await tx.tangoSyncJob.findFirst({ orderBy: { createdAt: "desc" } });
-  if (lastJob && isoDate(lastJob.createdAt) === today) return null;
+  if (lastJob && lastJob.createdAt >= start) return null;
   const yesterday = isoDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
   return tx.tangoSyncJob.create({ data: {
     dateFrom: new Date(yesterday), dateTo: new Date(today), requestedBy: "tango-connector-auto",

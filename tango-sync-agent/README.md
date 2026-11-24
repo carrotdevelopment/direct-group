@@ -56,11 +56,13 @@ Opción rápida — importar la tarea ya armada:
 2. Panel derecho → **Importar tarea...**
 3. Elegí el archivo `tarea-programada.xml` que está en esta misma carpeta.
 4. Si la carpeta no es exactamente `C:\tango-sync-agent`, abrí la tarea importada, pestaña **Acciones**, editá la acción y corregí "Iniciar en" con la ruta real donde copiaste esta carpeta.
-5. Guardar. Queda corriendo una vez por día (6 AM) y corre aunque nadie haya iniciado sesión. Si no hay una importación pedida manualmente desde la web ese día, trae sola los ingresos desde ayer hasta hoy.
+5. Guardar. Corre aunque nadie haya iniciado sesión. Consulta cada 2 minutos si alguien tocó "Actualizar" en Ingresos y, en la primera consulta desde las 5:30, trae sola los ingresos desde ayer hasta hoy.
+
+Si ya estaba la tarea anterior (una vez por día), en lugar de importarla de nuevo: abrila → **Desencadenadores** → **Editar** → tildar **Repetir cada** y escribir `2 minutos`, **durante** `1 día`.
 
 Para probarla ya, sin esperar a las 6 AM: click derecho sobre la tarea → **Ejecutar**.
 
-Opción manual (si preferís armarla vos): Desencadenador → diario, una vez por día; Acción → iniciar `node.exe` con el argumento `agent.js`, "Iniciar en" apuntando a esta carpeta; en Configuración general marcar **"Ejecutar tanto si el usuario inició sesión como si no"**.
+Opción manual (si preferís armarla vos): Desencadenador → diario a las 6:00, repetir cada 2 minutos durante 1 día; Acción → iniciar `node.exe` con el argumento `agent.js`, "Iniciar en" apuntando a esta carpeta; en Configuración general marcar **"Ejecutar tanto si el usuario inició sesión como si no"**.
 
 ## OC pendientes
 

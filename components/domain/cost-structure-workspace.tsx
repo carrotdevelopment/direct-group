@@ -1336,7 +1336,7 @@ export function CostStructureWorkspace() {
                         {row.category || "—"}
                       </td>
                       {/* Price-file cols — blue tint */}
-                      <td className="bg-[#eef5fc] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#1a3a5c]">
+                      <td className="bg-[#eef5fc] px-1 py-1 text-center tabular-nums text-[#1a3a5c]">
                         {displayPeriod(row.costDgUpdatedAt)}
                       </td>
                       <td
@@ -1356,7 +1356,7 @@ export function CostStructureWorkspace() {
                         </td>
                       )}
                       {/* Reference cols — last loaded values (Fecha PVC ant primero) */}
-                      <td className="bg-[#fff5f3] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#7a4a3a]">
+                      <td className="bg-[#fff5f3] px-1 py-1 text-center tabular-nums text-[#7a4a3a]">
                         {displayPeriod(row.previousAdjustment?.period ?? null)}
                       </td>
                       <td className="bg-[#fff5f3] px-2 py-1 text-right tabular-nums text-[#7a4a3a]">
@@ -1369,7 +1369,7 @@ export function CostStructureWorkspace() {
                         {row.previousAdjustment ? money(row.previousAdjustment.pvcWithVat) : "—"}
                       </td>
                       {/* Fecha PVC actual (período seleccionado) */}
-                      <td className="bg-[#fce6df] px-2 py-1 text-center tabular-nums text-[7.5px] text-[#5c2a24]">
+                      <td className="bg-[#fce6df] px-1 py-1 text-center tabular-nums text-[#5c2a24]">
                         {displayPeriod(displayedPvcPeriod(row, origMap.get(row.id), `${saveYear}-${saveMonth.padStart(2, "0")}`))}
                       </td>
                       {/* Flete editable — recalcula PVC manteniendo margen */}

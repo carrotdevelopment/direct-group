@@ -347,6 +347,71 @@ export async function confirmPasaje(id: string, confirmedQuantity: number, actor
   return result;
 }
 
+// Corrige la cantidad de un pasaje ya confirmado (por ejemplo, aparecieron después las unidades que faltaban):
+// ajusta el egreso del origen y el ingreso del destino, y deja anotado quién lo cambió. Lo que ya está cargado
+// en Tango no se toca: si la cantidad sube, la diferencia entra como un ingreso aparte para cargar en Tango.
+export async function editConfirmedPasaje(id: string, newQuantity: number, actor: PasajeActor) {
+  const quantity = Number(newQuantity);
+  if (!Number.isFinite(quantity) || quantity < 0) throw new PasajeAjusteError("La cantidad no es válida.");
+  const result = await excelPostgres.$transaction(async (tx) => {
+    const pasaje = await tx.pasajeRequest.findUnique({ where: { id } });
+    if (!pasaje) throw new PasajeAjusteError("El pasaje no existe.", 404);
+    if (pasaje.status !== "confirmed") throw new PasajeAjusteError("Solo se puede editar un pasaje confirmado.", 409);
+    if (!canReceivePasaje(actor, pasaje)) {
+      throw new PasajeAjusteError(`Lo edita la encargada de ${pasaje.toClient}, el cliente destino.`, 403);
+    }
+    if (quantity > Number(pasaje.quantity)) throw new PasajeAjusteError(`No puede ser más de lo pedido (${Number(pasaje.quantity)}).`);
+    const before = Number(pasaje.confirmedQuantity ?? 0);
+    if (quantity === before) throw new PasajeAjusteError("Es la misma cantidad que ya estaba confirmada.");
+
+    const now = new Date();
+    const day = argentinaDay(now).toISOString().slice(0, 10).split("-").reverse().join("/");
+    const note = `Editado de ${before} a ${quantity} por ${actor.name} el ${day}`;
+    // Si otra persona lo editó mientras tanto, la cantidad ya no es la misma y no se pisa.
+    const updated = await tx.pasajeRequest.updateMany({
+      where: { id, status: "confirmed", confirmedQuantity: pasaje.confirmedQuantity },
+      data: { confirmedQuantity: quantity, responseComment: pasaje.responseComment ? `${pasaje.responseComment} · ${note}` : note },
+    });
+    if (updated.count !== 1) throw new PasajeAjusteError("Otra persona acaba de editar este pasaje: volvé a abrirlo.", 409);
+
+    const incomes = await tx.tangoIncome.findMany({
+      where: { pasajeId: id },
+      select: { externalKey: true, pendingTangoEntry: true, deliveredQuantity: true },
+    });
+    const inTango = incomes.filter((row) => row.externalKey !== null || !row.pendingTangoEntry);
+    const inTangoQuantity = inTango.reduce((sum, row) => sum + Number(row.deliveredQuantity ?? 0), 0);
+    const rest = quantity - inTangoQuantity;
+    if (rest < 0) {
+      throw new PasajeAjusteError(
+        `El ingreso de ${inTangoQuantity} ya está cargado en Tango: no se puede bajar a ${quantity} acá sin corregirlo primero en Tango.`,
+        409,
+      );
+    }
+    if (quantity === 0) {
+      await revertPasajeMovements(tx, id, actor.name, now);
+    } else {
+      if (rest === 0) {
+        await tx.tangoIncome.deleteMany({ where: { pasajeId: id, externalKey: null, pendingTangoEntry: true } });
+      } else if (inTango.some((row) => row.externalKey === null) || !(await linkExistingTangoIncome(tx, pasaje, rest))) {
+        const income = await tx.tangoIncome.updateMany({
+          where: { pasajeId: id, externalKey: null, pendingTangoEntry: true },
+          data: { quantity: rest, deliveredQuantity: rest },
+        });
+        if (income.count === 0) {
+          await tx.tangoIncome.create({
+            data: { ...incomeForPasaje(id, pasaje, rest, now, actor.name), deliveredQuantity: rest, deliveryDate: now },
+          });
+        }
+      }
+      const egress = await tx.egress.updateMany({ where: { pasajeId: id, deletedAt: null }, data: { quantity, modifiedBy: actor.name } });
+      if (egress.count === 0) await tx.egress.create({ data: egressForPasaje(id, pasaje, quantity, now, actor.name) });
+    }
+    return tx.pasajeRequest.findUnique({ where: { id } });
+  });
+  invalidateIncomeGroups();
+  return result;
+}
+
 // Día de Argentina de un momento, como fecha sin hora.
 const argentinaDay = (date: Date) => new Date(`${new Date(date.getTime() - 3 * 3_600_000).toISOString().slice(0, 10)}T00:00:00.000Z`);
 

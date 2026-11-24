@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CheckCircle2,
   Clock3,
+  Download,
   PlusCircle,
   RefreshCw,
   Search,
@@ -169,7 +170,7 @@ function toISODate(date: Date) {
 
 function syncJobLabel(job: TangoSyncJob | null) {
   if (!job) return "";
-  if (job.status === "pending") return "En cola...";
+  if (job.status === "pending") return "Actualización pedida: se trae cuando el conector de la oficina haga su próxima consulta.";
   if (job.status === "running") {
     return `Importando... ${formatNumber(job.rowCount)} filas recibidas`;
   }
@@ -375,6 +376,8 @@ export function IncomeWorkspace() {
     "Vista de solo lectura desde la consulta Tango. Las correcciones se hacen en Tango Gestión.",
   );
   const [syncJob, setSyncJob] = useState<TangoSyncJob | null>(null);
+  const [syncRequesting, setSyncRequesting] = useState(false);
+  const [syncError, setSyncError] = useState("");
   const [connectorLastSeenAt, setConnectorLastSeenAt] = useState<string | null>(null);
   const [connectorConfigured, setConnectorConfigured] = useState(true);
   const lastCompletedJobId = useRef<string | null>(null);
@@ -524,9 +527,31 @@ export function IncomeWorkspace() {
 
   useEffect(() => {
     if (!syncJob || !activeSyncStatuses.has(syncJob.status)) return;
-    const timeout = window.setTimeout(() => void checkSyncStatus(), 3000);
+    const timeout = window.setTimeout(() => void checkSyncStatus(), syncJob.status === "running" ? 3000 : 10000);
     return () => window.clearTimeout(timeout);
   }, [syncJob, checkSyncStatus]);
+
+  // Pide lo mismo que corre solo a las 6: los ingresos de Tango de ayer y hoy.
+  async function requestUpdate() {
+    setSyncRequesting(true);
+    setSyncError("");
+    try {
+      const day = (daysAgo: number) =>
+        new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(Date.now() - daysAgo * 86_400_000);
+      const response = await fetch("/api/tango-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: day(1), to: day(0) }),
+      });
+      const data = (await response.json()) as { job?: TangoSyncJob; message?: string };
+      if (!response.ok) throw new Error(data.message || "No se pudo pedir la actualización.");
+      setSyncJob(data.job ?? null);
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "No se pudo pedir la actualización.");
+    } finally {
+      setSyncRequesting(false);
+    }
+  }
 
   // Marca puramente visual: no afecta el cálculo ni el stock, solo le sirve
   // a quien reconcilia para saber qué filas manuales ya cargó en Tango.
@@ -607,6 +632,7 @@ export function IncomeWorkspace() {
     }
   }
 
+  const syncActive = !!syncJob && activeSyncStatuses.has(syncJob.status);
   const connectorStale = connectorConfigured && hoursSince(connectorLastSeenAt) > CONNECTOR_STALE_HOURS;
 
   const limitedNotice = useMemo(() => {
@@ -691,7 +717,16 @@ export function IncomeWorkspace() {
               ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={() => void requestUpdate()}
+              disabled={syncRequesting || !connectorConfigured || syncActive}
+              className="h-10"
+              title="Trae de Tango los ingresos de ayer y hoy: lo mismo que corre solo todos los días a las 6."
+            >
+              <Download size={15} />
+              {syncRequesting || syncActive ? "Actualizando..." : "Actualizar"}
+            </Button>
             <Button
               variant="secondary"
               onClick={() => void loadRows()}
@@ -709,7 +744,7 @@ export function IncomeWorkspace() {
           </div>
         </div>
         <div className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#5a6a82]">
-          {syncJob ? syncJobLabel(syncJob) : message}
+          {syncError ? <span className="text-[#a43d39]">{syncError}</span> : syncJob ? syncJobLabel(syncJob) : message}
         </div>
         <div className="grid gap-4 px-5 py-4 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_.9fr_.9fr_.9fr]">
           <MultiSelectDropdown

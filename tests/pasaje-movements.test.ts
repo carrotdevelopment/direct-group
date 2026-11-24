@@ -42,6 +42,7 @@ vi.mock("@/lib/excel-postgres-client", () => {
       findFirst: async ({ where }: { where: { pasajeId?: string; clientCode: { equals: string }; deliveredQuantity: number; operation: { in: string[] }; deliveryDate: { gte: Date } } }) =>
         typeof where.pasajeId === "string" ? db.incomes.find((row) => row.pasajeId === where.pasajeId) ?? null : db.incomes.find((row) => row.externalKey && !row.pasajeId && row.clientCode === where.clientCode.equals && row.deliveredQuantity === where.deliveredQuantity &&
           where.operation.in.includes(row.operation as string) && (row.deliveryDate as Date) >= where.deliveryDate.gte) ?? null,
+      findMany: async ({ where }: { where: Row }) => db.incomes.filter((row) => matches(row, where)),
       update: async ({ where, data }: { where: { id: string }; data: Row }) => Object.assign(db.incomes.find((row) => row.id === where.id)!, data),
     },
     pasajeRequest: {
@@ -86,7 +87,7 @@ vi.mock("@/lib/excel-postgres-client", () => {
 
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import {
-  approvePasaje, cancelPasaje, confirmPasaje, createPasaje as createManualPasaje, createPasajeWithMovements,
+  approvePasaje, cancelPasaje, confirmPasaje, editConfirmedPasaje, createPasaje as createManualPasaje, createPasajeWithMovements,
   setPasajeDestination,
 } from "@/lib/pasajes-ajustes-db";
 
@@ -334,5 +335,71 @@ describe("pasajes cargados en la plataforma", () => {
     });
     await expect(createManualPasaje(input, creator)).rejects.toThrow("Sin destino");
     expect(db.egresses).toHaveLength(1);
+  });
+});
+
+describe("editar un pasaje confirmado", () => {
+  const confirmed = async (quantity: number) => {
+    const pasaje = await createPasaje(input, creator);
+    await confirmPasaje(pasaje.id, quantity, creator);
+    Object.assign(db.pasajes[0], { createdAt: new Date() });
+    return pasaje.id;
+  };
+  const alive = () => db.egresses.filter((row) => row.deletedAt === null);
+
+  it("si aparece lo que faltaba, sube el egreso y el ingreso y anota quién lo cambió", async () => {
+    const id = await confirmed(4);
+    const date = db.incomes[0].deliveryDate;
+    await editConfirmedPasaje(id, 5, receiver);
+    expect(alive()).toEqual([expect.objectContaining({ quantity: 5, modifiedBy: "Liz" })]);
+    expect(db.incomes).toEqual([expect.objectContaining({ quantity: 5, deliveredQuantity: 5, deliveryDate: date })]);
+    expect(db.pasajes[0]).toMatchObject({ confirmedQuantity: 5, confirmedBy: "Emilia", responseComment: expect.stringContaining("Editado de 4 a 5 por Liz") });
+  });
+
+  it("de 0 a 3 vuelve a crear los movimientos, y a 0 los revierte", async () => {
+    const id = await confirmed(0);
+    await editConfirmedPasaje(id, 3, receiver);
+    expect(alive()).toEqual([expect.objectContaining({ quantity: 3, client: "Pampa" })]);
+    expect(db.incomes).toEqual([expect.objectContaining({ deliveredQuantity: 3, client: "Umiles" })]);
+    await editConfirmedPasaje(id, 0, receiver);
+    expect(alive()).toEqual([]);
+    expect(db.incomes).toEqual([]);
+  });
+
+  it("lo que ya está en Tango no se toca: la diferencia entra aparte y no se puede bajar", async () => {
+    const id = await confirmed(4);
+    Object.assign(db.incomes[0], { externalKey: "T-1", pendingTangoEntry: false });
+    await editConfirmedPasaje(id, 5, receiver);
+    expect(db.incomes.map((row) => [row.externalKey, row.deliveredQuantity])).toEqual([["T-1", 4], [null, 1]]);
+    await editConfirmedPasaje(id, 7, receiver);
+    expect(db.incomes.map((row) => [row.externalKey, row.deliveredQuantity])).toEqual([["T-1", 4], [null, 3]]);
+    await editConfirmedPasaje(id, 4, receiver);
+    expect(db.incomes.map((row) => [row.externalKey, row.deliveredQuantity])).toEqual([["T-1", 4]]);
+    expect(alive()).toEqual([expect.objectContaining({ quantity: 4 })]);
+    await expect(editConfirmedPasaje(id, 2, receiver)).rejects.toThrow("ya está cargado en Tango");
+  });
+
+  it("lo marcado a mano como cargado en Tango tampoco se toca", async () => {
+    const id = await confirmed(4);
+    Object.assign(db.incomes[0], { pendingTangoEntry: false });
+    await editConfirmedPasaje(id, 6, receiver);
+    expect(db.incomes.map((row) => [row.pendingTangoEntry, row.deliveredQuantity])).toEqual([[false, 4], [true, 2]]);
+  });
+
+  it("si Tango ya trajo la cantidad correcta, se vincula en lugar de sumar otra", async () => {
+    const id = await confirmed(4);
+    db.incomes.push({ id: "tango-1", externalKey: "T-5", pasajeId: null, clientCode: "DG-1", operation: "PASAJE", deliveredQuantity: 5, deliveryDate: new Date(), pendingTangoEntry: false });
+    await editConfirmedPasaje(id, 5, receiver);
+    expect(db.incomes).toEqual([expect.objectContaining({ id: "tango-1", pasajeId: id })]);
+  });
+
+  it("solo confirmados, hasta lo pedido y por la encargada del destino", async () => {
+    const id = await confirmed(4);
+    await expect(editConfirmedPasaje(id, 11, receiver)).rejects.toThrow("más de lo pedido (10)");
+    await expect(editConfirmedPasaje(id, 4, receiver)).rejects.toThrow("misma cantidad");
+    await expect(editConfirmedPasaje(id, Number.NaN, receiver)).rejects.toThrow("no es válida");
+    await expect(editConfirmedPasaje(id, 5, { name: "Ana", role: "VENDEDOR", clients: ["Pampa"] })).rejects.toThrow("encargada de Umiles");
+    Object.assign(db.pasajes[0], { status: "approved" });
+    await expect(editConfirmedPasaje(id, 5, receiver)).rejects.toThrow("confirmado");
   });
 });

@@ -1,11 +1,11 @@
 import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { after, NextResponse } from "next/server";
 import { notifyPasajes } from "@/server/lib/pasaje-notify";
-import { approvePasaje, cancelPasaje, confirmPasaje, PasajeAjusteError, setPasajeDestination } from "@/lib/pasajes-ajustes-db";
+import { approvePasaje, cancelPasaje, confirmPasaje, editConfirmedPasaje, PasajeAjusteError, setPasajeDestination } from "@/lib/pasajes-ajustes-db";
 
 export const runtime = "nodejs";
 
-type Body = { action?: "approve" | "cancel" | "confirm" | "destination"; comment?: string; quantity?: number; toClient?: string; toClientCode?: string };
+type Body = { action?: "approve" | "cancel" | "confirm" | "edit" | "destination"; comment?: string; quantity?: number; toClient?: string; toClientCode?: string };
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await checkApiAccess(["pasajes"], true);
@@ -22,6 +22,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     if (body.action === "confirm") {
       return NextResponse.json({ pasaje: await confirmPasaje(id, Number(body.quantity), actor) });
+    }
+    if (body.action === "edit") {
+      return NextResponse.json({ pasaje: await editConfirmedPasaje(id, body.quantity === undefined ? NaN : Number(body.quantity), actor) });
     }
     if (body.action === "cancel") {
       return NextResponse.json({ pasaje: await cancelPasaje(id, actor, body.comment) });

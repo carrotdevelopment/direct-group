@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeftRight, CheckCircle2, Download, FileSpreadsheet, Plus, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BatchDownloads, type PasajeBatch } from "@/components/domain/pasaje-batches";
+import { readDraft, saveDraft } from "@/lib/browser-draft";
 import { REQUEST_HEADER } from "@/lib/pasaje-export";
 import {
   autofillGridRow,
@@ -83,15 +84,20 @@ function pasteInto(grid: GridRow[], text: string, startRow: number, startCol: nu
 export function PasajeSolicitudModal({
   mappings,
   products,
+  draftKey,
   onClose,
   onCreated,
 }: {
   mappings: Mapping[];
   products: { code: string; name: string }[];
+  // Dónde se guarda lo escrito, para seguir después si salen de la pantalla.
+  draftKey: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [grid, setGrid] = useState<GridRow[]>(() => blankGrid());
+  const [saved] = useState(() => readDraft<{ grid: GridRow[]; fileName: string; fileHash: string }>(draftKey));
+  const [grid, setGrid] = useState<GridRow[]>(() =>
+    Array.isArray(saved?.grid) && saved.grid.every((row) => Array.isArray(row) && row.length === COLUMNS.length) ? saved.grid : blankGrid());
   const [shippers, setShippers] = useState<Shipper[]>([]);
 
   useEffect(() => {
@@ -207,8 +213,8 @@ export function PasajeSolicitudModal({
       ? ""
       : `El código ${row[col]} no es de ${shipper?.clients.join(" / ") || "los clientes"} del shipper ${shipper?.code}.`;
   }
-  const [fileName, setFileName] = useState("");
-  const [fileHash, setFileHash] = useState("");
+  const [fileName, setFileName] = useState(saved?.fileName ?? "");
+  const [fileHash, setFileHash] = useState(saved?.fileHash ?? "");
   const [rows, setRows] = useState<SolicitudRow[]>([]);
   const [duplicateFile, setDuplicateFile] = useState<{ fileName: string | null; createdBy: string; createdAt: string } | null>(null);
   const [preview, setPreview] = useState<ResolvedRow[]>([]);
@@ -216,6 +222,10 @@ export function PasajeSolicitudModal({
   const [error, setError] = useState("");
   const [result, setResult] = useState<CreateResult | null>(null);
   const [batch, setBatch] = useState<PasajeBatch | null>(null);
+  // Ya cargado, el borrador se borra; si no, se guarda a medida que escriben.
+  useEffect(() => {
+    saveDraft(draftKey, !result && grid.some(filled) ? { grid, fileName, fileHash } : null);
+  }, [draftKey, grid, fileName, fileHash, result]);
 
   function editCell(rowIndex: number, col: number, value: string) {
     setGrid((current) => current.map((row, index) => {
@@ -335,7 +345,7 @@ export function PasajeSolicitudModal({
                 {fileName ? `Cambiar archivo (${fileName})` : "Subir el Excel de la solicitud"}
                 <input type="file" accept=".xls,.xlsx,.xlsm" className="sr-only" onChange={onFile} />
               </label>
-              <span className="text-[11px] font-semibold text-[#5a6a82]">Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper; el SKU nuevo, solo los del mismo producto. Se completan descripción y cantidad destino, y abajo de la cantidad se ve el stock disponible.</span>
+              <span className="text-[11px] font-semibold text-[#5a6a82]">Lo que escribís queda guardado aunque cierres. Sin fecha se toma la de hoy. Si una cantidad queda vacía se usa la otra. Con el SH cargado, el SKU ofrece los códigos de ese shipper; el SKU nuevo, solo los del mismo producto. Se completan descripción y cantidad destino, y abajo de la cantidad se ve el stock disponible.</span>
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[#e1e8f1]">
               <table className="w-full min-w-[1080px] table-fixed text-left text-[11px]">

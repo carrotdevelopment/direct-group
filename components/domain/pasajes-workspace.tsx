@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, Pencil, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { readDraft, saveDraft } from "@/lib/browser-draft";
 import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
 import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
@@ -197,6 +198,8 @@ export function PasajesWorkspace({
   const [selectedConfirm, setSelectedConfirm] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Pasaje confirmado que se está editando y su nueva cantidad.
+  const [editing, setEditing] = useState<{ id: string; quantity: string } | null>(null);
 
   const productByCode = useMemo(() => {
     const map = new Map<string, string>();
@@ -357,6 +360,34 @@ export function PasajesWorkspace({
     const partial = items.filter((item) => item.quantity < Number(list.find((p) => p.id === item.id)?.quantity));
     if (!window.confirm(`Confirmar ${items.length} ${items.length === 1 ? "pasaje" : "pasajes"}${partial.length ? ` (${partial.length} con menos cantidad que la solicitada; la diferencia vuelve al origen)` : ""}? Ingresa al destino la cantidad real.`)) return;
     await bulk({ action: "confirm", items }, "pasajes confirmados");
+  }
+
+  async function saveEdit(p: Pasaje) {
+    if (!editing) return;
+    const quantity = editing.quantity.trim() === "" ? NaN : Number(editing.quantity);
+    const requested = Number(p.quantity);
+    if (!Number.isFinite(quantity) || quantity < 0 || quantity > requested) return setError(`La cantidad tiene que ser un número de 0 a ${requested}.`);
+    const before = Number(p.confirmedQuantity ?? 0);
+    if (quantity === before) return setEditing(null);
+    if (!window.confirm(`¿Cambiar el pasaje de ${before} a ${quantity}? Se ajustan el egreso de ${p.fromClient} y el ingreso de ${p.toClient}.`)) return;
+    setError("");
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/pasajes/${p.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "edit", quantity }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "No se pudo editar el pasaje.");
+      setEditing(null);
+      setStatus(`Pasaje editado: ${quantity} de ${requested}.`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo editar el pasaje.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const withoutDestination = pasajes.filter(lacksDestination);
@@ -681,9 +712,38 @@ export function PasajesWorkspace({
                       {requestLabel(p)}
                     </div>
                   </div>
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${statusBadge(p.status)}`}>
-                    {pasajeStatusLabel(p.status)}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {editing?.id === p.id ? (
+                      <>
+                        <label className="flex items-center gap-2 text-[11px] font-extrabold text-[#334b6b]">
+                          Llegaron
+                          <input
+                            type="number"
+                            min="0"
+                            max={Number(p.quantity)}
+                            autoFocus
+                            value={editing.quantity}
+                            onChange={(event) => setEditing({ id: p.id, quantity: event.target.value })}
+                            className="h-9 w-20 rounded-lg border border-[#dbe4ef] px-2 text-right text-xs tabular-nums outline-none focus:border-[#7da4d3]"
+                          />
+                          <span className="text-[#5a6a82]">de {Number(p.quantity)}</span>
+                        </label>
+                        <Button size="sm" disabled={busy} onClick={() => void saveEdit(p)}>
+                          <Check size={14} /> Guardar
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setEditing(null)}>
+                          <X size={14} /> Cancelar
+                        </Button>
+                      </>
+                    ) : p.status === "confirmed" && canConfirm(p) ? (
+                      <Button size="sm" variant="secondary" onClick={() => setEditing({ id: p.id, quantity: String(Number(p.confirmedQuantity ?? 0)) })}>
+                        <Pencil size={14} /> Editar
+                      </Button>
+                    ) : null}
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${statusBadge(p.status)}`}>
+                      {pasajeStatusLabel(p.status)}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -769,6 +829,7 @@ export function PasajesWorkspace({
           mappings={mappings}
           productByCode={productByCode}
           allowedClients={null}
+          draftKey={`pasaje:${userName}`}
           onClose={() => setPasajeModalOpen(false)}
           onCreated={(warning) => {
             setPasajeModalOpen(false);
@@ -778,7 +839,7 @@ export function PasajesWorkspace({
         />
       )}
       {solicitudModalOpen && (
-        <PasajeSolicitudModal mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
+        <PasajeSolicitudModal draftKey={`pasajes:${userName}`} mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
       )}
       {ajusteModalOpen && (
         <AjusteModal
@@ -939,16 +1000,22 @@ function PasajeModal({
   mappings,
   productByCode,
   allowedClients,
+  draftKey,
   onClose,
   onCreated,
 }: {
   mappings: Mapping[];
   productByCode: Map<string, string>;
   allowedClients: string[] | null;
+  // Dónde se guarda lo escrito, para seguir después si salen de la pantalla.
+  draftKey: string;
   onClose: () => void;
   onCreated: (warning: string | null) => void;
 }) {
-  const [draft, setDraft] = useState<PasajeDraft>(emptyDraft);
+  const [draft, setDraft] = useState<PasajeDraft>(() => ({ ...emptyDraft, ...readDraft<PasajeDraft>(draftKey) }));
+  useEffect(() => {
+    saveDraft(draftKey, Object.values(draft).some((value) => value.trim()) ? draft : null);
+  }, [draftKey, draft]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Stock disponible del código origen elegido (stock real menos pasajes sin confirmar).
@@ -1019,6 +1086,7 @@ function PasajeModal({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "No se pudo generar el pasaje.");
+      saveDraft(draftKey, null);
       onCreated(data.pasaje?.warning ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo generar el pasaje.");
@@ -1163,6 +1231,9 @@ function PasajeModal({
         )}
         {error && <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>}
         <div className="mt-6 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={() => { setDraft(emptyDraft); setError(""); }}>
+            Vaciar
+          </Button>
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancelar
           </Button>

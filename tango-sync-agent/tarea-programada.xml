@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Conector Tango -> DG Plataforma. Corre una vez por dia: si no hay una importacion pedida manualmente desde la web, trae automaticamente los ingresos desde ayer hasta hoy.</Description>
+    <Description>Conector Tango -> DG Plataforma. Consulta cada 2 minutos si alguien toco Actualizar en Ingresos; ademas, a las 6 trae sola los ingresos desde ayer hasta hoy.</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
+      <Repetition>
+        <Interval>PT2M</Interval>
+        <Duration>P1D</Duration>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
       <StartBoundary>2026-01-01T06:00:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByDay>
