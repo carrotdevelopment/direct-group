@@ -30,6 +30,8 @@ FUENTES = [  # cliente, archivo, hoja
     ("Pampa", "2- Estructura de costo Pampa.xlsm", "Estructura de costo"),
     ("Santander", "HISTORIA 2- Estructura de costo Santander.xlsx", "Hoja1"),
     ("Santander", "2- Estructura de costo Santander.xlsm", "Estructura de costo"),
+    ("Syngenta", "HISTORIA 2- Estructura de costo Syngenta.xlsx", "Hoja1"),
+    ("Syngenta", "2- Estructura de costo Syngenta.xlsm", "Estructura de Costo"),
     ("Umiles", "HISTORIA 2- Estructura de costo Umiles.xlsx", "Hoja1"),
     ("Umiles", "2- Estructura de costo Umiles.xlsm", "Estructura de Costo"),
     # Producteca agrupa bancos: mismos códigos, otro precio en cada canal.
@@ -46,7 +48,7 @@ CAMPOS = {  # campo: nombres posibles del encabezado, ya normalizados
     "seguro": ["seguro", "seguro deposito"], "iibb": ["ing. brutos"], "deb": ["imp. debito"], "cred": ["imp. credito"],
     "flete": ["flete s/iva", "flete"], "total": ["costo total"],
     "pvc": ["pvc sin iva redondeado", "pvc s/ iva redondeado", "pvc sin iva final", "pvc sin iva", "pva actual", "pv actual", "pvc actual", "pvm actual", "pvc"], "pvc_iva": ["pvc con iva redondeado", "pvc cn iva", "pcv final", "pvc con iva"],
-    "util": ["utilidad"], "pct": ["%", "margen (%)"], "mis": ["imp. misiones", "imp. mision", "impuesto misiones"],
+    "util": ["utilidad"], "pct": ["%", "margen (%)"], "mis": ["imp. misiones", "imp. mision", "impuesto misiones", "ing brutos mis"],
     "peso": ["peso volumetrico"], "bultos": ["bultos", "bulto"],
     # Cargos propios del canal, se guardan juntos como % del precio de venta sin IVA
     "com1": ["tasas cuotas", "com categoria"], "com2": ["comision tarjeta", "com trans"],

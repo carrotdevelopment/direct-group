@@ -23,6 +23,7 @@ CLIENTES = {  # archivo: (cliente en la plataforma, columna del código)
     "Egresos Pampa_DB.xlsx": ("Pampa", "SKU"),
     "Egresos Producteca_DB.xlsx": ("Producteca", "Código Cliente"),
     "Egresos Santander_DB.xlsx": ("Santander", "SKU"),
+    "Egresos Syngenta_DB.xlsx": ("Syngenta", "Código producto"),
     "Egresos Umiles_DB.xlsx": ("Umiles", "Código Cliente"),
 }
 # Años mal tipeados en las planillas, corregibles sin ambigüedad.
