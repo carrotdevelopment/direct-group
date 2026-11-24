@@ -1039,11 +1039,12 @@ type FlatRow = {
   fecha: string; codigo: string; desc: string; cant: string; raw: Fila;
 };
 
-function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, onRangeChange, onProductChanged }: {
+function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, onRangeChange, onSearchChange, onProductChanged }: {
   lotes: Lote[]; configs: ClienteConfig[]; cliente: string;
   onDeleteRows: (targets: { loteId: string; rowIdx: number }[]) => void;
   onUpdateRow: (loteId: string, rowIdx: number, fila: Fila) => void;
   onRangeChange: (from: string, to: string) => void;
+  onSearchChange: (search: string) => void;
   onProductChanged: (message: string) => void;
 }) {
   const [desde,        setDesde]        = useState(HISTORY_DEFAULT_START);
@@ -1051,6 +1052,11 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
   useEffect(() => { onRangeChange(desde, hasta); }, [desde, hasta, onRangeChange]);
   const [tipoFilter,   setTipoFilter]   = useState<Set<TipoEgreso>>(new Set());
   const [search,       setSearch]       = useState("");
+  // Se espera a que dejen de escribir: la búsqueda revisa todo el historial en el servidor.
+  useEffect(() => {
+    const timer = setTimeout(() => onSearchChange(search.trim().length >= 3 ? search.trim() : ""), 500);
+    return () => clearTimeout(timer);
+  }, [search, onSearchChange]);
   const [sortCol,      setSortCol]      = useState<string>("fecha");
   const [sortDir,      setSortDir]      = useState<SortDir>("desc");
   const [selected,     setSelected]     = useState<Set<string>>(new Set());
@@ -1193,6 +1199,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
     setExportError("");
     try {
       const query = new URLSearchParams({ client: cliente, from: desde, to: hasta, limit: String(EGRESS_EXPORT_MAX_ROWS), export: "1" });
+      if (search.trim().length >= 3) query.set("q", search.trim());
       const response = await fetch(`/api/local-db/egresos?${query}`);
       const data = (await response.json()) as { rows?: Record<string, unknown>[]; message?: string };
       if (!response.ok) throw new Error(data.message || "No se pudo leer el historial de egresos.");
@@ -1301,7 +1308,7 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
 
         {/* Free-text search */}
         <input value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar egresos"
-          placeholder="Buscar código, descripción, ID, provincia…"
+          placeholder="Buscar en todo el historial: código, certificado, pedido, nombre…"
           className="h-9 min-w-[220px] flex-1 rounded-lg border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#0b5bbb]" />
 
         <div className="ml-auto text-[11px] text-[#5a6a82]">
@@ -1539,6 +1546,7 @@ export function EgressWorkspace() {
   const onRangeChange = useCallback((from: string, to: string) => {
     setHistoryRange(current => current.from === from && current.to === to ? current : { from, to });
   }, []);
+  const [historySearch, setHistorySearch] = useState("");
   const [configs, setConfigs] = useState<ClienteConfig[]>(INITIAL_CONFIGS);
   const [lotes,   setLotes]   = useState<Lote[]>([]);
   const [cliente, setCliente] = useState(INITIAL_CONFIGS[0].nombre);
@@ -1546,6 +1554,10 @@ export function EgressWorkspace() {
   const [status,  setStatus]  = useState("Leyendo egresos desde PostgreSQL...");
   const [saving,  setSaving]  = useState(false);
   const [validCodesByClient, setValidCodesByClient] = useState<Record<string, string[]>>({});
+  const onSearchChange = useCallback((search: string) => {
+    setHistorySearch(search);
+    if (search) setStatus(`Buscando "${search}" en todo el historial...`);
+  }, []);
   const clientScope = useClientScope();
 
   // Quien ve solo algunos clientes elige entre los suyos; los datos no se piden hasta saber cuáles son.
@@ -1564,11 +1576,13 @@ export function EgressWorkspace() {
   const loadEgresses = useCallback(async (selectedClient: string) => {
     const loadId = ++latestLoad.current;
     const query = new URLSearchParams({ client: selectedClient, limit: "5000", ...historyRange });
+    if (historySearch) query.set("q", historySearch);
     const response = await fetch(`/api/local-db/egresos?${query}`);
     const data = (await response.json()) as {
       rows?: Record<string, unknown>[];
       batches?: EgressBatchOption[];
       summary?: Array<{ client: string; rows: number }>;
+      searchFull?: boolean;
       message?: string;
     };
     if (!response.ok) throw new Error(data.message || "No se pudo leer la base de egresos.");
@@ -1581,11 +1595,13 @@ export function EgressWorkspace() {
       ...current.filter((lote) => lote.cliente !== selectedClient),
     ]);
     setStatus(
-      totalRows && totalRows > excelLotes.length
+      historySearch
+        ? `${excelLotes.length.toLocaleString()} egresos de ${selectedClient} con "${historySearch}"${data.searchFull ? " (los más nuevos; hay más, acotá la búsqueda)" : ""}.`
+        : totalRows && totalRows > excelLotes.length
         ? `${excelLotes.length.toLocaleString()} egresos recientes cargados de ${totalRows.toLocaleString()} filas en PostgreSQL.`
         : `${excelLotes.length.toLocaleString()} egresos de ${selectedClient} cargados.`,
     );
-  }, [historyRange]);
+  }, [historyRange, historySearch]);
 
   useEffect(() => {
     if (!clientScope.loaded || !cliente) return;
@@ -1838,6 +1854,7 @@ export function EgressWorkspace() {
         lotes={clienteLotes} configs={configs} cliente={cliente}
         onDeleteRows={deleteRows} onUpdateRow={updateRow}
         onRangeChange={onRangeChange}
+        onSearchChange={onSearchChange}
         onProductChanged={(message) => { void loadEgresses(cliente).then(() => setStatus(message)); }}
       />
     </>

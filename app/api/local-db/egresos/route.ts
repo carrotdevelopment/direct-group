@@ -7,7 +7,7 @@ import { egressSchemas, parseEgressWorkbook, type EgressClient } from "@/lib/ope
 import { validateUploadedFile } from "@/lib/upload-validation";
 import { validateEgressScope, validDate, type EgressBulkScope } from "@/lib/egress-controls";
 import { EGRESS_EXPORT_MAX_ROWS, egressExportTooLargeMessage } from "@/lib/egress-history-export";
-import {
+import { EGRESS_SEARCH_LIMIT, searchEgressIds,
   appendGenericEgressRecords, countGenericEgressRows, DuplicateEgressImportError, getGenericEgressSummary,
   readGenericEgressRows, softDeleteGenericEgresses, updateGenericEgress,
   readEgressBatches, previewEgressDeactivation, deactivateEgressScope,
@@ -41,9 +41,13 @@ export async function GET(request: Request) {
   // La pantalla trae hasta 5.000 filas; la exportación trae todas las del rango, con un tope que se
   // controla antes de leerlas: cargar un rango enorme en memoria tiraría la app para todos.
   const isExport = url.searchParams.get("export") === "1";
+  // Con una búsqueda se revisa todo el historial del cliente, no solo lo que muestra la pantalla.
+  const search = (url.searchParams.get("q") || "").trim().slice(0, 100);
+  const ids = search.length >= 3 && isClient(client) ? await searchEgressIds(client, search, from, to) : undefined;
   if (isExport) {
     if (!isClient(client)) return bad("Elegí un cliente para exportar.");
-    const rows = await countGenericEgressRows({ client, from, to });
+    if (ids && ids.length >= EGRESS_SEARCH_LIMIT) return bad(`La búsqueda tiene más de ${EGRESS_SEARCH_LIMIT} egresos: acotala o acotá las fechas para exportar.`, 413);
+    const rows = ids ? ids.length : await countGenericEgressRows({ client, from, to });
     if (rows > EGRESS_EXPORT_MAX_ROWS) return bad(egressExportTooLargeMessage(rows), 413);
   }
   const maxRows = isExport ? EGRESS_EXPORT_MAX_ROWS : 5000;
@@ -52,7 +56,8 @@ export async function GET(request: Request) {
     clients: Object.keys(egressSchemas).filter((name) => inClientScope(scope, name)),
     summary: filterByClientScope(scope, await getGenericEgressSummary(), (item) => item.client),
     // Quien ve solo algunos clientes no recibe filas sin elegir uno: serían las de todos.
-    rows: scope !== null && !isClient(client) ? [] : await readGenericEgressRows({ client: isClient(client) ? client : undefined, from, to, limit }),
+    rows: scope !== null && !isClient(client) ? [] : await readGenericEgressRows({ client: isClient(client) ? client : undefined, from, to, limit, ids }),
+    searchFull: !!ids && ids.length >= EGRESS_SEARCH_LIMIT,
     batches: isClient(client) ? await readEgressBatches(client) : [], source: "postgresql",
   });
 }

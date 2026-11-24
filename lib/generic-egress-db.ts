@@ -325,7 +325,12 @@ export async function appendGenericEgressRecords(
       );
       const previous = [
         ...previousChunks.flat(),
-        ...(await transaction.egress.findMany({ where: { client, sourceHash: null }, select: previousSelect })),
+        // Los egresos migrados de las planillas no se comparan: sus datos originales tienen otras columnas y
+        // leerlos todos (157.000 en Santander) en cada subida no entra en la memoria del servidor.
+        ...(await transaction.egress.findMany({
+          where: { client, sourceHash: null, OR: [{ createdBy: null }, { NOT: { createdBy: { startsWith: "migracion-excel-" } } }] },
+          select: previousSelect,
+        })),
       ];
       for (const row of previous) {
         const hash = row.sourceHash ?? (row.rawRow?.payload && typeof row.rawRow.payload === "object" && !Array.isArray(row.rawRow.payload)
@@ -432,13 +437,34 @@ function egressRowsWhere(options: { client?: EgressClient; from?: string; to?: s
   };
 }
 
+// Tope de egresos que devuelve una búsqueda.
+export const EGRESS_SEARCH_LIMIT = 1000;
+
+// Busca un texto en todo el historial del cliente: código, producto, comentario, destino, número de egreso y los
+// datos originales de la fila (certificado, pedido, nombre, etc.). Devuelve los más nuevos.
+export async function searchEgressIds(client: EgressClient, search: string, from?: string, to?: string) {
+  const query = search.trim().toLowerCase();
+  const like = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
+  const rows = await excelPostgres.$queryRaw<{ id: bigint }[]>`
+    select e.id from egresos e left join egresos_raw_backup r on r.id = e.raw_row_id
+    where e.cliente = ${client} and e.deleted_at is null
+      and (${from ?? null}::date is null or e.fecha >= ${from ?? null}::date)
+      and (${to ?? null}::date is null or e.fecha <= ${to ?? null}::date)
+      and (lower(concat_ws(' ', e.codigo_cliente, e.codigo_unico, e.producto, e.comentarios, e.destino)) like ${like}
+        or e.id::text = ${query}
+        or (lower(r.datos_originales::text) like ${like}
+          and exists (select 1 from jsonb_each_text(r.datos_originales) d where lower(d.value) like ${like})))
+    order by e.fecha desc nulls last, e.id desc limit ${EGRESS_SEARCH_LIMIT}`;
+  return rows.map((row) => row.id);
+}
+
 export function countGenericEgressRows(options: { client?: EgressClient; from?: string; to?: string }) {
   return excelPostgres.egress.count({ where: egressRowsWhere(options) });
 }
 
-export async function readGenericEgressRows(options: { client?: EgressClient; from?: string; to?: string; limit?: number } = {}) {
+export async function readGenericEgressRows(options: { client?: EgressClient; from?: string; to?: string; limit?: number; ids?: bigint[] } = {}) {
   const rows = await excelPostgres.egress.findMany({
-    where: egressRowsWhere(options),
+    where: options.ids ? { id: { in: options.ids }, deletedAt: null } : egressRowsWhere(options),
     include: { rawRow: { select: { payload: true } } },
     orderBy: [{ date: "desc" }, { id: "desc" }],
     take: options.limit ?? 1000,
