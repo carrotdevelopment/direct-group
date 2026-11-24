@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Search } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Minus, Plus, Search } from "lucide-react";
 import { PageHeader } from "@/components/domain/page-header";
+import { CODE_TYPES, CODE_TYPE_LABEL, usesCodeType, type CodeType } from "@/lib/code-type";
+import {
+  groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, stockExportFileName, stockExportSheet, STOCK_COLUMNS,
+  type BalanceFilter, type StockColumn, type StockLine, type StockRow, type StockSort, type TypeFilter,
+} from "@/lib/stock-table";
 
 // Zoom de la tabla, en porcentaje. Se recuerda en este navegador.
 const ZOOM_MIN = 50;
@@ -20,41 +25,6 @@ function readSavedZoom() {
   }
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type StockRow = {
-  id: string;
-  vigente: boolean;
-  clientCode: string;
-  uniqueCode: string;
-  product: string;
-  supplier: string;
-  category: string;
-  totalOrder: number;
-  physicalIncome: number;
-  egress: number;
-  theoreticalStock: number;
-  realStock: number;
-  pendingDeliveries: number;
-  // Cant. Física según el último reporte de Urbano y su diferencia con el stock real
-  // (null si no hay cargas de Urbano para el cliente).
-  urbanoStock: number | null;
-  urbanoDifference: number | null;
-  totalTransactions: number;
-  firstIncomeDate: string;
-  reportedStock: number;
-  validity: number;
-  transactionsPerDay: number;
-  stockDays: number;
-  packageSize: number;
-  costDgNoVat: number;
-  totalCost: number;
-  stockValue: number;
-  unitProfit: number;
-  salePrice: number;
-  hasStockData: boolean;
-};
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const today = new Date();
@@ -64,7 +34,7 @@ const MONTHS = [
 ];
 const MONTH_LABEL = MONTHS[today.getMonth()];
 const YEAR = today.getFullYear();
-const TOTAL_COLS = 31; // 3 sticky + 2 info + 6 mov + 2 urbano + 3 si + 4 canjes + 6 nec + 5 costos
+const BASE_COLS = 31; // 3 sticky + 2 info + 6 mov + 2 urbano + 3 si + 4 canjes + 6 nec + 5 costos
 
 const STOCK_KEY = (c: string) => `stock-informado-v1-${c.toLowerCase()}`;
 const LAST_CLIENT_KEY = "stock-ultimo-cliente";
@@ -82,13 +52,6 @@ function money(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
-}
-
-function packageRound(value: number, size: number) {
-  if (!Number.isFinite(value) || value === 0) return 0;
-  if (!size || size <= 1) return Math.ceil(value);
-  const rounded = Math.ceil(Math.abs(value) / size) * size;
-  return value < 0 ? -rounded : rounded;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -119,6 +82,15 @@ export function StockWorkspace() {
     }
   };
   const [planningMonths, setPlanningMonths] = useState("2");
+  const [sort, setSort] = useState<StockSort>(null);
+  const [grouped, setGrouped] = useState(false);
+  const [balance, setBalance] = useState<BalanceFilter>("");
+  const [typeChoice, setTypeChoice] = useState<TypeFilter>("");
+  const [savingType, setSavingType] = useState(false);
+  const [notice, setNotice] = useState("");
+  const withType = usesCodeType(client);
+  const typeFilter: TypeFilter = withType ? typeChoice : "";
+  const totalCols = BASE_COLS + (withType ? 1 : 0);
 
   useEffect(() => {
     let last = "";
@@ -132,6 +104,7 @@ export function StockWorkspace() {
 
   function chooseClient(next: string) {
     setClient(next);
+    setNotice("");
     try {
       localStorage.setItem(LAST_CLIENT_KEY, next);
     } catch {}
@@ -218,27 +191,57 @@ export function StockWorkspace() {
     localStorage.setItem(STOCK_KEY(client), JSON.stringify(saved));
   }
 
+  // ── Regular / especial ────────────────────────────────────────────────────
+
+  async function changeType(codes: string[], type: CodeType) {
+    setSavingType(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/local-db/stock/tipo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client, codes, type }),
+      });
+      const data = (await response.json()) as { codes?: string[]; message?: string };
+      if (!response.ok || !data.codes) throw new Error(data.message || "No se pudo cambiar el tipo.");
+      const saved = new Set(data.codes);
+      setRows((current) => current.map((row) => (saved.has(row.clientCode.trim().toLowerCase()) ? { ...row, type } : row)));
+      setNotice(`${saved.size} código${saved.size === 1 ? "" : "s"} a ${CODE_TYPE_LABEL[type]}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo cambiar el tipo.");
+    } finally {
+      setSavingType(false);
+    }
+  }
+
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const months = Number(planningMonths) || 0;
 
-  const { activeRows, inactiveRows } = useMemo(() => {
+  const { activeGroups, inactiveGroups, activeRows, inactiveRows } = useMemo(() => {
     const cc = codeSearch.trim().toLowerCase();
     const uc = uniqueSearch.trim().toLowerCase();
     const pc = productSearch.trim().toLowerCase();
-    const filtered = rows.filter(
+    const filtered = rows.map((r): StockLine => ({ ...r, ...stockCalc(r, months) })).filter(
       (r) =>
+        matchesFilters(r, balance, typeFilter) &&
         (!cc || r.clientCode.toLowerCase().includes(cc)) &&
         (!uc || r.uniqueCode.toLowerCase().includes(uc)) &&
         (!pc || r.product.toLowerCase().includes(pc)),
     );
-    return {
-      activeRows: filtered.filter((r) => r.vigente),
-      inactiveRows: filtered.filter(
-        (r) => !r.vigente && (r.theoreticalStock > 0 || r.realStock > 0),
-      ),
+    const arrange = (lines: StockLine[]) => {
+      const sorted = sortLines(lines, sort);
+      return grouped ? groupBySupplier(sorted) : [{ supplier: "", lines: sorted }];
     };
-  }, [rows, codeSearch, uniqueSearch, productSearch]);
+    const active = arrange(filtered.filter((r) => r.vigente));
+    const inactive = arrange(filtered.filter((r) => !r.vigente && (r.theoreticalStock > 0 || r.realStock > 0)));
+    return {
+      activeGroups: active,
+      inactiveGroups: inactive,
+      activeRows: active.flatMap((group) => group.lines),
+      inactiveRows: inactive.flatMap((group) => group.lines),
+    };
+  }, [rows, codeSearch, uniqueSearch, productSearch, months, balance, typeFilter, sort, grouped]);
 
   const totals = useMemo(
     () => ({
@@ -253,14 +256,19 @@ export function StockWorkspace() {
     [rows],
   );
 
-  function calcRow(row: StockRow) {
-    const webAvailable = row.reportedStock - row.totalTransactions;
-    const adjustment = row.realStock - webAvailable;
-    const requiredStock = row.transactionsPerDay * months * 30;
-    const surplusShortage = row.theoreticalStock - requiredStock;
-    const surplusShortageByPackage = packageRound(surplusShortage, row.packageSize);
-    const finalPurchase = surplusShortageByPackage < 0 ? Math.abs(surplusShortageByPackage) : 0;
-    return { webAvailable, adjustment, requiredStock, surplusShortage, surplusShortageByPackage, finalPurchase };
+  const visibleRows = [...activeRows, ...inactiveRows];
+
+  async function exportStock() {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(stockExportSheet(visibleRows, withType)), "Stock");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = stockExportFileName(client, new Date());
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   // ── Styles ────────────────────────────────────────────────────────────────
@@ -271,14 +279,51 @@ export function StockWorkspace() {
   const colHdr = "sticky top-7 z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[11px] font-black text-[#334b6b]";
   // Sticky column header cells (also left-pinned)
   const colHdrSticky = "sticky top-7 z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[11px] font-black text-[#334b6b]";
+  const controlClass = "h-8 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs font-semibold normal-case text-[#10233f] outline-none focus:border-[#0b5bbb]";
   // Body number cells
   const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[11px] text-right tabular-nums";
 
   // ── Row renderer ──────────────────────────────────────────────────────────
 
-  function renderRow(row: StockRow, section: "active" | "inactive") {
-    const { webAvailable, adjustment, requiredStock, surplusShortage, surplusShortageByPackage, finalPurchase } =
-      calcRow(row);
+  function sortButton(key: StockColumn) {
+    const label = STOCK_COLUMNS.find((column) => column.key === key)?.label;
+    const direction = sort?.key === key ? sort.direction : null;
+    const Icon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ChevronsUpDown;
+    return (
+      <button
+        type="button"
+        onClick={() => setSort(nextSort(sort, key))}
+        title={direction === "desc" ? "De mayor a menor" : direction === "asc" ? "De menor a mayor" : "Ordenar"}
+        className={`inline-flex items-center gap-0.5 hover:text-[#0b5bbb] ${direction ? "text-[#0b5bbb]" : ""}`}
+      >
+        {label}
+        <Icon size={10} className={`shrink-0 ${direction ? "" : "opacity-40"}`} />
+      </button>
+    );
+  }
+
+  function renderGroups(groups: { supplier: string; lines: StockLine[] }[], section: "active" | "inactive") {
+    return groups.map((group) => (
+      <Fragment key={group.supplier || "sin-proveedor"}>
+        {grouped && (
+          <tr>
+            <td colSpan={totalCols} className="border-y border-[#c8d6e5] bg-[#e4ecf5] py-1.5 text-[11px] font-black text-[#10233f]">
+              <span className="sticky left-0 inline-block px-2">
+                {group.supplier || "Sin proveedor"} · {group.lines.length} código{group.lines.length === 1 ? "" : "s"} · stock real{" "}
+                {fmt(group.lines.reduce((sum, line) => sum + line.realStock, 0))} · compra final{" "}
+                {fmt(group.lines.reduce((sum, line) => sum + line.finalPurchase, 0))} · valorizado $
+                {money(group.lines.reduce((sum, line) => sum + line.stockValue, 0))}
+              </span>
+            </td>
+          </tr>
+        )}
+        {group.lines.map((line) => renderRow(line, section))}
+      </Fragment>
+    ));
+  }
+
+  function renderRow(row: StockLine, section: "active" | "inactive") {
+    const { webAvailable, adjustment, requiredStock, surplusShortage, surplusShortageByPackage, finalPurchase } = row;
     const rowBg = section === "inactive"
       ? "bg-[#f9f8fb]"
       : row.hasStockData ? "bg-white" : "bg-[#fffcf0]";
@@ -310,6 +355,20 @@ export function StockWorkspace() {
           <div className="truncate">{row.product || "—"}</div>
         </td>
         {/* Info */}
+        {withType && (
+          <td className="border-b border-[#e8eef5] px-1 py-1">
+            <select
+              aria-label={`Tipo de ${row.clientCode}`}
+              value={row.type ?? ""}
+              disabled={savingType}
+              onChange={(e) => void changeType([row.clientCode], e.target.value as CodeType)}
+              className={`h-6 w-full rounded border border-[#dbe4ef] bg-white px-0.5 text-[11px] font-bold ${row.type === "ESPECIAL" ? "text-[#5f3da0]" : row.type ? "text-[#334b6b]" : "text-[#b76a18]"}`}
+            >
+              {!row.type && <option value="" disabled>Sin clasificar</option>}
+              {CODE_TYPES.map((type) => <option key={type} value={type}>{CODE_TYPE_LABEL[type]}</option>)}
+            </select>
+          </td>
+        )}
         <td className={`${td} text-left text-[#425979]`}>{row.supplier || "—"}</td>
         <td className={`${td} text-left text-[#425979]`}>{row.category || "—"}</td>
         {/* Movimientos */}
@@ -470,6 +529,54 @@ export function StockWorkspace() {
             </button>
           </div>
           <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
+            <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-[#0b5bbb]" />
+            Agrupar por proveedor
+          </label>
+          <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
+            Sobra/Falta
+            <select value={balance} onChange={(e) => setBalance(e.target.value as BalanceFilter)} className={controlClass}>
+              <option value="">Todos</option>
+              <option value="falta">Negativo (falta)</option>
+              <option value="sobra">Positivo (sobra)</option>
+            </select>
+          </label>
+          {withType && (
+            <>
+              <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
+                Tipo
+                <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value as TypeFilter)} className={controlClass}>
+                  <option value="">Todos</option>
+                  <option value="REGULAR">Regulares</option>
+                  <option value="ESPECIAL">Especiales</option>
+                  <option value="SIN">Sin clasificar</option>
+                </select>
+              </label>
+              <select
+                aria-label="Pasar los códigos que se ven a otro tipo"
+                value=""
+                disabled={savingType || !visibleRows.length}
+                onChange={(e) => {
+                  const type = e.target.value as CodeType;
+                  if (window.confirm(`¿Pasar los ${visibleRows.length} códigos que se ven a ${CODE_TYPE_LABEL[type]}?`)) {
+                    void changeType(visibleRows.map((row) => row.clientCode), type);
+                  }
+                }}
+                className={controlClass}
+              >
+                <option value="" disabled>{`Pasar los ${visibleRows.length} que se ven a…`}</option>
+                {CODE_TYPES.map((type) => <option key={type} value={type}>{CODE_TYPE_LABEL[type]}</option>)}
+              </select>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => void exportStock()}
+            disabled={loading || !visibleRows.length}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#dbe4ef] bg-white px-3 text-xs font-black text-[#334b6b] hover:bg-[#f2f6fb] disabled:opacity-40"
+          >
+            <Download size={13} /> Exportar Excel
+          </button>
+          <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
             Meses stock
             <input
               type="number"
@@ -483,10 +590,13 @@ export function StockWorkspace() {
           </div>
         </div>
 
+        {notice && (
+          <div role="status" className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-2 text-[11px] font-bold text-[#334b6b]">{notice}</div>
+        )}
         <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
           <table
-            style={{ zoom: zoom / 100 }}
-            className="min-w-[2290px] table-fixed border-separate border-spacing-0 text-left text-[11px]"
+            style={{ zoom: zoom / 100, minWidth: withType ? 2394 : 2290 }}
+            className="table-fixed border-separate border-spacing-0 text-left text-[11px]"
           >
             <thead>
               {/* Row 1 – group headers */}
@@ -496,7 +606,7 @@ export function StockWorkspace() {
                 <th className={`${grpBase} sticky left-[80px] z-50 w-[90px] min-w-[90px] bg-[#e4ecf5]`} />
                 <th className={`${grpBase} sticky left-[170px] z-50 w-[180px] min-w-[180px] bg-[#e4ecf5]`} />
                 {/* Info (no label) */}
-                <th colSpan={2} className={`${grpBase} z-20 bg-[#edf3f9] text-[#5a6a82]`} />
+                <th colSpan={withType ? 3 : 2} className={`${grpBase} z-20 bg-[#edf3f9] text-[#5a6a82]`} />
                 {/* Movimientos */}
                 <th colSpan={6} className={`${grpBase} z-20 bg-[#dceafe] text-[#1e4db7]`}>
                   Movimientos
@@ -527,7 +637,7 @@ export function StockWorkspace() {
               <tr>
                 {/* Sticky col 1 */}
                 <th className={`${colHdrSticky} left-0 w-[80px] min-w-[80px] text-left`}>
-                  <div className="mb-1 pl-0.5">Código</div>
+                  <div className="mb-1 pl-0.5">{sortButton("clientCode")}</div>
                   <div className="relative">
                     <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                     <input
@@ -540,7 +650,7 @@ export function StockWorkspace() {
                 </th>
                 {/* Sticky col 2 */}
                 <th className={`${colHdrSticky} left-[80px] w-[90px] min-w-[90px] text-left`}>
-                  <div className="mb-1 pl-0.5">Código único</div>
+                  <div className="mb-1 pl-0.5">{sortButton("uniqueCode")}</div>
                   <div className="relative">
                     <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                     <input
@@ -553,7 +663,7 @@ export function StockWorkspace() {
                 </th>
                 {/* Sticky col 3 */}
                 <th className={`${colHdrSticky} left-[170px] w-[180px] min-w-[180px] text-left shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]`}>
-                  <div className="mb-1 pl-0.5">Producto</div>
+                  <div className="mb-1 pl-0.5">{sortButton("product")}</div>
                   <div className="relative">
                     <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
                     <input
@@ -565,72 +675,73 @@ export function StockWorkspace() {
                   </div>
                 </th>
                 {/* Info */}
-                <th className={`${colHdr} w-[88px]`}>Proveedor</th>
-                <th className={`${colHdr} w-[88px]`}>Categoría</th>
+                {withType && <th className={`${colHdr} w-[104px]`}>{sortButton("type")}</th>}
+                <th className={`${colHdr} w-[88px]`}>{sortButton("supplier")}</th>
+                <th className={`${colHdr} w-[88px]`}>{sortButton("category")}</th>
                 {/* Movimientos */}
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>Pedido tot.</th>
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>Ing. físico</th>
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>Egreso</th>
-                <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>Stk. teórico</th>
-                <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>Stk. real</th>
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>Entg. pend.</th>
+                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("totalOrder")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("physicalIncome")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("egress")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>{sortButton("theoreticalStock")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>{sortButton("realStock")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("pendingDeliveries")}</th>
                 {/* Stock Urbano */}
-                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`}>Stk. Urbano</th>
-                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`} title="Stock Urbano menos stock real">Dif. Urbano</th>
+                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`}>{sortButton("urbanoStock")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`} title="Stock Urbano menos stock real">{sortButton("urbanoDifference")}</th>
                 {/* Stock informado */}
-                <th className={`${colHdr} w-[72px] bg-[#fdf6de]`}>Stk. inf.</th>
-                <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>Disp. WEB</th>
-                <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>Ajuste</th>
+                <th className={`${colHdr} w-[72px] bg-[#fdf6de]`}>{sortButton("reportedStock")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>{sortButton("webAvailable")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>{sortButton("adjustment")}</th>
                 {/* Canjes */}
-                <th className={`${colHdr} w-[64px]`}>Trans. tot.</th>
-                <th className={`${colHdr} w-[72px]`}>Fecha 1° ing.</th>
-                <th className={`${colHdr} w-[56px]`}>Vigencia</th>
-                <th className={`${colHdr} w-[56px]`}>Trans./día</th>
+                <th className={`${colHdr} w-[64px]`}>{sortButton("totalTransactions")}</th>
+                <th className={`${colHdr} w-[72px]`}>{sortButton("firstIncomeDate")}</th>
+                <th className={`${colHdr} w-[56px]`}>{sortButton("validity")}</th>
+                <th className={`${colHdr} w-[56px]`}>{sortButton("transactionsPerDay")}</th>
                 {/* Necesidad */}
-                <th className={`${colHdr} w-[56px] bg-[#f5f2fe]`}>Días stk.</th>
-                <th className={`${colHdr} w-[64px] bg-[#f5f2fe]`}>Stk. nec.</th>
-                <th className={`${colHdr} w-[64px] bg-[#eee8fb]`}>Sobra/Falta</th>
-                <th className={`${colHdr} w-[56px] bg-[#eee8fb]`}>S/F bulto</th>
-                <th className={`${colHdr} w-[48px] bg-[#f5f2fe]`}>Bulto</th>
-                <th className={`${colHdr} w-[64px] bg-[#eee8fb]`}>Compra final</th>
+                <th className={`${colHdr} w-[56px] bg-[#f5f2fe]`}>{sortButton("stockDays")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#f5f2fe]`}>{sortButton("requiredStock")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#eee8fb]`}>{sortButton("surplusShortage")}</th>
+                <th className={`${colHdr} w-[56px] bg-[#eee8fb]`}>{sortButton("surplusShortageByPackage")}</th>
+                <th className={`${colHdr} w-[48px] bg-[#f5f2fe]`}>{sortButton("packageSize")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#eee8fb]`}>{sortButton("finalPurchase")}</th>
                 {/* Costos */}
-                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>Costo DG</th>
-                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>Costo tot.</th>
-                <th className={`${colHdr} w-[80px] bg-[#d9f0e3]`}>Val. stock</th>
-                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>Util. unit.</th>
-                <th className={`${colHdr} w-[64px] bg-[#e8f5ee]`}>PV</th>
+                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>{sortButton("costDgNoVat")}</th>
+                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>{sortButton("totalCost")}</th>
+                <th className={`${colHdr} w-[80px] bg-[#d9f0e3]`}>{sortButton("stockValue")}</th>
+                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>{sortButton("unitProfit")}</th>
+                <th className={`${colHdr} w-[64px] bg-[#e8f5ee]`}>{sortButton("salePrice")}</th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={TOTAL_COLS} className="py-16 text-center text-[11px] font-bold text-[#5a6a82]">
+                  <td colSpan={totalCols} className="py-16 text-center text-[11px] font-bold text-[#5a6a82]">
                     Cargando stock...
                   </td>
                 </tr>
               ) : activeRows.length === 0 && inactiveRows.length === 0 ? (
                 <tr>
-                  <td colSpan={TOTAL_COLS} className="py-16 text-center text-[11px] font-bold text-[#5a6a82]">
-                    {rows.length === 0 ? "Sin datos de stock para este cliente." : "Sin resultados para la búsqueda."}
+                  <td colSpan={totalCols} className="py-16 text-center text-[11px] font-bold text-[#5a6a82]">
+                    {rows.length === 0 ? "Sin datos de stock para este cliente." : "Sin resultados con estos filtros."}
                   </td>
                 </tr>
               ) : (
                 <>
-                  {activeRows.map((row) => renderRow(row, "active"))}
+                  {renderGroups(activeGroups, "active")}
 
                   {inactiveRows.length > 0 && (
                     <>
                       <tr>
                         <td
-                          colSpan={TOTAL_COLS}
+                          colSpan={totalCols}
                           className="border-y border-[#d5ccf0] bg-[#f2eefa] py-2 pl-4 text-[11px] font-black uppercase tracking-widest text-[#5f3da0]"
                         >
                           No vigentes con stock restante · {inactiveRows.length} código
                           {inactiveRows.length !== 1 ? "s" : ""}
                         </td>
                       </tr>
-                      {inactiveRows.map((row) => renderRow(row, "inactive"))}
+                      {renderGroups(inactiveGroups, "inactive")}
                     </>
                   )}
                 </>
