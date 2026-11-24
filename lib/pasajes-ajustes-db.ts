@@ -22,7 +22,7 @@ function normalizeCode(value: string) {
 
 // Un operador solo puede generar ajustes de los clientes que se le asignaron en Permisos; el
 // administrador no tiene restricción. Los pasajes se pueden cargar desde cualquier cliente.
-function assertCanCreateFor(actor: PasajeActor, client: string) {
+export function assertCanCreateFor(actor: PasajeActor, client: string) {
   if (!canActForClient(actor, client)) {
     throw new PasajeAjusteError(`No tenés asignado el cliente ${client} para generar este movimiento.`, 403);
   }
@@ -530,26 +530,34 @@ export async function createAjuste(input: AjusteInput, actor: PasajeActor) {
   });
   if (!mapping) throw new PasajeAjusteError(`${text(input.client)} no tiene activo el código ${text(input.clientCode)}.`);
   const now = new Date();
-  const ajuste = await excelPostgres.$transaction(async (tx) => {
-    const created = await tx.ajusteRequest.create({
-      data: {
-        client: text(mapping.client),
-        clientCode: text(mapping.clientCode),
-        uniqueCode: text(mapping.uniqueCode),
-        product: text(input.product) || null,
-        quantity: input.quantity,
-        reason: text(input.reason) || null,
-        createdBy,
-        status: "accepted",
-        respondedBy: createdBy,
-        respondedAt: now,
-      },
-    });
-    await applyAjuste(tx, created, createdBy, now);
-    return created;
-  });
+  const ajuste = await excelPostgres.$transaction((tx) => insertAjuste(tx, {
+    ...input,
+    client: text(mapping.client),
+    clientCode: text(mapping.clientCode),
+    uniqueCode: text(mapping.uniqueCode),
+  }, createdBy, now));
   invalidateIncomeGroups();
   return ajuste;
+}
+
+// Guarda un ajuste ya validado y su movimiento de stock.
+export async function insertAjuste(tx: Prisma.TransactionClient, input: AjusteInput, createdBy: string, now: Date) {
+  const created = await tx.ajusteRequest.create({
+    data: {
+      client: input.client,
+      clientCode: input.clientCode,
+      uniqueCode: input.uniqueCode,
+      product: text(input.product) || null,
+      quantity: input.quantity,
+      reason: text(input.reason) || null,
+      createdBy,
+      status: "accepted",
+      respondedBy: createdBy,
+      respondedAt: now,
+    },
+  });
+  await applyAjuste(tx, created, createdBy, now);
+  return created;
 }
 
 // Movimiento de stock de un ajuste: si suma, un ingreso; si resta, un egreso.

@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, Pencil, 
 import { Button } from "@/components/ui/button";
 import { readDraft, saveDraft } from "@/lib/browser-draft";
 import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
+import { AjusteMasivoModal } from "@/components/domain/ajuste-masivo-modal";
 import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
@@ -192,6 +193,7 @@ export function PasajesWorkspace({
   const [batches, setBatches] = useState<PasajeBatch[]>([]);
   const [selectedApprove, setSelectedApprove] = useState<Set<string>>(new Set());
   const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
+  const [masivoModalOpen, setMasivoModalOpen] = useState(false);
   // Destino elegido para cada pasaje sin destino, como "cliente|código".
   const [destinationChoice, setDestinationChoice] = useState<Record<string, string>>({});
   const [realQuantity, setRealQuantity] = useState<Record<string, string>>({});
@@ -426,9 +428,14 @@ export function PasajesWorkspace({
               </Button>
             </>
           ) : (
-            <Button size="sm" disabled={cannotCreateAjuste} onClick={() => setAjusteModalOpen(true)}>
-              <SlidersHorizontal size={15} /> Nuevo ajuste
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" className="whitespace-nowrap" disabled={cannotCreateAjuste} onClick={() => setAjusteModalOpen(true)}>
+                <SlidersHorizontal size={15} /> Un ajuste
+              </Button>
+              <Button size="sm" className="whitespace-nowrap" disabled={cannotCreateAjuste} onClick={() => setMasivoModalOpen(true)}>
+                <FileSpreadsheet size={15} /> Ajustes masivos
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -838,6 +845,16 @@ export function PasajesWorkspace({
       )}
       {solicitudModalOpen && (
         <PasajeSolicitudModal draftKey={`pasajes:${userName}`} mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
+      )}
+      {masivoModalOpen && (
+        <AjusteMasivoModal
+          mappings={mappings}
+          products={products}
+          allowedClients={restrictedClients}
+          draftKey={`ajustes:${userName}`}
+          onClose={() => setMasivoModalOpen(false)}
+          onCreated={() => void loadAll()}
+        />
       )}
       {ajusteModalOpen && (
         <AjusteModal
