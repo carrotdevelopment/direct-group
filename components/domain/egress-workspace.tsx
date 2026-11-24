@@ -8,6 +8,7 @@ import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domai
 import { EGRESS_EXPORT_MAX_ROWS, egressExportFileName, egressExportSheet } from "@/lib/egress-history-export";
 import { locateEgressData, repairMojibake, slashDate } from "@/lib/egress-file-layout";
 import { CredicoopTxtError, credicoopTxtRows, decodeTxt, isTxtFile } from "@/lib/credicoop-txt";
+import { egressSheetIndex, readEgressWorkbook } from "@/lib/egress-workbook";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
 import { inClientScope, useClientScope } from "@/lib/use-client-scope";
@@ -159,17 +160,20 @@ function parseTSV(text: string, cols: string[]): Fila[] {
   });
 }
 
-async function readExcel(file: File, sheetIdx: number, startRow: number, cols: string[]) {
+// Con sheetIdx en null se elige sola la pestaña que tiene los datos.
+async function readExcel(file: File, sheetIdx: number | null, startRow: number, cols: string[]) {
   let sheets: string[] = [];
+  let sheetIndex = sheetIdx ?? 0;
   let source: unknown[][];
   if (isTxtFile(file.name)) {
     source = credicoopTxtRows(decodeTxt(await file.arrayBuffer()));
   } else {
     const XLSX = await import("xlsx");
-    const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    const ws   = wb.Sheets[wb.SheetNames[sheetIdx] ?? wb.SheetNames[0]];
+    const wb   = readEgressWorkbook(XLSX, await file.arrayBuffer());
     sheets = wb.SheetNames;
-    source = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as unknown[][];
+    const rowsOf = (name: string) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "" }) as unknown[][];
+    if (sheetIdx === null && sheets.length > 1) sheetIndex = egressSheetIndex(sheets.map(rowsOf), cols);
+    source = rowsOf(sheets[sheetIndex] ?? sheets[0]);
   }
   // Los acentos rotos del sistema del cliente ("SÃBANAS") se arreglan al leer.
   const all  = source
@@ -182,7 +186,7 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
     cols.forEach((c, i) => { row[c] = String(cells[layout.positions[i]] ?? "").trim(); });
     return row;
   });
-  return { filas, values, headers, sheets, headerFound: layout.headerFound, dataStart: layout.dataStart, all };
+  return { filas, values, headers, sheets, sheetIndex, headerFound: layout.headerFound, dataStart: layout.dataStart, all };
 }
 
 // Fecha de una celda en formato AAAA-MM-DD: número de serie de Excel, AAAA-MM-DD o DD/MM/AAAA.
@@ -779,10 +783,10 @@ function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
     setXlFile(file); setXlLoading(true); setXlError("");
     try   {
       if (isTxtFile(file.name) && !allowsTxt) throw new CredicoopTxtError("El TXT se puede subir solo para Credicoop.");
-      const r = await readExcel(file, xlSheetIdx, config.canje.filaInicio, cols);
+      const r = await readExcel(file, null, config.canje.filaInicio, cols);
       const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
       setXlHash(Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join(""));
-      setXlSheets(r.sheets); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); checkLayout(r);
+      setXlSheets(r.sheets); setXlSheetIdx(r.sheetIndex); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); checkLayout(r);
     }
     catch (error) {
       setXlFilas([]); setXlMismatch(null);

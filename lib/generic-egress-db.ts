@@ -146,6 +146,20 @@ function operationValue(value: unknown, fallback = "CANJE") {
   return fallback;
 }
 
+// Código único de cada código de cliente: el activo más nuevo; si ya no está activo, el último que tuvo, como
+// en las planillas (siguen llegando canjes de códigos dados de baja). Las filas vienen de la más nueva a la más vieja.
+export function latestUniqueCodes(rows: { clientCode: string | null; uniqueCode: string | null; active: boolean | null }[]) {
+  const map = new Map<string, string>();
+  for (const active of [true, false]) {
+    for (const row of rows) {
+      const key = normalized(row.clientCode);
+      const uniqueCode = text(row.uniqueCode);
+      if (!!row.active === active && key && uniqueCode && !map.has(key)) map.set(key, uniqueCode);
+    }
+  }
+  return map;
+}
+
 export function canonicalizeEgressRecord(
   record: Record<string, unknown>,
   mapping: EgressFieldMapping,
@@ -260,16 +274,12 @@ export async function appendGenericEgressRecords(
   const profile = profiles.find((item) => item.client === client) ?? defaultEgressProfiles().find((item) => item.client === client)!;
   const [clientCodes, products] = await Promise.all([
     excelPostgres.excelClientCode.findMany({
-      where: { client: { equals: client, mode: "insensitive" }, active: true },
-      orderBy: [{ assignmentYear: "desc" }, { assignmentMonth: "desc" }, { id: "desc" }],
+      where: { client: { equals: client, mode: "insensitive" }, voidedAt: null },
+      orderBy: [{ assignmentYear: { sort: "desc", nulls: "last" } }, { assignmentMonth: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     }),
     excelPostgres.excelProduct.findMany(),
   ]);
-  const codeMap = new Map<string, string>();
-  clientCodes.forEach((item) => {
-    const key = normalized(item.clientCode);
-    if (key && !codeMap.has(key)) codeMap.set(key, text(item.uniqueCode));
-  });
+  const codeMap = latestUniqueCodes(clientCodes);
   const productMap = new Map(products.map((item) => [normalized(item.uniqueCode), text(item.product)]));
   const headers = source.headers ?? Object.keys(records[0] ?? {});
   const batch = await excelPostgres.egressImportBatch.create({
