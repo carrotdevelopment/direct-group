@@ -336,6 +336,13 @@ function Modal({ title, children, onClose, maxW = "max-w-lg" }: {
   );
 }
 
+// Excel guarda las fechas como un número (46346): en la vista previa se muestran como 20/11/2026. Es solo para
+// mostrarlas; lo que se guarda no cambia.
+export function previewCell(column: string, value: string | undefined) {
+  if (!/fecha/i.test(column) || !/^\d{5}(\.\d+)?$/.test(value ?? "")) return value ?? "";
+  return isoDateFromCell(value).split("-").reverse().join("/") || (value ?? "");
+}
+
 // ── PreviewTable ──────────────────────────────────────────────────────────────
 
 function PreviewTable({ cols, rows }: { cols: string[]; rows: Fila[] }) {
@@ -354,7 +361,7 @@ function PreviewTable({ cols, rows }: { cols: string[]; rows: Fila[] }) {
           <tbody>
             {rows.slice(0, 5).map((row, i) => (
               <tr key={i} className={i % 2 ? "bg-[#f8fafd]" : "bg-white"}>
-                {maxCols.map((c) => <td key={c} className="max-w-[140px] truncate border-b border-[#e1e8f1] px-3 py-1.5" title={row[c]}>{row[c] || "—"}</td>)}
+                {maxCols.map((c) => <td key={c} className="max-w-[140px] truncate border-b border-[#e1e8f1] px-3 py-1.5" title={previewCell(c, row[c])}>{previewCell(c, row[c]) || "—"}</td>)}
               </tr>
             ))}
             {rows.length > 5 && <tr><td colSpan={maxCols.length} className="px-3 py-2 text-[11px] italic text-[#5a6a82]">…y {rows.length - 5} filas más</td></tr>}
