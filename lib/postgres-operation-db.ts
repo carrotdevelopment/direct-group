@@ -330,7 +330,8 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
       comments: row.comentarios,
       status,
       pendingTangoEntry: row.pending_tango_entry,
-      manualEntry: Boolean(row.created_by),
+      // Lo migrado de las planillas no se cargó a mano en la web: no lleva el cartel "Falta cargar en Tango".
+      manualEntry: Boolean(row.created_by) && !row.created_by?.startsWith("migracion-excel-"),
     };
   });
 
