@@ -93,6 +93,9 @@ export type ExcelSantanderCostRow = {
   source: string;
   // Porcentaje del período de Amex (solo informativo); null en los demás clientes.
   amexPct?: number | null;
+  // Canal de Producteca (banco) y su comisión en % del PVC s/IVA; vacío en los demás clientes.
+  channel?: string | null;
+  channelFeePct?: number | null;
 };
 
 export type ExcelClient = {

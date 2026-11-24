@@ -429,6 +429,7 @@ export async function readSantanderCostsFromPostgres(client?: string): Promise<E
     profitPercentage: number(row.percentage), missionsTax: number(row.missionsTax),
     volumetricWeight: number(row.volumetricWeight), unitsPerPackage: number(row.packages), source: text(row.origin),
     amexPct: row.amexPct == null ? null : number(row.amexPct),
+    channel: row.channel, channelFeePct: row.channelFeePct == null ? null : number(row.channelFeePct),
   }));
 }
 
@@ -449,6 +450,7 @@ export async function replaceSantanderCostsInPostgres(rows: ExcelSantanderCostRo
           salePriceWithVat: row.pvcWithVat, profit: row.profit, percentage: row.profitPercentage,
           missionsTax: row.missionsTax, volumetricWeight: row.volumetricWeight,
           packages: row.unitsPerPackage, origin: row.source, amexPct: row.amexPct ?? null,
+          channel: row.channel || null, channelFeePct: row.channelFeePct ?? null,
         })),
       });
     }
@@ -468,7 +470,7 @@ export async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow
   await excelPostgres.$transaction(async (transaction) => {
     for (const row of rows) {
       await transaction.excelSantanderCost.deleteMany({
-        where: { client: row.client, period: row.period, ...costRowIdentity(row) },
+        where: { client: row.client, period: row.period, channel: row.channel || null, ...costRowIdentity(row) },
       });
       await transaction.excelSantanderCost.create({
         data: {
@@ -483,6 +485,7 @@ export async function upsertSantanderCostsInPostgres(rows: ExcelSantanderCostRow
           salePriceWithVat: row.pvcWithVat, profit: row.profit, percentage: row.profitPercentage,
           missionsTax: row.missionsTax, volumetricWeight: row.volumetricWeight,
           packages: row.unitsPerPackage, origin: row.source, amexPct: row.amexPct ?? null,
+          channel: row.channel || null, channelFeePct: row.channelFeePct ?? null,
         },
       });
     }
@@ -502,9 +505,10 @@ export async function deleteSantanderCostFromPostgres(
   client: string,
   code: { clientCode?: string; uniqueCode?: string },
   period: string,
+  channel?: string | null,
 ) {
   const result = await excelPostgres.excelSantanderCost.deleteMany({
-    where: { client: { equals: client, mode: "insensitive" }, period, ...costRowIdentity(code) },
+    where: { client: { equals: client, mode: "insensitive" }, period, channel: channel || null, ...costRowIdentity(code) },
   });
   return result.count;
 }

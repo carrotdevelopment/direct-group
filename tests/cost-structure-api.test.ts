@@ -84,6 +84,56 @@ describe("estructura de costos: API con persistencia simulada", () => {
     expect(db.replaceSantanderCostsInPostgres).not.toHaveBeenCalled();
   });
 
+  describe("Producteca: un precio por canal", () => {
+    const bna = { ...saved, client: "Producteca", channel: "Banco Nación", channelFeePct: 20 };
+    const icbc = { ...saved, client: "Producteca", channel: "ICBC", channelFeePct: 10, pvcNoVat: 500, pvcWithVat: 605 };
+    beforeEach(() => {
+      db.readClientsFromPostgres.mockResolvedValue([{ id: "1", name: "Producteca" }]);
+      db.readClientCodesFromPostgres.mockResolvedValue([
+        { uniqueCode: "A", client: "Producteca", clientCode: "OLD", assignedYear: 2026, assignedMonth: 6, active: true },
+      ]);
+      db.readSantanderCostsFromPostgres.mockResolvedValue([bna, icbc]);
+    });
+    const get = async (channel: string) => (await (await GET(new Request(
+      `http://localhost/api/local-db/cost-structures?client=Producteca&year=2026&month=8&channel=${encodeURIComponent(channel)}`,
+    ))).json()).rows[0];
+
+    it("muestra el precio del canal elegido y, sin canal, el primero", async () => {
+      expect(await get("ICBC")).toMatchObject({ pvcNoVat: 500, channelFeePct: 10 });
+      expect(await get("Banco Nación")).toMatchObject({ pvcNoVat: 200, channelFeePct: 20 });
+      expect(await get("")).toMatchObject({ pvcNoVat: 200 });
+      expect(await get("Tienda Credicoop")).toMatchObject({ pvcNoVat: 0 });
+    });
+
+    it("guarda en el canal y suma su comisión al costo total", async () => {
+      await PUT(request("PUT", { client: "Producteca", channel: "Banco Nación", year: 2026, month: 8, rows: [bna] }));
+      // 100 + flete 10 + seguro 0,08 + 7,234 % de 200 (tasas del canal, redondeadas por cargo) + 20 % de 200.
+      expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ channel: "Banco Nación", channelFeePct: 20, insurance: 0.08, creditTax: 0.77, totalCost: 164.55, profit: 35.45 })]);
+    });
+
+    it("sin canal válido no guarda, edita ni borra", async () => {
+      expect((await PUT(request("PUT", { client: "Producteca", year: 2026, month: 8, rows: [bna] }))).status).toBe(400);
+      expect((await PATCH(request("PATCH", { client: "Producteca", channel: "Otro", uniqueCode: "A", period: "2026-06" }))).status).toBe(400);
+      expect((await DELETE(new Request("http://localhost/api/local-db/cost-structures?client=Producteca&clientCode=OLD&period=2026-06", { method: "DELETE" }))).status).toBe(400);
+      expect(db.upsertSantanderCostsInPostgres).not.toHaveBeenCalled();
+      expect(db.deleteSantanderCostFromPostgres).not.toHaveBeenCalled();
+    });
+
+    it("editar y borrar historia toca solo el canal elegido", async () => {
+      await PATCH(request("PATCH", { client: "Producteca", channel: "ICBC", clientCode: "OLD", period: "2026-06", pvcNoVat: 600 }));
+      expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ channel: "ICBC", pvcNoVat: 600 })]);
+      expect(db.readSantanderCostsFromPostgres).toHaveBeenLastCalledWith("Producteca");
+      db.deleteSantanderCostFromPostgres.mockResolvedValue(1);
+      await DELETE(new Request("http://localhost/api/local-db/cost-structures?client=Producteca&clientCode=OLD&period=2026-06&channel=ICBC", { method: "DELETE" }));
+      expect(db.deleteSantanderCostFromPostgres).toHaveBeenCalledWith("Producteca", { clientCode: "OLD", uniqueCode: "" }, "2026-06", "ICBC");
+    });
+  });
+
+  it("los clientes sin canales ignoran el canal y guardan sin él", async () => {
+    await PUT(request("PUT", { client: "Santander", channel: "ICBC", year: 2026, month: 8, rows: [{ ...saved, channelFeePct: 50 }] }));
+    expect(db.upsertSantanderCostsInPostgres).toHaveBeenCalledWith([expect.objectContaining({ channel: null, channelFeePct: null, totalCost: 122 })]);
+  });
+
   it("editar historia usa las tasas del período y escribe solamente la fila editada", async () => {
     const response = await PATCH(request("PATCH", { client: "Santander", uniqueCode: "A", period: "2026-06", freightNoVat: 20 }));
     expect(response.status).toBe(200);
@@ -153,7 +203,7 @@ describe("estructura de costos: un producto con varios códigos cliente", () => 
 
     db.deleteSantanderCostFromPostgres.mockResolvedValue(1);
     await DELETE(new Request("http://localhost/api/local-db/cost-structures?client=Umiles&clientCode=URB-013&uniqueCode=A&period=2026-07", { method: "DELETE" }));
-    expect(db.deleteSantanderCostFromPostgres).toHaveBeenCalledWith("Umiles", { clientCode: "URB-013", uniqueCode: "A" }, "2026-07");
+    expect(db.deleteSantanderCostFromPostgres).toHaveBeenCalledWith("Umiles", { clientCode: "URB-013", uniqueCode: "A" }, "2026-07", "");
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
 
 const rate = (valuePct: number, appliesTo: CostRate["appliesTo"]): CostRate => ({
   id: "1", rateName: "Cargo", rateKey: "cargo", applies: true, valuePct, appliesTo, sortOrder: 1,
@@ -26,6 +26,24 @@ describe("cálculo compartido de estructura", () => {
     expect(proposedPvcNoVat(100, 0, 20, [], [])).toBe(120);
     expect(proposedPvcNoVat(100, 0, 100, [], [rate(50, "PRECIO")])).toBeNull();
     expect(calculate({ publicPrice: 0, vatRate: 0, costDgNoVat: 0, freightNoVat: 0, pvcNoVat: 0 }, [], []).profitPct).toBe(0);
+  });
+});
+
+describe("tasas por canal de Producteca", () => {
+  const total = (row: { costDgNoVat: number; pvcNoVat: number; vatRate: number; channelFeePct: number }, channel: string) => {
+    const rates = channelRates("Producteca", channel)!;
+    return calculate({ publicPrice: 0, freightNoVat: 0, ...row }, rates.filter((r) => r.appliesTo === "COSTO"), rates.filter((r) => r.appliesTo === "PRECIO")).totalCost;
+  };
+
+  it("da el costo total de las planillas de Nación, ICBC y Tienda Credicoop", () => {
+    expect(Math.abs(total({ costDgNoVat: 52541.45, pvcNoVat: 112700, vatRate: 21, channelFeePct: 20.8897 }, "Banco Nación") - 84278.66)).toBeLessThan(1);
+    expect(Math.abs(total({ costDgNoVat: 23996, pvcNoVat: 52659.22, vatRate: 21, channelFeePct: 20.328 }, "ICBC") - 38149.19)).toBeLessThan(1);
+    expect(Math.abs(total({ costDgNoVat: 33852.13, pvcNoVat: 85200, vatRate: 21, channelFeePct: 19.6761 }, "Tienda Credicoop") - 56192.02)).toBeLessThan(1);
+  });
+
+  it("solo Producteca tiene canales y Provincia usa las tasas del cliente", () => {
+    expect(channelRates("Santander", "ICBC")).toBeNull();
+    expect(channelRates("Producteca", "Provincia")).toBeNull();
   });
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { costRowChanged, displayedPvcPeriod } from "@/lib/cost-structure-rows";
-import { calculate, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, costChannelOrDefault, costChannels, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, rowPriceRates } from "@/lib/cost-structure-calculation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -52,6 +52,7 @@ type CostRow = {
   freightNoVat: number;
   pvcNoVat: number;
   pvcWithVat: number;
+  channelFeePct?: number | null;
   latestSupplierCostDg: number;
   supplierCostDgDate: string | null;
   hasPriceAlert: boolean;
@@ -137,6 +138,9 @@ export function CostStructureWorkspace() {
   const [clientList, setClientList] = useState<ClientData[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [client, setClient] = useState("");
+  // Producteca: cada canal (banco) tiene su propia estructura sobre los mismos códigos.
+  const [channelChoice, setChannelChoice] = useState("");
+  const channel = costChannelOrDefault(client, channelChoice);
 
   const [rows, setRows] = useState<CostRow[]>([]);
   const [originalRows, setOriginalRows] = useState<CostRow[]>([]);
@@ -229,13 +233,14 @@ export function CostStructureWorkspace() {
     return selectRateConfig(cd.configs, `${saveYear}-${saveMonth.padStart(2, "0")}`);
   }, [clientList, client, saveMonth, saveYear]);
 
+  // Los canales de Producteca con planilla propia usan sus tasas en lugar de las del cliente.
   const costoRates = useMemo(
-    () => activeRateConfig?.items.filter((r) => r.applies && r.appliesTo === "COSTO") ?? [],
-    [activeRateConfig],
+    () => (channelRates(client, channel) ?? activeRateConfig?.items ?? []).filter((r) => r.applies && r.appliesTo === "COSTO"),
+    [activeRateConfig, client, channel],
   );
   const precioRates = useMemo(
-    () => activeRateConfig?.items.filter((r) => r.applies && r.appliesTo === "PRECIO") ?? [],
-    [activeRateConfig],
+    () => (channelRates(client, channel) ?? activeRateConfig?.items ?? []).filter((r) => r.applies && r.appliesTo === "PRECIO"),
+    [activeRateConfig, client, channel],
   );
 
   const origMap = useMemo(
@@ -287,7 +292,7 @@ export function CostStructureWorkspace() {
     setStatus("Cargando estructura...");
     try {
       const res = await fetch(
-        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&month=${m}&year=${y}`,
+        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&month=${m}&year=${y}&channel=${encodeURIComponent(channel)}`,
       );
       const data = (await res.json()) as { rows: CostRow[]; amexPct?: number | null; message?: string };
       if (loadId !== latestLoad.current) return;
@@ -307,7 +312,7 @@ export function CostStructureWorkspace() {
     } finally {
       if (loadId === latestLoad.current) setLoading(false);
     }
-  }, [client, saveMonth, saveYear]);
+  }, [client, channel, saveMonth, saveYear]);
 
   useEffect(() => {
     // Synchronize the table with the selected server-side client and period.
@@ -368,7 +373,7 @@ export function CostStructureWorkspace() {
           row.freightNoVat,
           calc.profitPct,
           costoRates,
-          precioRates,
+          rowPriceRates(row, precioRates),
         );
         if (newPvc === null) return row;
         proposed.add(row.id);
@@ -403,7 +408,7 @@ export function CostStructureWorkspace() {
       const res = await fetch("/api/local-db/cost-structures", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, month: Number(saveMonth), year: Number(saveYear), rows: changes, ...(isAmex ? { amexPct } : {}) }),
+        body: JSON.stringify({ client, channel, month: Number(saveMonth), year: Number(saveYear), rows: changes, ...(isAmex ? { amexPct } : {}) }),
       });
       const responseText = await res.text();
       let data: { ok?: boolean; message?: string } = {};
@@ -582,7 +587,7 @@ export function CostStructureWorkspace() {
       prev.map((row) => {
         if (row.id !== id) return row;
         const calc = calculate(row, costoRates, precioRates);
-        const newPvc = proposedPvcNoVat(row.costDgNoVat, newFreight, calc.profitPct, costoRates, precioRates);
+        const newPvc = proposedPvcNoVat(row.costDgNoVat, newFreight, calc.profitPct, costoRates, rowPriceRates(row, precioRates));
         if (newPvc === null) return { ...row, freightNoVat: newFreight };
         return {
           ...row,
@@ -605,7 +610,7 @@ export function CostStructureWorkspace() {
           ? round2((row.costDgNoVat * amount) / 100)
           : round2(amount);
         const calc = calculate(row, costoRates, precioRates);
-        const newPvc = proposedPvcNoVat(row.costDgNoVat, newFreight, calc.profitPct, costoRates, precioRates);
+        const newPvc = proposedPvcNoVat(row.costDgNoVat, newFreight, calc.profitPct, costoRates, rowPriceRates(row, precioRates));
         if (newPvc === null) return { ...row, freightNoVat: newFreight, freightMode: freightMode, freightValue: amount };
         return {
           ...row,
@@ -665,7 +670,7 @@ export function CostStructureWorkspace() {
     setHistoryDeleteConfirm(null);
     try {
       const res = await fetch(
-        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&historyFor=${encodeURIComponent(historySearch.trim())}`,
+        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&historyFor=${encodeURIComponent(historySearch.trim())}&channel=${encodeURIComponent(channel)}`,
       );
       const data = (await res.json()) as { rows: HistoryRow[]; message?: string };
       if (!res.ok) throw new Error(data.message || "Error al buscar");
@@ -686,7 +691,7 @@ export function CostStructureWorkspace() {
       const res = await fetch("/api/local-db/cost-structures", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, clientCode, uniqueCode, period, freightNoVat, pvcNoVat, pvcWithVat }),
+        body: JSON.stringify({ client, channel, clientCode, uniqueCode, period, freightNoVat, pvcNoVat, pvcWithVat }),
       });
       const data = (await res.json()) as { ok?: boolean; message?: string; profitPercentage?: number };
       if (!res.ok || data.ok === false) throw new Error(data.message || "Error al guardar");
@@ -707,7 +712,7 @@ export function CostStructureWorkspace() {
 
   async function deleteHistoryRow(row: HistoryRow) {
     try {
-      const params = new URLSearchParams({ client, clientCode: row.clientCode, uniqueCode: row.uniqueCode, period: row.period });
+      const params = new URLSearchParams({ client, channel, clientCode: row.clientCode, uniqueCode: row.uniqueCode, period: row.period });
       const res = await fetch(`/api/local-db/cost-structures?${params}`, { method: "DELETE" });
       const data = (await res.json()) as { ok?: boolean; message?: string };
       if (!res.ok || data.ok === false) throw new Error(data.message || "Error al eliminar");
@@ -722,6 +727,7 @@ export function CostStructureWorkspace() {
   // ── Styles ────────────────────────────────────────────────────────────────
 
   const formulaCell = "whitespace-nowrap bg-[#f3f7fc] px-2 py-1 text-right tabular-nums text-[#334b6b]";
+  const ownChannelRates = channelRates(client, channel);
   const sourceCell = "bg-[#f8fafd] px-2 py-1 text-[#425979]";
   const numberInput =
     "h-7 w-full min-w-[52px] rounded border border-[#b9cce3] bg-white px-1 text-right text-[11px] tabular-nums outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]";
@@ -763,6 +769,31 @@ export function CostStructureWorkspace() {
               ))}
             </select>
           </label>
+          {channel && (
+            <label className="text-[11px] font-extrabold text-[#334b6b] md:order-last md:col-span-2">
+              Canal
+              <select
+                value={channel}
+                onChange={(e) => {
+                  if (hasPendingChanges() && !window.confirm("Hay cambios sin guardar. ¿Cambiar de canal y descartarlos?")) return;
+                  setChannelChoice(e.target.value);
+                  setSaved(false);
+                  setSaveError(null);
+                  setRows([]);
+                  // El historial buscado es del canal anterior: editarlo acá pisaría otro banco.
+                  setHistoryRows([]);
+                  setHistoryEditId(null);
+                  setHistoryDeleteConfirm(null);
+                  setHistoryStatus("");
+                }}
+                className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
+              >
+                {costChannels(client).map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="flex items-end">
             <Button
               variant="secondary"
@@ -792,7 +823,7 @@ export function CostStructureWorkspace() {
               className="flex items-center gap-1 text-[11px] font-bold text-[#0b5bbb] hover:underline"
             >
               <Calculator size={12} />
-              {showRates ? "Ocultar tasas" : `Tasas vigentes · desde ${activeRateConfig.effectiveFrom}`}
+              {showRates ? "Ocultar tasas" : ownChannelRates ? `Tasas de ${channel}` : `Tasas vigentes · desde ${activeRateConfig.effectiveFrom}`}
             </button>
           )}
         </div>
@@ -842,10 +873,10 @@ export function CostStructureWorkspace() {
         {showRates && activeRateConfig && (
           <div className="mt-3 rounded-xl border border-[#dbe4ef] bg-white p-4">
             <div className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a6a82]">
-              {client} — tasas desde {activeRateConfig.effectiveFrom}
+              {ownChannelRates ? `${client} · ${channel} — tasas del canal` : `${client} — tasas desde ${activeRateConfig.effectiveFrom}`}
             </div>
             <div className="flex flex-wrap gap-2">
-              {activeRateConfig.items.map((r) => (
+              {(ownChannelRates ?? activeRateConfig.items).map((r) => (
                 <div
                   key={r.id}
                   className={`rounded-xl border px-3 py-2 text-[11px] ${r.applies ? "border-[#dbe4ef] bg-[#f8fafd]" : "border-[#eee] bg-[#fafafa] opacity-50"}`}
@@ -853,7 +884,7 @@ export function CostStructureWorkspace() {
                   <div className="font-bold text-[#10233f]">{r.rateName}</div>
                   <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                     {r.applies
-                      ? `${r.valuePct}% sobre ${r.appliesTo === "COSTO" ? "Costo DG" : "PVC s/IVA"}`
+                      ? `${r.valuePct}% sobre ${r.appliesTo === "COSTO" ? "Costo DG" : "onVatPrice" in r && r.onVatPrice ? "PVC c/IVA" : "PVC s/IVA"}`
                       : "No aplica"}
                   </div>
                 </div>
@@ -1486,8 +1517,8 @@ export function CostStructureWorkspace() {
                               <div className="mb-2 font-extrabold uppercase tracking-wide text-[#5a6a82]">
                                 Costos sobre PVC
                               </div>
-                              {precioRates.length > 0 ? (
-                                precioRates.map((r) => (
+                              {calc.precioBreakdown.length > 0 ? (
+                                calc.precioBreakdown.map((r) => (
                                   <div
                                     key={r.id}
                                     className="flex justify-between gap-2 py-0.5 text-[#334b6b]"

@@ -7,7 +7,7 @@ import {
   getActiveCriterion,
   type FreightCriterionEntry,
 } from "@/lib/local-excel-db";
-import { calculate, isAmexClient, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, costChannels, isAmexClient, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
 import {
   readClientCodesFromPostgres,
   readClientsFromPostgres,
@@ -45,6 +45,7 @@ type CostStructureRow = {
   freightNoVat: number;
   pvcNoVat: number;
   pvcWithVat: number;
+  channelFeePct?: number | null;
   latestSupplierCostDg: number;
   supplierCostDgDate: string | null;
   hasPriceAlert: boolean;
@@ -76,6 +77,13 @@ async function costClientName(client: string) {
   if (!inClientScope(await currentClientScope(), client)) return null;
   const clients = await readClientsFromPostgres();
   return clients.find((item) => item.active !== false && canonicalClient(item.name) === wanted)?.name ?? null;
+}
+
+// Canal de la estructura (Producteca): "" en los clientes sin canales, null si el pedido no es válido.
+function requestedChannel(client: string, value: string | null | undefined) {
+  const channels = costChannels(client);
+  if (channels.length === 0) return "";
+  return channels.includes(value ?? "") ? value! : null;
 }
 
 function normalizeCode(value: string) {
@@ -120,7 +128,9 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-async function ratesForPeriod(client: string, period: string): Promise<CostRate[]> {
+async function ratesForPeriod(client: string, period: string, channel: string): Promise<CostRate[]> {
+  const ownRates = channelRates(client, channel);
+  if (ownRates) return ownRates;
   const [clients, rates] = await Promise.all([readClientsFromPostgres(), readClientRatesFromPostgres()]);
   const owner = clients.find(c => canonicalClient(c.name) === canonicalClient(client));
   const items = rates.filter(r => r.clientId === owner?.id);
@@ -199,7 +209,8 @@ export async function GET(request: Request) {
     readClientCodesFromPostgres(clientName),
     readSantanderCostsFromPostgres(clientName),
   ]);
-  const allCostRows = storedCostRows.filter((row) => sameClient(row.client));
+  const channel = requestedChannel(clientName, url.searchParams.get("channel")) ?? costChannels(clientName)[0];
+  const allCostRows = storedCostRows.filter((row) => sameClient(row.client) && (row.channel ?? "") === channel);
 
   // Period filter — default to current month/year
   const reqMonth = url.searchParams.get("month");
@@ -349,6 +360,7 @@ export async function GET(request: Request) {
         })(),
         pvcNoVat: cost?.pvcNoVat || 0,
         pvcWithVat: cost?.pvcWithVat || 0,
+        channelFeePct: cost?.channelFeePct ?? null,
         latestSupplierCostDg: liveCostDg,
         supplierCostDgDate: sourceDateOrNull(costDgPrice),
         hasPriceAlert:
@@ -397,6 +409,7 @@ export async function PUT(request: Request) {
     year?: number;
     rows?: CostStructureRow[];
     amexPct?: number;
+    channel?: string;
   };
   const client = body.client || "";
   const now = new Date();
@@ -412,13 +425,19 @@ export async function PUT(request: Request) {
     );
   }
 
+  const channel = requestedChannel(clientName, body.channel);
+  if (channel === null) {
+    return NextResponse.json({ ok: false, message: "Elegí un canal." }, { status: 400 });
+  }
   const period = periodLabel(year, month);
   const amexPct = isAmexClient(clientName) && typeof body.amexPct === "number" && Number.isFinite(body.amexPct)
     ? body.amexPct
     : null;
-  const rates = await ratesForPeriod(client, period);
+  const rates = await ratesForPeriod(clientName, period, channel);
   const nextRows: ExcelSantanderCostRow[] = rows.map((row) => {
-    const calc = calculateSantanderCost(row, rates);
+    // La comisión del canal solo existe en los clientes con canales.
+    const channelFeePct = channel && Number.isFinite(row.channelFeePct) ? row.channelFeePct : null;
+    const calc = calculateSantanderCost({ ...row, channelFeePct }, rates);
     return {
       client: clientName,
       period,
@@ -455,6 +474,8 @@ export async function PUT(request: Request) {
       unitsPerPackage: 0,
       source: "WEB",
       amexPct,
+      channel: channel || null,
+      channelFeePct,
     };
   });
 
@@ -500,6 +521,7 @@ export async function PATCH(request: Request) {
     client?: string;
     clientCode?: string;
     uniqueCode?: string;
+    channel?: string;
     period?: string;
     freightNoVat?: number;
     pvcNoVat?: number;
@@ -518,9 +540,13 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
-  const allRows = await readSantanderCostsFromPostgres();
+  const channel = requestedChannel(patchClientName, body.channel);
+  if (channel === null) {
+    return NextResponse.json({ ok: false, message: "Elegí un canal." }, { status: 400 });
+  }
+  const allRows = await readSantanderCostsFromPostgres(patchClientName);
   const idx = allRows.findIndex(
-    (r) => sameCostRow(r, { clientCode, uniqueCode }) && r.period === period &&
+    (r) => sameCostRow(r, { clientCode, uniqueCode }) && r.period === period && (r.channel ?? "") === channel &&
       canonicalClient(r.client) === canonicalClient(patchClientName),
   );
   if (idx === -1) {
@@ -551,6 +577,7 @@ export async function PATCH(request: Request) {
     freightNoVat,
     pvcNoVat,
     pvcWithVat,
+    channelFeePct: existing.channelFeePct,
     latestSupplierCostDg: 0,
     supplierCostDgDate: null,
     hasPriceAlert: false,
@@ -559,7 +586,7 @@ export async function PATCH(request: Request) {
     freightCriterion: null,
   };
 
-  const calc = calculateSantanderCost(tempRow, await ratesForPeriod(body.client!, period));
+  const calc = calculateSantanderCost(tempRow, await ratesForPeriod(patchClientName, period, channel));
   allRows[idx] = {
     ...existing,
     freightNoVat,
@@ -597,7 +624,11 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: false, message: "Parámetros incompletos." }, { status: 400 });
   }
 
-  const removed = await deleteSantanderCostFromPostgres(deleteClientName, { clientCode, uniqueCode }, period);
+  const channel = requestedChannel(deleteClientName, url.searchParams.get("channel"));
+  if (channel === null) {
+    return NextResponse.json({ ok: false, message: "Elegí un canal." }, { status: 400 });
+  }
+  const removed = await deleteSantanderCostFromPostgres(deleteClientName, { clientCode, uniqueCode }, period, channel);
   if (removed === 0) {
     return NextResponse.json({ ok: false, message: "Fila no encontrada." }, { status: 404 });
   }
