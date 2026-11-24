@@ -1,6 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
+import { rateBase, type RateBase } from "@/lib/cost-structure-calculation";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
 export type ExcelProduct = {
@@ -114,7 +115,7 @@ export type ExcelClientRateItem = {
   rateKey: string;
   applies: boolean;
   valuePct: number;
-  appliesTo: "COSTO" | "PRECIO";
+  appliesTo: RateBase;
   sortOrder: number;
   createdAt?: string;
 };
@@ -1313,7 +1314,7 @@ export function readClientRatesFromExcel(): ExcelClientRateItem[] {
         rateKey: asString(row["Clave"]),
         applies: asString(row["Aplica"]).toLowerCase() !== "no",
         valuePct: asNumber(row["Valor %"]),
-        appliesTo: appliesTo === "COSTO" ? "COSTO" : "PRECIO",
+        appliesTo: rateBase(appliesTo),
         sortOrder: asNumber(row["Orden"]) || 99,
         createdAt: asIsoDateTime(row["Creado"]),
       };

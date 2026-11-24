@@ -1,4 +1,5 @@
 import "server-only";
+import { rateBase } from "@/lib/cost-structure-calculation";
 import { validateProductCodes } from "@/lib/product-uniqueness";
 import { normalizeForDuplicateCheck } from "@/lib/normalize";
 
@@ -272,7 +273,7 @@ export async function readClientRatesFromPostgres(): Promise<ExcelClientRateItem
     rateKey: text(row.key),
     applies: row.applies ?? false,
     valuePct: number(row.percentageValue),
-    appliesTo: text(row.appliesTo) === "COSTO" ? "COSTO" : "PRECIO",
+    appliesTo: rateBase(text(row.appliesTo)),
     sortOrder: row.sortOrder ?? 0,
     createdAt: date(row.sourceCreatedAt),
   }));

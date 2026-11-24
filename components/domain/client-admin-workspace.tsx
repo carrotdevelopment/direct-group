@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import type { RateBase } from "@/lib/cost-structure-calculation";
 import {
   ChevronDown,
   ChevronUp,
@@ -24,7 +25,7 @@ type RateItem = {
   rateKey: string;
   applies: boolean;
   valuePct: number;
-  appliesTo: "COSTO" | "PRECIO";
+  appliesTo: RateBase;
   sortOrder: number;
   createdAt?: string;
 };
@@ -44,9 +45,10 @@ type Client = {
 
 type ApiResponse = { clients: Client[] };
 
-const APPLIES_TO_OPTIONS: { value: "COSTO" | "PRECIO"; label: string; description: string }[] = [
+const APPLIES_TO_OPTIONS: { value: RateBase; label: string; description: string }[] = [
   { value: "COSTO", label: "Costo DG", description: "Se aplica sobre el Costo DG sin IVA" },
   { value: "PRECIO", label: "PVC sin IVA", description: "Se aplica sobre el precio de venta sin IVA" },
+  { value: "PRECIO_IVA", label: "PVC con IVA", description: "Se aplica sobre el precio de venta con IVA" },
 ];
 
 const months = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -613,7 +615,7 @@ function RateTable({ items, muted = false }: { items: RateItem[]; muted?: boolea
                 {item.applies ? `${item.valuePct}%` : "—"}
               </td>
               <td className="px-2 py-1.5 text-[#425979]">
-                {item.applies ? (item.appliesTo === "COSTO" ? "Costo DG" : "PVC sin IVA") : "—"}
+                {item.applies ? APPLIES_TO_OPTIONS.find((o) => o.value === item.appliesTo)?.label : "—"}
               </td>
               <td className="px-2 py-1.5 text-center">
                 <Badge tone={item.applies ? "success" : "neutral"}>

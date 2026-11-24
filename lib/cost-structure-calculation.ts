@@ -1,4 +1,9 @@
-export type CostRate = { id: string; rateName: string; rateKey: string; applies: boolean; valuePct: number; appliesTo: "COSTO" | "PRECIO"; sortOrder: number; onVatPrice?: boolean };
+// PRECIO es sobre el PVC sin IVA; PRECIO_IVA, sobre el PVC con IVA.
+export type RateBase = "COSTO" | "PRECIO" | "PRECIO_IVA";
+export function rateBase(value: unknown): RateBase {
+  return value === "COSTO" || value === "PRECIO_IVA" ? value : "PRECIO";
+}
+export type CostRate = { id: string; rateName: string; rateKey: string; applies: boolean; valuePct: number; appliesTo: RateBase; sortOrder: number };
 export type CostInput = { publicPrice: number; vatRate: number; costDgNoVat: number; freightNoVat: number; pvcNoVat: number; channelFeePct?: number | null };
 export function round2(n: number) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 export function selectRateConfig<T extends { effectiveFrom: string }>(configs: T[], period: string): T | null {
@@ -29,8 +34,8 @@ export function costChannelOrDefault(client: string, choice: string): string {
 
 // Tasas de cada canal, las mismas de su planilla: reemplazan a las del cliente. Provincia no tiene
 // planilla vigente y usa las del cliente.
-const channelRate = (rateKey: string, rateName: string, valuePct: number, appliesTo: CostRate["appliesTo"], onVatPrice = false): CostRate => ({
-  id: `canal-${rateKey}`, rateName, rateKey, applies: true, valuePct, appliesTo, sortOrder: 1, onVatPrice,
+const channelRate = (rateKey: string, rateName: string, valuePct: number, appliesTo: CostRate["appliesTo"]): CostRate => ({
+  id: `canal-${rateKey}`, rateName, rateKey, applies: true, valuePct, appliesTo, sortOrder: 1,
 });
 const CHANNEL_RATES: Record<string, CostRate[]> = {
   "Banco Nación": [
@@ -43,12 +48,12 @@ const CHANNEL_RATES: Record<string, CostRate[]> = {
   ICBC: [
     channelRate("seguro", "Seguro", 0.08, "COSTO"),
     channelRate("ingresos_brutos", "Ing. Brutos", 5, "PRECIO"),
-    channelRate("impuesto_misiones", "Imp. Misiones", 1.25, "PRECIO", true),
+    channelRate("impuesto_misiones", "Imp. Misiones", 1.25, "PRECIO_IVA"),
   ],
   "Tienda Credicoop": [
     channelRate("seguro", "Seguro", 0.08, "COSTO"),
     channelRate("ingresos_brutos", "Ing. Brutos", 5, "PRECIO"),
-    channelRate("impuesto_misiones", "Imp. Misiones", 1.25, "PRECIO", true),
+    channelRate("impuesto_misiones", "Imp. Misiones", 1.25, "PRECIO_IVA"),
   ],
 };
 export function channelRates(client: string, channel: string): CostRate[] | null {
@@ -58,8 +63,8 @@ export function channelRates(client: string, channel: string): CostRate[] | null
 // Cargos sobre el PVC s/IVA de una fila. Los que la planilla calcula sobre el PVC con IVA se llevan a su
 // equivalente sin IVA, y se suma la comisión del canal (cuotas, tarjeta y comisión), propia de cada fila.
 export function rowPriceRates(row: { vatRate: number; channelFeePct?: number | null }, precioItems: CostRate[]): CostRate[] {
-  const items = precioItems.map((rate) => rate.onVatPrice
-    ? { ...rate, valuePct: Math.round(rate.valuePct * (1 + row.vatRate / 100) * 10000) / 10000, onVatPrice: false }
+  const items = precioItems.map((rate) => rate.appliesTo === "PRECIO_IVA"
+    ? { ...rate, valuePct: Math.round(rate.valuePct * (1 + row.vatRate / 100) * 10000) / 10000, appliesTo: "PRECIO" as const }
     : rate);
   const pct = row.channelFeePct ?? 0;
   if (!Number.isFinite(pct) || pct <= 0) return items;

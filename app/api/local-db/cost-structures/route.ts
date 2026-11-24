@@ -139,7 +139,7 @@ async function ratesForPeriod(client: string, period: string, channel: string): 
 }
 
 function calculateSantanderCost(row: CostStructureRow, rates: CostRate[]) {
-  const calc = calculate(row, rates.filter(r => r.appliesTo === "COSTO"), rates.filter(r => r.appliesTo === "PRECIO"));
+  const calc = calculate(row, rates.filter(r => r.appliesTo === "COSTO"), rates.filter(r => r.appliesTo !== "COSTO"));
   const charges = [...calc.costoBreakdown, ...calc.precioBreakdown];
   const amount = (key: string) => roundMoney(charges.filter(r => r.rateKey === key).reduce((sum,r) => sum + r.amount, 0));
   return { ...calc, profitPercentage: calc.profitPct,

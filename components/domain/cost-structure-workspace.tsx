@@ -1,7 +1,7 @@
 "use client";
 
 import { costRowChanged, displayedPvcPeriod } from "@/lib/cost-structure-rows";
-import { calculate, channelRates, costChannelOrDefault, costChannels, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, rowPriceRates } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, costChannelOrDefault, costChannels, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, rowPriceRates, type RateBase } from "@/lib/cost-structure-calculation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -25,7 +25,7 @@ type RateItem = {
   rateKey: string;
   applies: boolean;
   valuePct: number;
-  appliesTo: "COSTO" | "PRECIO";
+  appliesTo: RateBase;
   sortOrder: number;
 };
 
@@ -239,7 +239,7 @@ export function CostStructureWorkspace() {
     [activeRateConfig, client, channel],
   );
   const precioRates = useMemo(
-    () => (channelRates(client, channel) ?? activeRateConfig?.items ?? []).filter((r) => r.applies && r.appliesTo === "PRECIO"),
+    () => (channelRates(client, channel) ?? activeRateConfig?.items ?? []).filter((r) => r.applies && r.appliesTo !== "COSTO"),
     [activeRateConfig, client, channel],
   );
 
@@ -884,7 +884,7 @@ export function CostStructureWorkspace() {
                   <div className="font-bold text-[#10233f]">{r.rateName}</div>
                   <div className="mt-0.5 text-[11px] text-[#5a6a82]">
                     {r.applies
-                      ? `${r.valuePct}% sobre ${r.appliesTo === "COSTO" ? "Costo DG" : "onVatPrice" in r && r.onVatPrice ? "PVC c/IVA" : "PVC s/IVA"}`
+                      ? `${r.valuePct}% sobre ${r.appliesTo === "COSTO" ? "Costo DG" : r.appliesTo === "PRECIO_IVA" ? "PVC c/IVA" : "PVC s/IVA"}`
                       : "No aplica"}
                   </div>
                 </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate, channelRates, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
+import { calculate, channelRates, rateBase, isAmexClient, plusPercentage, proposedPvcNoVat, selectRateConfig, type CostRate } from "@/lib/cost-structure-calculation";
 
 const rate = (valuePct: number, appliesTo: CostRate["appliesTo"]): CostRate => ({
   id: "1", rateName: "Cargo", rateKey: "cargo", applies: true, valuePct, appliesTo, sortOrder: 1,
@@ -32,7 +32,7 @@ describe("cálculo compartido de estructura", () => {
 describe("tasas por canal de Producteca", () => {
   const total = (row: { costDgNoVat: number; pvcNoVat: number; vatRate: number; channelFeePct: number }, channel: string) => {
     const rates = channelRates("Producteca", channel)!;
-    return calculate({ publicPrice: 0, freightNoVat: 0, ...row }, rates.filter((r) => r.appliesTo === "COSTO"), rates.filter((r) => r.appliesTo === "PRECIO")).totalCost;
+    return calculate({ publicPrice: 0, freightNoVat: 0, ...row }, rates.filter((r) => r.appliesTo === "COSTO"), rates.filter((r) => r.appliesTo !== "COSTO")).totalCost;
   };
 
   it("da el costo total de las planillas de Nación, ICBC y Tienda Credicoop", () => {
@@ -44,6 +44,19 @@ describe("tasas por canal de Producteca", () => {
   it("solo Producteca tiene canales y Provincia usa las tasas del cliente", () => {
     expect(channelRates("Santander", "ICBC")).toBeNull();
     expect(channelRates("Producteca", "Provincia")).toBeNull();
+  });
+});
+
+describe("tasas sobre el PVC con IVA", () => {
+  it("usan el IVA de cada fila", () => {
+    const row = { publicPrice: 0, costDgNoVat: 0, freightNoVat: 0, pvcNoVat: 1000 };
+    expect(calculate({ ...row, vatRate: 21 }, [], [rate(0.6, "PRECIO_IVA")]).totalCost).toBe(7.26);
+    expect(calculate({ ...row, vatRate: 10.5 }, [], [rate(0.6, "PRECIO_IVA")]).totalCost).toBe(6.63);
+    expect(calculate({ ...row, vatRate: 21 }, [], [rate(0.6, "PRECIO")]).totalCost).toBe(6);
+  });
+
+  it("lo que no se reconoce se toma sobre el PVC sin IVA, como hasta ahora", () => {
+    expect([rateBase("COSTO"), rateBase("PRECIO_IVA"), rateBase("PRECIO"), rateBase("")]).toEqual(["COSTO", "PRECIO_IVA", "PRECIO", "PRECIO"]);
   });
 });
 
