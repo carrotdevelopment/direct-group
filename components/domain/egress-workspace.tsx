@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { EgressBulkDeactivate, type EgressBatchOption } from "@/components/domain/egress-bulk-deactivate";
 import { EGRESS_EXPORT_MAX_ROWS, egressExportFileName, egressExportSheet } from "@/lib/egress-history-export";
 import { locateEgressData, repairMojibake, slashDate } from "@/lib/egress-file-layout";
+import { CredicoopTxtError, credicoopTxtRows, decodeTxt, isTxtFile } from "@/lib/credicoop-txt";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
 import { inClientScope, useClientScope } from "@/lib/use-client-scope";
@@ -75,7 +76,7 @@ const INITIAL_CONFIGS: ClienteConfig[] = [
   { nombre: "Credicoop", configurado: true, canje: {
       filaInicio: 2,
       columnas: ["Día","Mes","Año","IdRedencion","Apellido_nombre","Domicilio","Codigo_postal","Localidad","Provincia","IdRecompensa","Estado","Puntos","Fecha","Descripcion","Telefono1","Telefono2","Cantidad"],
-      mapping: { fecha: "", fechaDia: "Día", fechaMes: "Mes", fechaAno: "Año", codigo: "IdRedencion", desc: "Apellido_nombre", cant: "Cantidad" },
+      mapping: { fecha: "", fechaDia: "Día", fechaMes: "Mes", fechaAno: "Año", codigo: "IdRecompensa", desc: "Descripcion", cant: "Cantidad" },
   }},
   { nombre: "Producteca", configurado: true, canje: {
       filaInicio: 2,
@@ -159,11 +160,19 @@ function parseTSV(text: string, cols: string[]): Fila[] {
 }
 
 async function readExcel(file: File, sheetIdx: number, startRow: number, cols: string[]) {
-  const XLSX = await import("xlsx");
-  const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
-  const ws   = wb.Sheets[wb.SheetNames[sheetIdx] ?? wb.SheetNames[0]];
+  let sheets: string[] = [];
+  let source: unknown[][];
+  if (isTxtFile(file.name)) {
+    source = credicoopTxtRows(decodeTxt(await file.arrayBuffer()));
+  } else {
+    const XLSX = await import("xlsx");
+    const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const ws   = wb.Sheets[wb.SheetNames[sheetIdx] ?? wb.SheetNames[0]];
+    sheets = wb.SheetNames;
+    source = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as unknown[][];
+  }
   // Los acentos rotos del sistema del cliente ("SÃBANAS") se arreglan al leer.
-  const all  = (XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" }) as unknown[][])
+  const all  = source
     .map((row) => row.map((cell) => (typeof cell === "string" ? repairMojibake(cell) : cell))) as string[][];
   const layout = locateEgressData(all, cols, startRow);
   const headers = (all[layout.headerIndex] ?? cols).map((cell) => String(cell ?? "").trim());
@@ -173,7 +182,7 @@ async function readExcel(file: File, sheetIdx: number, startRow: number, cols: s
     cols.forEach((c, i) => { row[c] = String(cells[layout.positions[i]] ?? "").trim(); });
     return row;
   });
-  return { filas, values, headers, sheets: wb.SheetNames, headerFound: layout.headerFound, dataStart: layout.dataStart, all };
+  return { filas, values, headers, sheets, headerFound: layout.headerFound, dataStart: layout.dataStart, all };
 }
 
 // Fecha de una celda en formato AAAA-MM-DD: número de serie de Excel, AAAA-MM-DD o DD/MM/AAAA.
@@ -756,23 +765,31 @@ function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
   // el Excel no tiene los títulos configurados para este cliente (las columnas se leen por posición y
   // pueden quedar corridas).
   const [xlMismatch, setXlMismatch] = useState<{ owner: string; headerFound: boolean } | null>(null);
+  const [xlError,    setXlError]    = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const cols    = config.canje.columnas;
+  // Credicoop además manda los canjes en un TXT separado por punto y coma.
+  const allowsTxt = config.nombre === "Credicoop";
 
   const pastedFilas = useMemo(() => (raw.trim() && cols.length ? parseTSV(raw, cols) : []), [raw, cols]);
   const active      = mode === "paste" ? pastedFilas : xlFilas;
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    setXlFile(file); setXlLoading(true);
+    setXlFile(file); setXlLoading(true); setXlError("");
     try   {
+      if (isTxtFile(file.name) && !allowsTxt) throw new CredicoopTxtError("El TXT se puede subir solo para Credicoop.");
       const r = await readExcel(file, xlSheetIdx, config.canje.filaInicio, cols);
       const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
       setXlHash(Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join(""));
       setXlSheets(r.sheets); setXlFilas(r.filas); setXlValues(r.values); setXlHeaders(r.headers); checkLayout(r);
     }
-    catch { setXlFilas([]); setXlMismatch(null); }
-    finally { setXlLoading(false); }
+    catch (error) {
+      setXlFilas([]); setXlMismatch(null);
+      setXlError(error instanceof CredicoopTxtError ? error.message : "No se pudo leer el archivo.");
+    }
+    // Permite volver a elegir el mismo archivo después de corregirlo.
+    finally { setXlLoading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
   function checkLayout(r: { headerFound: boolean; all: unknown[][]; values: unknown[][] }) {
     const owner = codesOwner(r.values, codesByClient);
@@ -792,7 +809,7 @@ function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="text-xs font-black text-[#10233f]">Cargar CANJE — {config.nombre}</div>
-          <div className="mt-0.5 text-[11px] text-[#5a6a82]">Pegá las filas del Excel o subí el archivo directamente.</div>
+          <div className="mt-0.5 text-[11px] text-[#5a6a82]">Pegá las filas del Excel o subí el archivo directamente{allowsTxt ? " (Excel o TXT de Credicoop)" : ""}.</div>
         </div>
         <button type="button" onClick={onCancel} className="grid h-7 w-7 place-items-center rounded-lg border border-[#dbe4ef] text-[#5a6a82] hover:bg-[#f4f7fb]"><X size={14} /></button>
       </div>
@@ -814,7 +831,7 @@ function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
             {(["paste","excel"] as const).map((m) => (
               <button key={m} type="button" onClick={() => setMode(m)}
                 className={`rounded-lg px-4 py-1.5 text-xs font-black transition ${mode === m ? "border border-[#dbe4ef] bg-white text-[#0b5bbb] shadow-sm" : "text-[#5a6a82] hover:text-[#10233f]"}`}>
-                {m === "paste" ? "Pegar texto" : "Subir Excel"}
+                {m === "paste" ? "Pegar texto" : allowsTxt ? "Subir Excel o TXT" : "Subir Excel"}
               </button>
             ))}
           </div>
@@ -825,12 +842,12 @@ function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
             </label>
           ) : (
             <div className="flex flex-wrap items-end gap-4">
-              <label className={L}>Archivo Excel
+              <label className={L}>{allowsTxt ? "Archivo Excel o TXT" : "Archivo Excel"}
                 <button type="button" onClick={() => fileRef.current?.click()}
                   className="mt-1 flex h-9 items-center gap-2 rounded-lg border border-[#dbe4ef] bg-white px-3 text-xs font-bold text-[#425979] hover:border-[#0b5bbb] hover:text-[#0b5bbb]">
                   <Plus size={13} /> {xlFile ? xlFile.name : "Elegir archivo…"}
                 </button>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={(e) => void onFileChange(e)} />
+                <input ref={fileRef} type="file" accept={allowsTxt ? ".xlsx,.xls,.xlsm,.txt" : ".xlsx,.xls,.xlsm"} className="hidden" onChange={(e) => void onFileChange(e)} />
               </label>
               {xlSheets.length > 1 && (
                 <label className={L}>Pestaña
@@ -842,6 +859,9 @@ function CargaCanjeForm({ config, codesByClient, onSave, onCancel }: {
               )}
               {xlLoading && <span className="text-[11px] text-[#5a6a82]">Leyendo…</span>}
             </div>
+          )}
+          {mode === "excel" && xlError && (
+            <div role="alert" className="mt-3 rounded-xl border border-[#f5d4d4] bg-[#fff5f5] px-4 py-3 text-[11px] font-semibold text-[#b7433f]">{xlError}</div>
           )}
           {mode === "excel" && xlMismatch && (
             <div role="alert" className="mt-3 rounded-xl border border-[#f4c16d] bg-[#fff6e5] px-4 py-3 text-[11px] font-semibold text-[#7a4a00]">

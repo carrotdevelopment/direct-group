@@ -38,7 +38,7 @@ export const defaultEgressMappings: Record<EgressClient, EgressFieldMapping> = {
   },
   Credicoop: {
     dateDay: aliases("Día", "Dia"), dateMonth: aliases("Mes"), dateYear: aliases("Año", "Anio"), date: aliases("Fecha"),
-    clientCode: aliases("IdRedencion", "IdRecompensa"), product: aliases("Descripcion", "Apellido_nombre"), quantity: aliases("Cantidad"),
+    clientCode: aliases("IdRecompensa"), product: aliases("Descripcion"), quantity: aliases("Cantidad"),
     destination: aliases("Destino"), comments: aliases("Comentarios"), operation: aliases("Operación", "Operacion"),
   },
   HSBC: {
