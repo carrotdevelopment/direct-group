@@ -393,10 +393,9 @@ export async function GET(request: Request) {
 
   const types = usesPostgres() && usesCodeType(clientName) ? await readCodeTypes("Credicoop") : null;
   const vigentes = rows.filter((r) => r.vigente).length;
-  const withStockData = rows.filter((r) => r.hasStockData).length;
   return NextResponse.json({
     rows: types ? rows.map((row) => ({ ...row, type: types.get(normalizeCode(row.clientCode)) ?? null })) : rows,
-    message: `${vigentes} productos vigentes ${clientName} · ${withStockData} con datos de stock cargados${
+    message: `${vigentes} productos vigentes ${clientName}${
       latestUrbanoDate ? ` · stock Urbano al ${latestUrbanoDate.split("-").reverse().join("/")}` : ""
     }.`,
     source: usesPostgres() ? "postgresql" : "excel",

@@ -84,6 +84,7 @@ export function StockWorkspace() {
   const [planningMonths, setPlanningMonths] = useState("2");
   const [sort, setSort] = useState<StockSort>(null);
   const [grouped, setGrouped] = useState(false);
+  const [validity, setValidity] = useState<"" | "si" | "no">("");
   const [balance, setBalance] = useState<BalanceFilter>("");
   const [typeChoice, setTypeChoice] = useState<TypeFilter>("");
   const [savingType, setSavingType] = useState(false);
@@ -233,15 +234,15 @@ export function StockWorkspace() {
       const sorted = sortLines(lines, sort);
       return grouped ? groupBySupplier(sorted) : [{ supplier: "", lines: sorted }];
     };
-    const active = arrange(filtered.filter((r) => r.vigente));
-    const inactive = arrange(filtered.filter((r) => !r.vigente && (r.theoreticalStock > 0 || r.realStock > 0)));
+    const active = arrange(filtered.filter((r) => r.vigente && validity !== "no"));
+    const inactive = arrange(filtered.filter((r) => !r.vigente && validity !== "si" && (r.theoreticalStock > 0 || r.realStock > 0)));
     return {
       activeGroups: active,
       inactiveGroups: inactive,
       activeRows: active.flatMap((group) => group.lines),
       inactiveRows: inactive.flatMap((group) => group.lines),
     };
-  }, [rows, codeSearch, uniqueSearch, productSearch, months, balance, typeFilter, sort, grouped]);
+  }, [rows, codeSearch, uniqueSearch, productSearch, months, validity, balance, typeFilter, sort, grouped]);
 
   const totals = useMemo(
     () => ({
@@ -251,7 +252,6 @@ export function StockWorkspace() {
       ).length,
       realStock: rows.filter((r) => r.vigente).reduce((s, r) => s + r.realStock, 0),
       stockValue: rows.filter((r) => r.vigente).reduce((s, r) => s + r.stockValue, 0),
-      sinDatos: rows.filter((r) => r.vigente && !r.hasStockData).length,
     }),
     [rows],
   );
@@ -482,11 +482,6 @@ export function StockWorkspace() {
             <div className="text-xs font-black text-[#10233f]">
               {client} · {MONTH_LABEL} {YEAR}
             </div>
-            {totals.sinDatos > 0 && (
-              <div className="mt-0.5 text-[11px] text-[#b76a18]">
-                {totals.sinDatos} código{totals.sinDatos !== 1 ? "s" : ""} sin datos en la base de stock
-              </div>
-            )}
           </div>
           <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-1.5 text-[11px] font-black uppercase text-[#5a6a82]">
@@ -531,6 +526,14 @@ export function StockWorkspace() {
           <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
             <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-[#0b5bbb]" />
             Agrupar por proveedor
+          </label>
+          <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
+            Vigencia
+            <select value={validity} onChange={(e) => setValidity(e.target.value as typeof validity)} className={controlClass}>
+              <option value="">Todos</option>
+              <option value="si">Vigentes</option>
+              <option value="no">No vigentes con stock</option>
+            </select>
           </label>
           <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
             Sobra/Falta
@@ -755,7 +758,6 @@ export function StockWorkspace() {
           {inactiveRows.length > 0
             ? ` · ${inactiveRows.length} no vigentes con stock`
             : ""}
-          {totals.sinDatos > 0 ? ` · ${totals.sinDatos} sin datos cruzados` : ""}
         </div>
       </section>
     </>
