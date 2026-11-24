@@ -30,6 +30,15 @@ export const TANGO_ONLY_PURCHASES_FROM = "2026-11-16";
 
 export const STOCK_EGRESS_OPERATIONS = new Set(["CANJE", "ROBO/AJUSTE", "PASAJE", "CAMBIO"]);
 
+// Las planillas de Credicoop y Umiles también descuentan los reenvíos; las de los demás clientes no.
+const CLIENTS_WITH_RESEND = new Set(["credicoop", "umiles"]);
+
+export function stockEgressOperations(client: string) {
+  const operations = new Set(STOCK_EGRESS_OPERATIONS);
+  if (CLIENTS_WITH_RESEND.has(normalize(client))) operations.add("REENVIO");
+  return operations;
+}
+
 type IncomeRow = { clientCode: string; operation: string; delivered: number };
 type EgressRow = { clientCode: string; operation: string; quantity: number };
 
@@ -37,11 +46,12 @@ type EgressRow = { clientCode: string; operation: string; quantity: number };
 export function realStockForCode(client: string, clientCode: string, incomes: IncomeRow[], egresses: EgressRow[]) {
   const code = normalize(clientCode);
   const incomeOperations = stockIncomeOperations(client);
+  const egressOperations = stockEgressOperations(client);
   const income = incomes
     .filter((row) => normalize(row.clientCode) === code && incomeOperations.has(stockOperation(row.operation)))
     .reduce((sum, row) => sum + (Number(row.delivered) || 0), 0);
   const egress = egresses
-    .filter((row) => normalize(row.clientCode) === code && STOCK_EGRESS_OPERATIONS.has(stockOperation(row.operation)))
+    .filter((row) => normalize(row.clientCode) === code && egressOperations.has(stockOperation(row.operation)))
     .reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
   return { income, egress, stock: income - egress };
 }

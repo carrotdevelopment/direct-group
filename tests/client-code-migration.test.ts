@@ -52,4 +52,10 @@ describe("stock real de un código (misma cuenta que la pantalla Stock)", () => 
   it("en Umiles también suman los ajustes de ingreso de Tango", () => {
     expect(realStockForCode("Umiles", "75-5030", incomes, egresses).income).toBe(135);
   });
+
+  it("los reenvíos solo descuentan en Credicoop y Umiles, como en sus planillas", () => {
+    expect(realStockForCode("Pampa", "75-5030", incomes, egresses).egress).toBe(12);
+    expect(realStockForCode("Credicoop", "75-5030", incomes, egresses).egress).toBe(62);
+    expect(realStockForCode("Umiles", "75-5030", incomes, egresses).egress).toBe(62);
+  });
 });

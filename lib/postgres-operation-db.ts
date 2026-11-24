@@ -62,6 +62,13 @@ function norm(expression: string) {
   return `translate(lower(btrim(coalesce(${expression}, ''))), '${ACCENTS_FROM}', '${ACCENTS_TO}')`;
 }
 
+// Tango codifica los productos de Credicoop como "CREDI4797"; en la plataforma y en las planillas el
+// código es "4797". Se unifica al leer para que las compras de Tango sumen al mismo código.
+const CREDI_CODE = "'^credi([0-9]+)$'";
+function platformCode(expression: string) {
+  return `regexp_replace(btrim(coalesce(${expression}, '')), ${CREDI_CODE}, '\\1', 'i')`;
+}
+
 // Resuelve el cliente real de cada ingreso en la base con esa prioridad: Códigos
 // Cliente activos, referencia histórica, "Sin asignar".
 const CLIENT_RESOLUTION_CTE = `
@@ -88,17 +95,24 @@ const CLIENT_JOINS = `
     LEFT JOIN hist ON hist.k = t.k
     LEFT JOIN act ON act.k = t.k
     LEFT JOIN canon ON canon.k = lower(btrim(coalesce(nullif(act.cliente, ''), nullif(hist.client, ''), 'Sin asignar')))`;
+// En un ingreso, el cliente de la fila manda solo si vino de las planillas (traen el cliente en cada fila y
+// Importados y Producteca comparten códigos); los códigos CREDI#### son siempre de Credicoop.
+const RESOLVED_INCOME_CLIENT = `coalesce(own.nombre, ${RESOLVED_CLIENT})`;
+const INCOME_CLIENT_JOINS = `${CLIENT_JOINS}
+    LEFT JOIN canon own ON own.k = CASE
+      WHEN t.external_key IS NULL AND t.created_by LIKE 'migracion-excel-%' THEN lower(btrim(coalesce(t.cliente, '')))
+      WHEN btrim(coalesce(t.codigo_cliente, '')) ~* ${CREDI_CODE} THEN 'credicoop' END`;
 const RESOLVED_INCOME_CTE = Prisma.raw(`${CLIENT_RESOLUTION_CTE},
   r AS (
     SELECT t.id, btrim(coalesce(t.operacion, '')) AS operacion, t.fecha_pedido, btrim(coalesce(t.orden_de_compra, '')) AS orden_de_compra,
-      btrim(coalesce(t.codigo_cliente, '')) AS codigo_cliente, coalesce(t.cantidad, 0) AS cantidad,
+      ${platformCode("t.codigo_cliente")} AS codigo_cliente, coalesce(t.cantidad, 0) AS cantidad,
       btrim(coalesce(t.origen_del_pasaje, '')) AS origen, t.fecha_entrega, coalesce(t.entregado, 0) AS entregado,
       btrim(coalesce(t.comentarios, '')) AS comentarios, t.pending_tango_entry, t.created_by, t.updated_at,
-      ${RESOLVED_CLIENT} AS cliente_res,
+      ${RESOLVED_INCOME_CLIENT} AS cliente_res,
       coalesce(act.codigo_unico, '') AS codigo_unico,
       greatest(0, coalesce(t.cantidad, 0) - coalesce(t.entregado, 0)) AS pendiente,
       (t.external_key IS NOT NULL AND t.pasaje_id IS NULL) AS desde_tango
-    FROM (SELECT *, ${norm("codigo_cliente")} AS k FROM tango_ingresos) t${CLIENT_JOINS}
+    FROM (SELECT *, ${norm(platformCode("codigo_cliente"))} AS k FROM tango_ingresos) t${INCOME_CLIENT_JOINS}
   )
 `);
 
@@ -107,8 +121,8 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`${CLIENT_RESOLUTION_CTE},
 export async function readPendingPurchaseOrdersFromPostgres(client: string) {
   const rows = await excelPostgres.$queryRaw<{ codigo_cliente: string; pendiente: number }[]>`
     WITH ${Prisma.raw(CLIENT_RESOLUTION_CTE)}
-    SELECT min(btrim(t.codigo_cliente)) AS codigo_cliente, sum(t.cantidad_pendiente)::float8 AS pendiente
-    FROM (SELECT *, ${Prisma.raw(norm("codigo_cliente"))} AS k FROM tango_oc_pendientes) t${Prisma.raw(CLIENT_JOINS)}
+    SELECT min(${Prisma.raw(platformCode("t.codigo_cliente"))}) AS codigo_cliente, sum(t.cantidad_pendiente)::float8 AS pendiente
+    FROM (SELECT *, ${Prisma.raw(norm(platformCode("codigo_cliente")))} AS k FROM tango_oc_pendientes) t${Prisma.raw(CLIENT_JOINS)}
     WHERE ${Prisma.raw(norm(RESOLVED_CLIENT))} = ${normalizeSearch(client)}
     GROUP BY t.k`;
   return rows.map((row) => ({ clientCode: text(row.codigo_cliente), quantity: number(row.pendiente) }));

@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import fs from "node:fs";
 import { excelPostgres } from "@/lib/excel-postgres-client-core";
-import { stockIncomeOperations, stockOperation, STOCK_EGRESS_OPERATIONS } from "@/lib/stock-operations";
+import { stockEgressOperations, stockIncomeOperations, stockOperation } from "@/lib/stock-operations";
 
 // Uso: tsx scripts/import-stock-planilla-cliente.ts <pampa|credicoop|amex> "<4- Stock X.xlsm>" [--fecha=AAAA-MM-DD]
 //        [--sin-pasajes-del=AAAA-MM-DD] [--reemplazar-egresos] [--ingresos-por-fila] [--egresos-extra=<archivo.xlsx>]
@@ -304,18 +304,19 @@ async function main() {
   }
 
   // ---------- Stock resultante (egresos que quedarían en la base contra los de la planilla)
+  const countedEgress = stockEgressOperations(CLIENT);
   const egressAfter = new Map<string, number>();
   const allEgress = [
     ...(replaceEgress ? [] : existingEgress.map((row) => ({ clientCode: row.clientCode, operation: egressOperationOf(row.operation), quantity: num(row.quantity) }))),
     ...freshEgress,
   ];
   for (const row of allEgress) {
-    if (!STOCK_EGRESS_OPERATIONS.has(stockOperation(row.operation))) continue;
+    if (!countedEgress.has(stockOperation(row.operation))) continue;
     egressAfter.set(norm(row.clientCode), (egressAfter.get(norm(row.clientCode)) ?? 0) + row.quantity);
   }
   const egressPlanilla = new Map<string, number>();
   for (const row of egressItems) {
-    if (!STOCK_EGRESS_OPERATIONS.has(stockOperation(row.operation))) continue;
+    if (!countedEgress.has(stockOperation(row.operation))) continue;
     egressPlanilla.set(norm(row.clientCode), (egressPlanilla.get(norm(row.clientCode)) ?? 0) + row.quantity);
   }
   const stockDiffs = [...ownCodes].filter((code) => (egressAfter.get(code) ?? 0) !== (egressPlanilla.get(code) ?? 0));

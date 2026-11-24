@@ -21,7 +21,7 @@ import {
   readPendingPurchaseOrdersFromPostgres,
   readStockOperationRowsFromPostgres,
 } from "@/lib/postgres-operation-db";
-import { STOCK_EGRESS_OPERATIONS, stockIncomeOperations, stockOperation } from "@/lib/stock-operations";
+import { stockEgressOperations, stockIncomeOperations, stockOperation } from "@/lib/stock-operations";
 import { latestUrbanoStockByCode } from "@/lib/urbano-stock-db";
 
 export const runtime = "nodejs";
@@ -253,7 +253,7 @@ export async function GET(request: Request) {
   const costs = latestCostByCode(targetPeriod, costRows);
   const incomeOps = stockIncomeOperations(clientName);
   const incomeDateOps = new Set(["COMPRA", "PASAJE"]);
-  const egressOps = STOCK_EGRESS_OPERATIONS;
+  const egressOps = stockEgressOperations(clientName);
   const incomesByClientCode = new Map<string, Array<Record<string, unknown>>>();
   for (const row of incomes) {
     const key = normalizeCode(
