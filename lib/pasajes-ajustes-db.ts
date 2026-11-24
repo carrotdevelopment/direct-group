@@ -1,5 +1,5 @@
 import "server-only";
-import type { PasajeRequest, Prisma } from "../node_modules/.prisma/excel-client";
+import type { AjusteRequest, PasajeRequest, Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { tangoPasajeOperations, tangoWindowStart } from "@/lib/pasaje-tango-match";
@@ -18,10 +18,6 @@ function text(value: unknown) {
 
 function normalizeCode(value: string) {
   return value.trim().toLowerCase();
-}
-
-function isSelf(actor: PasajeActor, createdBy: string) {
-  return actor.role !== "ADMIN" && actor.name.trim().toLowerCase() === createdBy.trim().toLowerCase();
 }
 
 // Un operador solo puede generar ajustes de los clientes que se le asignaron en Permisos; el
@@ -515,6 +511,7 @@ export type AjusteInput = {
   reason?: string;
 };
 
+// El ajuste impacta en el stock al cargarlo: lo hace quien tiene el cliente a cargo, sin otra aprobación.
 export async function createAjuste(input: AjusteInput, actor: PasajeActor) {
   const createdBy = actor.name;
   if (!Number.isFinite(input.quantity) || input.quantity === 0) {
@@ -524,17 +521,71 @@ export async function createAjuste(input: AjusteInput, actor: PasajeActor) {
     throw new PasajeAjusteError("Completá el cliente y su código cliente.");
   }
   assertCanCreateFor(actor, input.client);
-  return excelPostgres.ajusteRequest.create({
-    data: {
-      client: text(input.client),
-      clientCode: text(input.clientCode),
-      uniqueCode: text(input.uniqueCode),
-      product: text(input.product) || null,
-      quantity: input.quantity,
-      reason: text(input.reason) || null,
-      createdBy,
+  const mapping = await excelPostgres.excelClientCode.findFirst({
+    where: {
+      client: { equals: text(input.client), mode: "insensitive" },
+      clientCode: { equals: text(input.clientCode), mode: "insensitive" },
+      active: true, voidedAt: null,
     },
   });
+  if (!mapping) throw new PasajeAjusteError(`${text(input.client)} no tiene activo el código ${text(input.clientCode)}.`);
+  const now = new Date();
+  const ajuste = await excelPostgres.$transaction(async (tx) => {
+    const created = await tx.ajusteRequest.create({
+      data: {
+        client: text(mapping.client),
+        clientCode: text(mapping.clientCode),
+        uniqueCode: text(mapping.uniqueCode),
+        product: text(input.product) || null,
+        quantity: input.quantity,
+        reason: text(input.reason) || null,
+        createdBy,
+        status: "accepted",
+        respondedBy: createdBy,
+        respondedAt: now,
+      },
+    });
+    await applyAjuste(tx, created, createdBy, now);
+    return created;
+  });
+  invalidateIncomeGroups();
+  return ajuste;
+}
+
+// Movimiento de stock de un ajuste: si suma, un ingreso; si resta, un egreso.
+async function applyAjuste(tx: Prisma.TransactionClient, ajuste: AjusteRequest, actorName: string, now: Date) {
+  const quantity = Number(ajuste.quantity);
+  const comments = `Ajuste de stock${ajuste.reason ? `: ${ajuste.reason}` : ""}`;
+  if (quantity > 0) {
+    await tx.tangoIncome.create({
+      data: {
+        client: ajuste.client,
+        clientCode: ajuste.clientCode,
+        operation: "ROBO/AJUSTE",
+        orderDate: now,
+        quantity,
+        deliveredQuantity: quantity,
+        deliveryDate: now,
+        comments,
+        pendingTangoEntry: true,
+        createdBy: actorName,
+      },
+    });
+  } else {
+    await tx.egress.create({
+      data: {
+        client: ajuste.client,
+        clientCode: ajuste.clientCode,
+        uniqueCode: ajuste.uniqueCode,
+        product: ajuste.product,
+        operation: "ROBO/AJUSTE",
+        date: now,
+        quantity: Math.abs(quantity),
+        comments,
+        createdBy: actorName,
+      },
+    });
+  }
 }
 
 export async function listAjustes(actor: PasajeActor, status?: string) {
@@ -545,6 +596,7 @@ export async function listAjustes(actor: PasajeActor, status?: string) {
   return rows.filter((row) => visibleToActor(actor, [row.client]));
 }
 
+// Ajustes que quedaron pendientes de cuando los tenía que aprobar otra persona.
 export async function respondAjuste(
   id: string,
   action: "accept" | "reject",
@@ -559,57 +611,19 @@ export async function respondAjuste(
     if (!canActForClient(actor, ajuste.client)) {
       throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${ajuste.client} puede aceptar o rechazar este ajuste.`, 403);
     }
-    if (isSelf(actor, ajuste.createdBy)) {
-      throw new PasajeAjusteError("No podés resolver un ajuste que generaste vos: lo tiene que aprobar otra persona.", 403);
-    }
-
-    const updated = await tx.ajusteRequest.update({
-      where: { id },
+    const now = new Date();
+    const updated = await tx.ajusteRequest.updateMany({
+      where: { id, status: "pending" },
       data: {
         status: action === "accept" ? "accepted" : "rejected",
         respondedBy,
-        respondedAt: new Date(),
+        respondedAt: now,
         responseComment: text(comment) || null,
       },
     });
-
-    if (action === "accept") {
-      const now = new Date();
-      const quantity = Number(ajuste.quantity);
-      const comments = `Ajuste de stock${ajuste.reason ? `: ${ajuste.reason}` : ""}`;
-      if (quantity > 0) {
-        await tx.tangoIncome.create({
-          data: {
-            client: ajuste.client,
-            clientCode: ajuste.clientCode,
-            operation: "ROBO/AJUSTE",
-            orderDate: now,
-            quantity,
-            deliveredQuantity: quantity,
-            deliveryDate: now,
-            comments,
-            pendingTangoEntry: true,
-            createdBy: respondedBy,
-          },
-        });
-      } else {
-        await tx.egress.create({
-          data: {
-            client: ajuste.client,
-            clientCode: ajuste.clientCode,
-            uniqueCode: ajuste.uniqueCode,
-            product: ajuste.product,
-            operation: "ROBO/AJUSTE",
-            date: now,
-            quantity: Math.abs(quantity),
-            comments,
-            createdBy: respondedBy,
-          },
-        });
-      }
-    }
-
-    return updated;
+    if (updated.count !== 1) throw new PasajeAjusteError("Ese ajuste ya fue resuelto.", 409);
+    if (action === "accept") await applyAjuste(tx, ajuste, respondedBy, now);
+    return tx.ajusteRequest.findUnique({ where: { id } });
   });
   if (action === "accept") invalidateIncomeGroups();
   return result;

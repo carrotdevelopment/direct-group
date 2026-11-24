@@ -12,7 +12,7 @@ export default async function PasajesPage() {
       <PageHeader
         eyebrow="Movimientos"
         title="Pasajes y Ajustes"
-        description="Pasajes de stock entre clientes (con aceptación de la contraparte) y ajustes de stock por rotura, faltante o sobrante."
+        description="Pasajes de stock entre clientes (con aprobación) y ajustes de stock por rotura, faltante o sobrante."
       />
       <PasajesWorkspace
         restrictedClients={user.role === "ADMIN" ? null : (user.pasajeClients ?? [])}

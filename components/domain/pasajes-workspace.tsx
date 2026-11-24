@@ -209,8 +209,6 @@ export function PasajesWorkspace({
 
   const canAct = (client: string) =>
     restrictedClients === null || restrictedClients.some((assigned) => assigned.toLowerCase() === client.toLowerCase());
-  const isOwn = (createdBy: string) =>
-    restrictedClients !== null && createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
   const createdByMe = (createdBy: string) => createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
   // Los ajustes se cargan solo de los clientes asignados; los pasajes, desde cualquier cliente.
   const cannotCreateAjuste = restrictedClients !== null && restrictedClients.length === 0;
@@ -751,14 +749,12 @@ export function PasajesWorkspace({
         </div>
       ) : (
         <div className="space-y-4">
+          {pendingAjustes.length > 0 && (
           <section className="card animate-enter overflow-hidden">
             <div className="border-b border-[#e1e8f1] bg-white p-4">
-              <h2 className="text-sm font-black text-[#10233f]">Pendientes de aceptación</h2>
+              <h2 className="text-sm font-black text-[#10233f]">Pendientes de antes</h2>
             </div>
             <div className="divide-y divide-[#e7edf4]">
-              {pendingAjustes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#5a6a82]">No hay ajustes pendientes.</p>
-              )}
               {pendingAjustes.map((a) => (
                 <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                   <div className="text-xs">
@@ -774,7 +770,7 @@ export function PasajesWorkspace({
                       {a.reason ? ` · ${a.reason}` : ""}
                     </div>
                   </div>
-                  {canAct(a.client) && !isOwn(a.createdBy) ? (
+                  {canAct(a.client) ? (
                     <div className="flex gap-2">
                       <Button size="sm" variant="secondary" onClick={() => respond("ajustes", a.id, "reject")}>
                         <X size={14} /> Rechazar
@@ -784,12 +780,13 @@ export function PasajesWorkspace({
                       </Button>
                     </div>
                   ) : (
-                    <span className="text-[11px] font-bold text-[#5a6a82]">Esperando la aprobación de otra persona</span>
+                    <span className="text-[11px] font-bold text-[#5a6a82]">Lo resuelve la encargada de {a.client}</span>
                   )}
                 </div>
               ))}
             </div>
           </section>
+          )}
 
           <section className="card animate-enter overflow-hidden">
             <div className="border-b border-[#e1e8f1] bg-white p-4">
@@ -810,6 +807,7 @@ export function PasajesWorkspace({
                       {Number(a.quantity) > 0 ? `+${a.quantity}` : a.quantity}
                     </div>
                     <div className="mt-0.5 text-[11px] text-[#5a6a82]">
+                      {a.reason ? `${a.reason} · ` : ""}
                       {a.respondedBy} el {a.respondedAt ? formatDateTime(a.respondedAt) : ""}
                       {a.responseComment ? ` · ${a.responseComment}` : ""}
                     </div>
@@ -1273,6 +1271,7 @@ function AjusteModal({
     if (!client || !clientCode) return setError("Elegí el cliente y su código cliente.");
     if (!parsedQuantity || parsedQuantity <= 0) return setError("Ingresá una cantidad mayor a cero.");
     if (!reason.trim()) return setError("Contá el motivo del ajuste (rotura, faltante, sobrante, etc.).");
+    if (!window.confirm(`¿${direction === "suma" ? "Sumar" : "Restar"} ${parsedQuantity} al stock de ${clientCode} (${client})?`)) return;
     setSubmitting(true);
     try {
       const response = await fetch("/api/ajustes", {
@@ -1306,7 +1305,7 @@ function AjusteModal({
         <div className="eyebrow">Nuevo ajuste</div>
         <h2 className="mt-2 text-xl font-black">Registrar ajuste de stock</h2>
         <p className="mt-1 text-xs text-[#5a6a82]">
-          Necesita que otra persona lo apruebe antes de impactar en el stock.
+          Impacta en el stock al generarlo. Solo se puede hacer de tus clientes a cargo.
         </p>
         <div className="mt-5 space-y-4">
           <ClientCodeSelect
