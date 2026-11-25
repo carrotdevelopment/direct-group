@@ -417,7 +417,7 @@ export function StockWorkspace() {
         </td>
         {/* Sticky col 3: Producto */}
         <td
-          className={`sticky left-[170px] z-30 w-[180px] min-w-[180px] max-w-[180px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[11px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
+          className={`sticky left-[170px] z-30 w-[280px] min-w-[280px] max-w-[280px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[11px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
           title={row.product}
         >
           <div className="truncate">{row.product || "—"}</div>
@@ -681,7 +681,7 @@ export function StockWorkspace() {
         )}
         <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
           <table
-            style={{ zoom: zoom / 100, minWidth: withType ? 2394 : 2290 }}
+            style={{ zoom: zoom / 100, minWidth: withType ? 2494 : 2390 }}
             className="table-fixed border-separate border-spacing-0 text-left text-[11px]"
           >
             <thead>
@@ -690,7 +690,7 @@ export function StockWorkspace() {
                 {/* Sticky placeholders (no label needed) */}
                 <th className={`${grpBase} sticky left-0 z-50 w-[80px] min-w-[80px] bg-[#e4ecf5]`} />
                 <th className={`${grpBase} sticky left-[80px] z-50 w-[90px] min-w-[90px] bg-[#e4ecf5]`} />
-                <th className={`${grpBase} sticky left-[170px] z-50 w-[180px] min-w-[180px] bg-[#e4ecf5]`} />
+                <th className={`${grpBase} sticky left-[170px] z-50 w-[280px] min-w-[280px] bg-[#e4ecf5]`} />
                 {/* Info (no label) */}
                 <th colSpan={withType ? 3 : 2} className={`${grpBase} z-20 bg-[#edf3f9] text-[#5a6a82]`} />
                 {/* Movimientos */}
@@ -748,7 +748,7 @@ export function StockWorkspace() {
                   </div>
                 </th>
                 {/* Sticky col 3 */}
-                <th className={`${colHdrSticky} left-[170px] w-[180px] min-w-[180px] text-left shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]`}>
+                <th className={`${colHdrSticky} left-[170px] w-[280px] min-w-[280px] text-left shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]`}>
                   <div className="mb-1 pl-0.5">{sortButton("product")}</div>
                   <div className="relative">
                     <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />

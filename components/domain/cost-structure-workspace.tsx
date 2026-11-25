@@ -1060,12 +1060,12 @@ export function CostStructureWorkspace() {
 
         {/* Table */}
         <div className="max-h-[calc(100vh-270px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
-          <table className={`cost-table ${isAmex ? "w-[1664px]" : "w-[1504px]"} table-fixed border-separate text-left text-[11px]`} style={{ borderSpacing: 0 }}>
+          <table className={`cost-table ${isAmex ? "w-[1760px]" : "w-[1600px]"} table-fixed border-separate text-left text-[11px]`} style={{ borderSpacing: 0 }}>
             <colgroup>
               <col style={{ width: 36 }} />
               <col style={{ width: 64 }} />
               <col style={{ width: 76 }} />
-              <col style={{ width: 144 }} />
+              <col style={{ width: 240 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 56 }} />
@@ -1109,7 +1109,7 @@ export function CostStructureWorkspace() {
                   <InlineSearch value={uniqueCodeSearch} onChange={setUniqueCodeSearch} />
                 </th>
                 <th title="Descripción guardada en estructura; si falta, maestro de productos."
-                  className={`${stickyTh} left-[176px] z-50 w-36 shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)]`}
+                  className={`${stickyTh} left-[176px] z-50 w-60 shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)]`}
                 >
                   <div>Producto</div>
                   <InlineSearch value={productSearch} onChange={setProductSearch} />
@@ -1323,7 +1323,7 @@ export function CostStructureWorkspace() {
                         {row.uniqueCode}
                       </td>
                       <td
-                        className={`sticky left-[176px] z-30 w-36 truncate border-r border-[#c3d0df] px-1.5 py-1 font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)] ${stickyBg}`}
+                        className={`sticky left-[176px] z-30 w-60 truncate border-r border-[#c3d0df] px-1.5 py-1 font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)] ${stickyBg}`}
                         title={row.product}
                       >
                         {row.product}
