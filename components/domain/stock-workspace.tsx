@@ -498,11 +498,7 @@ export function StockWorkspace() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Stock"
-        title="Stock actual por cliente"
-        description="Visualización cruzada con ingresos, egresos y estructura de costos."
-      />
+      <PageHeader title="Stock actual por cliente" />
 
       {/* Controls */}
       <section className="card mb-4 p-5">

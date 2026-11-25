@@ -9,11 +9,7 @@ export default async function PasajesPage() {
   const user = await requirePageModule("pasajes");
   return (
     <>
-      <PageHeader
-        eyebrow="Movimientos"
-        title="Pasajes"
-        description="Pasajes de stock entre clientes, con aprobación. Los ajustes se cargan en Ingresos (suman) o en Egresos (restan)."
-      />
+      <PageHeader title="Pasajes" />
       <PasajesWorkspace
         restrictedClients={user.role === "ADMIN" ? null : (user.pasajeClients ?? [])}
         userName={user.name || user.email || ""}

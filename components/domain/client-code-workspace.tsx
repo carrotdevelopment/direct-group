@@ -1021,11 +1021,7 @@ export function ClientCodeWorkspace() {
         </div>
       )}
 
-      <PageHeader
-        eyebrow="Códigos cliente"
-        title="Asignación de códigos"
-        description="Cada asignación queda registrada con su fecha. Si un código cambia, la asignación anterior se conserva como inactiva y se crea una nueva."
-      />
+      <PageHeader title="Asignación de códigos" />
 
       <section className="card mb-4 overflow-hidden">
         <div className="border-b border-[#dbe4ef] bg-[#edf4fc] px-5 py-4">

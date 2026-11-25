@@ -680,11 +680,7 @@ export function IncomeWorkspace() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Ingresos"
-        title="Ingresos Tango"
-        description="Vista de control sobre la consulta de Tango Gestión. La web no carga ni modifica ingresos: muestra lo registrado en Tango y lo cruza con nuestros códigos cliente."
-      />
+      <PageHeader title="Ingresos Tango" />
 
       {connectorStale ? (
         <section className="mb-4 flex items-center gap-3 rounded-xl border border-[#f4c16d] bg-[#fff6e8] px-5 py-3 text-[12px] font-bold text-[#985b00]">

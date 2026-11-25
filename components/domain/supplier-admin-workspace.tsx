@@ -361,11 +361,7 @@ function AdminList({
 export function SupplierAdminWorkspace() {
   return (
     <>
-      <PageHeader
-        eyebrow="Proveedores"
-        title="Red de proveedores"
-        description="Gestioná proveedores, categorías, catálogos, documentos y vigencia de costos desde un único lugar."
-      />
+      <PageHeader title="Red de proveedores" />
       <div className="grid gap-4 xl:grid-cols-2">
         <AdminList
           id="proveedores"

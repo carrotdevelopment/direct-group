@@ -729,11 +729,7 @@ export function CostStructureWorkspace() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Estructura de costos"
-        title="Estructura mensual por cliente"
-        description="Editá flete y PVC por período. Las tasas del cliente se aplican automáticamente desde la configuración vigente."
-      />
+      <PageHeader title="Estructura mensual por cliente" />
 
       {/* ── Filter card ──────────────────────────────────────────────────── */}
       <section className="card mb-4 p-5">

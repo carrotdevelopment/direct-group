@@ -263,11 +263,7 @@ export function ClientAdminWorkspace() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Administración"
-        title="Clientes"
-        description="Gestioná la lista de clientes y la configuración de tasas para la estructura de costos."
-      />
+      <PageHeader title="Clientes" />
 
       {status && (
         <div className="mb-4 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-3 text-[11px] font-bold text-[#5a6a82]">

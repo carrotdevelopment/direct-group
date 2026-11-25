@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { PageHeader } from "@/components/domain/page-header";
 import { accessModules, PASAJES_ALL } from "@/lib/module-access";
 
 type User = { id: string; name: string; email: string; role: string; active: boolean; moduleAccess: string[]; pasajeClients: string[]; lastLoginAt?: string | null };
@@ -44,7 +45,7 @@ export function PermissionsWorkspace({ currentUserId }: { currentUserId: string 
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  return <div className="space-y-6"><div><h1 className="text-2xl font-bold text-[#062b5b]">Permisos y usuarios</h1><p className="mt-2 text-sm text-slate-600">Administrá las cuentas y su acceso a cada módulo. Los cambios se aplican en la siguiente solicitud.</p></div>
+  return <div className="space-y-6"><PageHeader title="Permisos y usuarios" />
     {message && <p role="status" className="rounded-lg border bg-white p-3">{message}</p>}
     <div className="overflow-x-auto rounded-xl border bg-white"><table className="w-full text-left text-sm"><thead><tr>{["Usuario", "Estado", "Acceso", "Último ingreso", ""].map((title, index) => <th key={index} className="p-3">{title}</th>)}</tr></thead><tbody>{users.map(user => <tr key={user.id} className="border-t"><td className="p-3"><strong>{user.name}</strong><div>{user.email}</div></td><td className="p-3">{user.active ? "Activo" : "Deshabilitado"}</td><td className="p-3">{user.role === "ADMIN" ? "Administrador · Todos los módulos" : `${user.role === "LECTURA" ? "Solo lectura" : "Operador"} · ${user.moduleAccess.filter(key => key in accessModules).map(key => accessModules[key as keyof typeof accessModules]).join(", ") || "Sin módulos"}${user.moduleAccess.includes("pasajes") ? ` · Pasajes: ${user.pasajeClients?.length ? user.pasajeClients.join(", ") : "sin clientes asignados"}${user.moduleAccess.includes(PASAJES_ALL) ? " · Ve todos los pasajes" : ""}` : ""}`}</td><td className="p-3">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString("es-AR") : "Nunca"}</td><td className="p-3"><button disabled={busy} className="text-blue-700 underline" onClick={() => { setForm({ ...user, pasajeClients: user.pasajeClients ?? [], password: "" }); setMessage(""); }}>Editar permisos</button></td></tr>)}</tbody></table>{loading && <p className="p-4">Cargando usuarios…</p>}{!loading && !users.length && <p className="p-4">No hay usuarios para mostrar.</p>}</div>
     <form method="post" className="space-y-4 rounded-xl border bg-white p-5" onSubmit={async event => {

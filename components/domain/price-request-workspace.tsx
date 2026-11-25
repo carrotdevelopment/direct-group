@@ -691,11 +691,7 @@ export function PriceRequestWorkspace() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Precios"
-        title="Solicitudes y base de precios"
-        description="Configurá a quién se solicita la lista el primer día hábil de cada mes y consultá el historial de precios recibidos y estructurados."
-      />
+      <PageHeader title="Solicitudes y base de precios" />
 
       <section className="card mb-5 overflow-hidden">
         <div className="flex flex-col gap-3 bg-[#edf4fc] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">

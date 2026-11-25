@@ -948,11 +948,7 @@ export function ProductWorkspace() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Productos"
-        title="Catálogo de productos"
-        description="Administrá el maestro único, sus datos comerciales y códigos de proveedor. El código único no se repite y permanece trazable."
-      />
+      <PageHeader title="Catálogo de productos" />
       <SummaryStrip
         items={[
           {

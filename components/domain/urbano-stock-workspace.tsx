@@ -220,11 +220,7 @@ export function UrbanoStockWorkspace({ canWrite }: { canWrite: boolean }) {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Stock"
-        title="Carga de stock Urbano"
-        description="Stock que informa Urbano: se trae solo todos los días o se sube el Excel exportado del portal (con todas las columnas). La pantalla Stock muestra la cantidad física de la última carga en la columna “Stk. Urbano” y la compara con el stock real."
-      />
+      <PageHeader title="Carga de stock Urbano" />
 
       {canWrite && (
         <section className="card mb-4 p-5">

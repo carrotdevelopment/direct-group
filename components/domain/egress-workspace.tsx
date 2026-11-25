@@ -1796,8 +1796,7 @@ export function EgressWorkspace() {
 
   return (
     <>
-      <PageHeader eyebrow="Egresos" title="Egresos"
-        description="Registrá canjes, pasajes, robos, cambios y reenvíos por cliente." />
+      <PageHeader title="Egresos" />
 
       {/* Client bar */}
       <div className="card mb-5 flex flex-wrap items-center gap-3 p-4">

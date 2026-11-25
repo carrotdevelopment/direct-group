@@ -33,11 +33,7 @@ export default async function ConfiguracionPage({ searchParams }: { searchParams
 
   return (
     <>
-      <PageHeader
-        eyebrow="Sistema"
-        title="Configuración"
-        description="Datos de la organización, usuarios, seguridad, avisos por correo y respaldos de la base."
-      />
+      <PageHeader title="Configuración" />
       <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
         <nav className="card h-fit animate-enter p-2">
           {visible.map((section) => (
