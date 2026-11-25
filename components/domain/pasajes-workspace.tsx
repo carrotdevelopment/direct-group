@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, Pencil, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { readDraft, saveDraft } from "@/lib/browser-draft";
 import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
-import { AjusteMasivoModal } from "@/components/domain/ajuste-masivo-modal";
 import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
@@ -39,22 +38,6 @@ type Pasaje = {
   batch: { fileName: string | null; requestDate: string | null } | null;
 };
 
-type Ajuste = {
-  id: string;
-  client: string;
-  clientCode: string;
-  uniqueCode: string;
-  product: string | null;
-  quantity: string;
-  status: "pending" | "accepted" | "rejected";
-  reason: string | null;
-  createdBy: string;
-  createdAt: string;
-  respondedBy: string | null;
-  respondedAt: string | null;
-  responseComment: string | null;
-};
-
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
@@ -81,98 +64,6 @@ function pasajeStatusLabel(status: string) {
 const isOpenPasaje = (p: { status: string }) => p.status === "pending" || p.status === "approved";
 const lacksDestination = (p: { status: string }) => p.status === "no_destination";
 
-function ClientCodeSelect({
-  label,
-  mappings,
-  clientValue,
-  codeValue,
-  onChange,
-  requireUniqueCode,
-  allowedClients,
-}: {
-  label: string;
-  mappings: Mapping[];
-  clientValue: string;
-  codeValue: string;
-  onChange: (client: string, clientCode: string, uniqueCode: string) => void;
-  // Cuando viene seteado (ej. el SKU ya elegido del lado emisor de un
-  // pasaje), solo se ofrecen clientes/códigos que tengan ese mismo código
-  // único — no tiene sentido mover un producto a un cliente que no lo tiene
-  // asignado.
-  requireUniqueCode?: string;
-  // Clientes que el usuario tiene asignados en Permisos (null = sin restricción).
-  allowedClients?: string[] | null;
-}) {
-  const pool = useMemo(
-    () =>
-      mappings.filter(
-        (m) =>
-          m.active &&
-          (!requireUniqueCode || m.uniqueCode.toLowerCase() === requireUniqueCode.toLowerCase()) &&
-          (!allowedClients || allowedClients.some((client) => client.toLowerCase() === m.client.toLowerCase())),
-      ),
-    [mappings, requireUniqueCode, allowedClients],
-  );
-  const clients = useMemo(
-    () =>
-      Array.from(new Set(pool.map((m) => m.client)))
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b, "es")),
-    [pool],
-  );
-  const codes = useMemo(
-    () =>
-      pool
-        .filter((m) => m.client === clientValue)
-        .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true })),
-    [pool, clientValue],
-  );
-
-  return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      <label className="text-[11px] font-extrabold text-[#334b6b]">
-        {label}
-        <select
-          value={clientValue}
-          onChange={(event) => onChange(event.target.value, "", "")}
-          className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case outline-none focus:border-[#7da4d3]"
-        >
-          <option value="">Elegí un cliente</option>
-          {clients.map((client) => (
-            <option key={client} value={client}>
-              {client}
-            </option>
-          ))}
-        </select>
-        {requireUniqueCode && clients.length === 0 && (
-          <span className="mt-1 block text-[11px] font-bold text-[#a43d39]">
-            Ningún cliente tiene el código único {requireUniqueCode} asignado.
-          </span>
-        )}
-      </label>
-      <label className="text-[11px] font-extrabold text-[#334b6b]">
-        Código cliente
-        <select
-          value={codeValue}
-          disabled={!clientValue}
-          onChange={(event) => {
-            const mapping = codes.find((m) => m.clientCode === event.target.value);
-            onChange(clientValue, event.target.value, mapping?.uniqueCode ?? "");
-          }}
-          className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case outline-none focus:border-[#7da4d3] disabled:bg-[#f2f5f9]"
-        >
-          <option value="">Elegí un código</option>
-          {codes.map((m) => (
-            <option key={m.clientCode} value={m.clientCode}>
-              {m.clientCode} · {m.uniqueCode}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-
 export function PasajesWorkspace({
   restrictedClients,
   userName,
@@ -182,18 +73,14 @@ export function PasajesWorkspace({
   userName: string;
   seesAll?: boolean;
 }) {
-  const [tab, setTab] = useState<"pasajes" | "ajustes">("pasajes");
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [products, setProducts] = useState<ProductLookup[]>([]);
   const [pasajes, setPasajes] = useState<Pasaje[]>([]);
-  const [ajustes, setAjustes] = useState<Ajuste[]>([]);
   const [status, setStatus] = useState("Cargando...");
   const [pasajeModalOpen, setPasajeModalOpen] = useState(false);
   const [solicitudModalOpen, setSolicitudModalOpen] = useState(false);
   const [batches, setBatches] = useState<PasajeBatch[]>([]);
   const [selectedApprove, setSelectedApprove] = useState<Set<string>>(new Set());
-  const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
-  const [masivoModalOpen, setMasivoModalOpen] = useState(false);
   // Destino elegido para cada pasaje sin destino, como "cliente|código".
   const [destinationChoice, setDestinationChoice] = useState<Record<string, string>>({});
   const [realQuantity, setRealQuantity] = useState<Record<string, string>>({});
@@ -212,30 +99,25 @@ export function PasajesWorkspace({
   const canAct = (client: string) =>
     restrictedClients === null || restrictedClients.some((assigned) => assigned.toLowerCase() === client.toLowerCase());
   const createdByMe = (createdBy: string) => createdBy.trim().toLowerCase() === userName.trim().toLowerCase();
-  // Los ajustes se cargan solo de los clientes asignados; los pasajes, desde cualquier cliente.
-  const cannotCreateAjuste = restrictedClients !== null && restrictedClients.length === 0;
 
   async function loadAll() {
     try {
-      const [mappingsRes, productsRes, pasajesRes, ajustesRes, batchesRes] = await Promise.all([
+      const [mappingsRes, productsRes, pasajesRes, batchesRes] = await Promise.all([
         fetch("/api/lookups?kind=client-codes"),
         fetch("/api/lookups?kind=products"),
         fetch("/api/pasajes"),
-        fetch("/api/ajustes"),
         fetch("/api/pasajes/lotes", { cache: "no-store" }),
       ]);
-      const [mappingsData, productsData, pasajesData, ajustesData, batchesData] = await Promise.all([
+      const [mappingsData, productsData, pasajesData, batchesData] = await Promise.all([
         mappingsRes.json(),
         productsRes.json(),
         pasajesRes.json(),
-        ajustesRes.json(),
         batchesRes.ok ? batchesRes.json() : { batches: [] },
       ]);
       setBatches(batchesData.batches ?? []);
       setMappings(mappingsData.mappings ?? []);
       setProducts(productsData.products ?? []);
       setPasajes(pasajesData.pasajes ?? []);
-      setAjustes(ajustesData.ajustes ?? []);
       setStatus("Actualizado");
     } catch {
       setStatus("No pude cargar los datos.");
@@ -248,12 +130,11 @@ export function PasajesWorkspace({
     void loadAll();
   }, []);
 
-  async function respond(kind: "pasajes" | "ajustes", id: string, action: "accept" | "reject" | "cancel" | "approve") {
+  async function respond(id: string, action: "cancel" | "approve") {
     setError("");
     if (action === "cancel" && !window.confirm("¿Rechazar el pasaje? Si ya egresó, el stock vuelve al origen y se borra el ingreso pendiente.")) return;
-    if (action === "reject" && !window.confirm("¿Rechazar el ajuste? El stock queda sin cambios.")) return;
     try {
-      const response = await fetch(`/api/${kind}/${id}`, {
+      const response = await fetch(`/api/pasajes/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -391,60 +272,29 @@ export function PasajesWorkspace({
   }
 
   const withoutDestination = pasajes.filter(lacksDestination);
-  const openPasajes = pasajes.filter(isOpenPasaje);
   const awaitingApproval = pasajes.filter((p) => p.status === "pending");
   const awaitingArrival = pasajes.filter((p) => p.status === "approved");
   const resolvedPasajes = pasajes.filter((p) => !isOpenPasaje(p) && !lacksDestination(p));
-  const pendingPasajes = withoutDestination.length + openPasajes.length;
-  const pendingAjustes = ajustes.filter((a) => a.status === "pending");
-  const resolvedAjustes = ajustes.filter((a) => a.status !== "pending");
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-[#dbe4ef] bg-white p-1">
-          <button
-            onClick={() => setTab("pasajes")}
-            className={`rounded-lg px-4 py-2 text-xs font-bold transition ${tab === "pasajes" ? "bg-[#0b5bbb] text-white" : "text-[#425979] hover:bg-[#edf4fc]"}`}
-          >
-            Pasajes {pendingPasajes > 0 && `(${pendingPasajes})`}
-          </button>
-          <button
-            onClick={() => setTab("ajustes")}
-            className={`rounded-lg px-4 py-2 text-xs font-bold transition ${tab === "ajustes" ? "bg-[#0b5bbb] text-white" : "text-[#425979] hover:bg-[#edf4fc]"}`}
-          >
-            Ajustes {pendingAjustes.length > 0 && `(${pendingAjustes.length})`}
-          </button>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="hidden text-[11px] font-bold text-[#5a6a82] sm:inline">{status}</span>
-          {tab === "pasajes" ? (
-            <>
-              <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
-                <ArrowRightLeft size={15} /> Un pasaje
-              </Button>
-              <Button size="sm" className="whitespace-nowrap" onClick={() => setSolicitudModalOpen(true)}>
-                <FileSpreadsheet size={15} /> Cargar pasajes
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button size="sm" variant="secondary" className="whitespace-nowrap" disabled={cannotCreateAjuste} onClick={() => setAjusteModalOpen(true)}>
-                <SlidersHorizontal size={15} /> Un ajuste
-              </Button>
-              <Button size="sm" className="whitespace-nowrap" disabled={cannotCreateAjuste} onClick={() => setMasivoModalOpen(true)}>
-                <FileSpreadsheet size={15} /> Ajustes masivos
-              </Button>
-            </>
-          )}
+          <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
+            <ArrowRightLeft size={15} /> Un pasaje
+          </Button>
+          <Button size="sm" className="whitespace-nowrap" onClick={() => setSolicitudModalOpen(true)}>
+            <FileSpreadsheet size={15} /> Cargar pasajes
+          </Button>
         </div>
       </div>
 
       {restrictedClients !== null && (
         <div className="mb-4 rounded-xl bg-[#eef3fb] px-4 py-3 text-xs font-bold text-[#52647d]">
           {restrictedClients.length
-            ? `Tus clientes asignados: ${restrictedClients.join(", ")}. Podés cargar pasajes desde cualquier cliente y ajustes de tus clientes.`
-            : "Podés cargar pasajes desde cualquier cliente. Para cargar ajustes, pedile a un administrador que te asigne clientes en Permisos."}
+            ? `Tus clientes asignados: ${restrictedClients.join(", ")}. Podés cargar pasajes desde cualquier cliente.`
+            : "Podés cargar pasajes desde cualquier cliente. Para aprobar o confirmar, pedile a un administrador que te asigne clientes en Permisos."}
           {seesAll && " Como encargada de pasajes, ves los pasajes de todos los clientes; los aprueba y confirma la encargada de cada uno."}
         </div>
       )}
@@ -453,7 +303,6 @@ export function PasajesWorkspace({
         <div className="mb-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>
       )}
 
-      {tab === "pasajes" ? (
         <div className="space-y-4">
           <details className="group rounded-xl bg-[#eef3fb] px-4 py-2 text-xs font-bold text-[#52647d]">
             <summary className="cursor-pointer list-none text-[#0b5bbb] marker:hidden">
@@ -499,7 +348,7 @@ export function PasajesWorkspace({
                           Ningún otro cliente tiene el código único {p.uniqueCode}: cargalo en Códigos Cliente.
                         </span>
                       )}
-                      <Button size="sm" variant="secondary" onClick={() => respond("pasajes", p.id, "cancel")}>
+                      <Button size="sm" variant="secondary" onClick={() => respond(p.id, "cancel")}>
                         <X size={14} /> Cancelar
                       </Button>
                     </div>
@@ -570,14 +419,14 @@ export function PasajesWorkspace({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {canApprove(p) ? (
-                      <Button size="sm" onClick={() => void respond("pasajes", p.id, "approve")}>
+                      <Button size="sm" onClick={() => void respond(p.id, "approve")}>
                         <Check size={14} /> Aprobar
                       </Button>
                     ) : (
                       <span className="text-[11px] font-bold text-[#5a6a82]">Lo aprueba la encargada de {p.fromClient}</span>
                     )}
                     {canCancel(p) && (
-                      <Button size="sm" variant="secondary" onClick={() => void respond("pasajes", p.id, "cancel")}>
+                      <Button size="sm" variant="secondary" onClick={() => void respond(p.id, "cancel")}>
                         <X size={14} /> Rechazar
                       </Button>
                     )}
@@ -674,7 +523,7 @@ export function PasajesWorkspace({
                         <span className="text-[11px] font-bold text-[#5a6a82]">Lo confirma la encargada de {p.toClient}</span>
                       )}
                       {canCancel(p) && (
-                        <Button size="sm" variant="secondary" onClick={() => void respond("pasajes", p.id, "cancel")}>
+                        <Button size="sm" variant="secondary" onClick={() => void respond(p.id, "cancel")}>
                           <X size={14} /> Rechazar
                         </Button>
                       )}
@@ -754,80 +603,6 @@ export function PasajesWorkspace({
             </div>
           </section>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {pendingAjustes.length > 0 && (
-          <section className="card animate-enter overflow-hidden">
-            <div className="border-b border-[#e1e8f1] bg-white p-4">
-              <h2 className="text-sm font-black text-[#10233f]">Pendientes de antes</h2>
-            </div>
-            <div className="divide-y divide-[#e7edf4]">
-              {pendingAjustes.map((a) => (
-                <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div className="text-xs">
-                    <div className="font-bold text-[#10233f]">
-                      {a.client} ({a.clientCode})
-                    </div>
-                    <div className="mt-0.5 text-[#5a6a82]">
-                      {productByCode.get(a.uniqueCode.toLowerCase()) || a.product || a.uniqueCode} · Cantidad:{" "}
-                      {Number(a.quantity) > 0 ? `+${a.quantity}` : a.quantity}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-[#5a6a82]">
-                      Generado por {a.createdBy} el {formatDateTime(a.createdAt)}
-                      {a.reason ? ` · ${a.reason}` : ""}
-                    </div>
-                  </div>
-                  {canAct(a.client) ? (
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => respond("ajustes", a.id, "reject")}>
-                        <X size={14} /> Rechazar
-                      </Button>
-                      <Button size="sm" onClick={() => respond("ajustes", a.id, "accept")}>
-                        <Check size={14} /> Aceptar
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="text-[11px] font-bold text-[#5a6a82]">Lo resuelve la encargada de {a.client}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-          )}
-
-          <section className="card animate-enter overflow-hidden">
-            <div className="border-b border-[#e1e8f1] bg-white p-4">
-              <h2 className="text-sm font-black text-[#10233f]">Historial</h2>
-            </div>
-            <div className="divide-y divide-[#e7edf4]">
-              {resolvedAjustes.length === 0 && (
-                <p className="p-4 text-xs font-semibold text-[#5a6a82]">Todavía no hay ajustes resueltos.</p>
-              )}
-              {resolvedAjustes.map((a) => (
-                <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div className="text-xs">
-                    <div className="font-bold text-[#10233f]">
-                      {a.client} ({a.clientCode})
-                    </div>
-                    <div className="mt-0.5 text-[#5a6a82]">
-                      {productByCode.get(a.uniqueCode.toLowerCase()) || a.product || a.uniqueCode} · Cantidad:{" "}
-                      {Number(a.quantity) > 0 ? `+${a.quantity}` : a.quantity}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-[#5a6a82]">
-                      {a.reason ? `${a.reason} · ` : ""}
-                      {a.respondedBy} el {a.respondedAt ? formatDateTime(a.respondedAt) : ""}
-                      {a.responseComment ? ` · ${a.responseComment}` : ""}
-                    </div>
-                  </div>
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${statusBadge(a.status)}`}>
-                    {statusLabel(a.status)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
 
       {pasajeModalOpen && (
         <PasajeModal
@@ -845,27 +620,6 @@ export function PasajesWorkspace({
       )}
       {solicitudModalOpen && (
         <PasajeSolicitudModal draftKey={`pasajes:${userName}`} mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
-      )}
-      {masivoModalOpen && (
-        <AjusteMasivoModal
-          mappings={mappings}
-          products={products}
-          allowedClients={restrictedClients}
-          draftKey={`ajustes:${userName}`}
-          onClose={() => setMasivoModalOpen(false)}
-          onCreated={() => void loadAll()}
-        />
-      )}
-      {ajusteModalOpen && (
-        <AjusteModal
-          mappings={mappings}
-          allowedClients={restrictedClients}
-          onClose={() => setAjusteModalOpen(false)}
-          onCreated={() => {
-            setAjusteModalOpen(false);
-            void loadAll();
-          }}
-        />
       )}
     </>
   );
@@ -1254,131 +1008,6 @@ function PasajeModal({
           </Button>
           <Button type="submit" disabled={submitting}>
             {shortage ? "Generar igual" : "Generar pasaje"}
-          </Button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function AjusteModal({
-  mappings,
-  allowedClients,
-  onClose,
-  onCreated,
-}: {
-  mappings: Mapping[];
-  allowedClients: string[] | null;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [client, setClient] = useState("");
-  const [clientCode, setClientCode] = useState("");
-  const [uniqueCode, setUniqueCode] = useState("");
-  const [direction, setDirection] = useState<"suma" | "resta">("resta");
-  const [quantity, setQuantity] = useState("");
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    const parsedQuantity = Number(quantity);
-    if (!client || !clientCode) return setError("Elegí el cliente y su código cliente.");
-    if (!parsedQuantity || parsedQuantity <= 0) return setError("Ingresá una cantidad mayor a cero.");
-    if (!reason.trim()) return setError("Contá el motivo del ajuste (rotura, faltante, sobrante, etc.).");
-    if (!window.confirm(`¿${direction === "suma" ? "Sumar" : "Restar"} ${parsedQuantity} al stock de ${clientCode} (${client})?`)) return;
-    setSubmitting(true);
-    try {
-      const response = await fetch("/api/ajustes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client,
-          clientCode,
-          uniqueCode,
-          quantity: direction === "suma" ? parsedQuantity : -parsedQuantity,
-          reason,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "No se pudo generar el ajuste.");
-      onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo generar el ajuste.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
-      <button aria-label="Cerrar" className="absolute inset-0" onClick={onClose} />
-      <form onSubmit={submit} className="relative w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
-        <button type="button" onClick={onClose} className="absolute right-5 top-5 rounded-lg p-2 text-[#5a6a82] hover:bg-[#f0f2f0]">
-          <X size={18} />
-        </button>
-        <div className="eyebrow">Nuevo ajuste</div>
-        <h2 className="mt-2 text-xl font-black">Registrar ajuste de stock</h2>
-        <p className="mt-1 text-xs text-[#5a6a82]">
-          Impacta en el stock al generarlo. Solo se puede hacer de tus clientes a cargo.
-        </p>
-        <div className="mt-5 space-y-4">
-          <ClientCodeSelect
-            label="Cliente"
-            mappings={mappings}
-            allowedClients={allowedClients}
-            clientValue={client}
-            codeValue={clientCode}
-            onChange={(nextClient, nextCode, nextUniqueCode) => {
-              setClient(nextClient);
-              setClientCode(nextCode);
-              setUniqueCode(nextUniqueCode);
-            }}
-          />
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Tipo
-              <select
-                value={direction}
-                onChange={(event) => setDirection(event.target.value as "suma" | "resta")}
-                className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs normal-case outline-none focus:border-[#7da4d3]"
-              >
-                <option value="resta">Resta stock (rotura, faltante)</option>
-                <option value="suma">Suma stock (sobrante)</option>
-              </select>
-            </label>
-            <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Cantidad
-              <input
-                type="number"
-                min="1"
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
-                className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
-              />
-            </label>
-            <label className="text-[11px] font-extrabold text-[#334b6b] sm:col-span-1">
-              Motivo
-              <input
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                placeholder="Rotura, faltante..."
-                className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] px-3 text-xs outline-none focus:border-[#7da4d3]"
-              />
-            </label>
-          </div>
-        </div>
-        {error && (
-          <div className="mt-4 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">{error}</div>
-        )}
-        <div className="mt-6 flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button type="submit" disabled={submitting}>
-            Generar ajuste
           </Button>
         </div>
       </form>

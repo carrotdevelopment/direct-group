@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, Download, FileSpreadsheet, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useClientScope } from "@/lib/use-client-scope";
 import { readDraft, saveDraft } from "@/lib/browser-draft";
-import { parseAjusteSheet, type AjustePreviewRow, type AjusteRow } from "@/lib/ajuste-masivo";
+import { parseAjusteSheet, type AjusteMode, type AjustePreviewRow, type AjusteRow } from "@/lib/ajuste-masivo";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
 type GridRow = string[];
@@ -16,19 +18,58 @@ const filled = (row: GridRow) => row.some((cell) => cell.trim());
 const cellClass = "h-8 w-full rounded-md border border-transparent px-1.5 text-[11px] outline-none hover:border-[#dbe4ef] focus:border-[#7da4d3] focus:bg-white";
 const fieldClass = "mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]";
 
+// Botón que abre la carga. Los códigos y productos se leen recién al abrirla.
+export function AjusteMasivoButton({ mode, onCreated, className }: { mode: AjusteMode; onCreated: () => void; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [lookups, setLookups] = useState<{ mappings: Mapping[]; products: { code: string; name: string }[] } | null>(null);
+  const { scope } = useClientScope();
+
+  async function start() {
+    setOpen(true);
+    if (lookups) return;
+    type Lookup = { mappings?: Mapping[]; products?: { code: string; name: string }[] };
+    const get = (kind: string): Promise<Lookup> => fetch(`/api/lookups?kind=${kind}`).then((response) => (response.ok ? response.json() : {})).catch(() => ({}));
+    const [codes, products] = await Promise.all([get("client-codes"), get("products")]);
+    setLookups({ mappings: codes.mappings ?? [], products: products.products ?? [] });
+  }
+
+  return (
+    <>
+      <Button type="button" variant="secondary" onClick={() => void start()} className={className}>
+        <FileSpreadsheet size={15} /> Ajustes masivos
+      </Button>
+      {open && createPortal(
+        <AjusteMasivoModal
+          mode={mode}
+          clients={scope ?? undefined}
+          mappings={lookups?.mappings ?? []}
+          products={lookups?.products ?? []}
+          draftKey={`ajustes:${mode}`}
+          onClose={() => setOpen(false)}
+          onCreated={onCreated}
+        />,
+        document.body,
+      )}
+    </>
+  );
+}
+
 // Varios ajustes de stock de un cliente juntos: se escriben, se pegan o se suben en Excel, se revisa cómo queda
 // el stock y recién ahí se aplican todos.
 export function AjusteMasivoModal({
+  mode,
+  clients: only,
   mappings,
   products,
-  allowedClients,
   draftKey,
   onClose,
   onCreated,
 }: {
+  mode: AjusteMode;
+  // Clientes que se pueden elegir; sin lista, todos los que tienen códigos activos.
+  clients?: string[];
   mappings: Mapping[];
   products: { code: string; name: string }[];
-  allowedClients: string[] | null;
   draftKey: string;
   onClose: () => void;
   onCreated: () => void;
@@ -49,14 +90,13 @@ export function AjusteMasivoModal({
   }, [draftKey, client, reason, grid, created]);
 
   const clients = useMemo(() => {
-    const allowed = allowedClients === null ? null : new Set(allowedClients.map((item) => item.trim().toLowerCase()));
     const names = new Map<string, string>();
     for (const mapping of mappings) {
       const key = mapping.client.trim().toLowerCase();
-      if (mapping.active && key && (!allowed || allowed.has(key))) names.set(key, mapping.client.trim());
+      if (mapping.active && key && (!only || only.some((item) => item.trim().toLowerCase() === key))) names.set(key, mapping.client.trim());
     }
     return [...names.values()].sort((a, b) => a.localeCompare(b, "es"));
-  }, [mappings, allowedClients]);
+  }, [mappings, only]);
 
   const nameByCode = useMemo(() => {
     const productNames = new Map(products.map((product) => [product.code.toLowerCase(), product.name]));
@@ -113,7 +153,7 @@ export function AjusteMasivoModal({
   }
 
   async function send(rows: AjusteRow[], isPreview: boolean) {
-    const response = await fetch("/api/ajustes/lote", {
+    const response = await fetch(mode === "suma" ? "/api/local-db/ingresos/ajustes" : "/api/local-db/egresos/ajustes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client, rows, preview: isPreview }),
@@ -160,7 +200,6 @@ export function AjusteMasivoModal({
   const editing = created === null && preview.length === 0;
   const withErrors = preview.filter((row) => row.errors.length > 0).length;
   const added = preview.reduce((sum, row) => sum + Math.max(row.quantity, 0), 0);
-  const removed = preview.reduce((sum, row) => sum + Math.max(-row.quantity, 0), 0);
   // Primero las que hay que corregir.
   const ordered = [...preview].sort((a, b) => Number(b.errors.length > 0) - Number(a.errors.length > 0) || a.row - b.row);
 
@@ -172,7 +211,7 @@ export function AjusteMasivoModal({
           <X size={18} />
         </button>
         <div className="eyebrow">Ajustes</div>
-        <h2 className="mt-2 text-xl font-black">Ajustes masivos de stock</h2>
+        <h2 className="mt-2 text-xl font-black">Ajustes masivos: {mode === "suma" ? "sumar" : "restar"} stock</h2>
         {created !== null && (
           <div className="mt-5 flex items-center gap-2 rounded-xl bg-[#e6f5ec] px-4 py-3 text-xs font-bold text-[#1f7a45]">
             <CheckCircle2 size={16} /> Ajustes aplicados en {client}: {created}.
@@ -181,7 +220,7 @@ export function AjusteMasivoModal({
         {editing && (
           <>
             <p className="mt-1 text-xs text-[#5a6a82]">
-              Cantidad negativa resta stock y positiva suma. Se pueden pegar filas desde Excel. El motivo general se usa en las filas que no tengan uno propio.
+              {mode === "suma" ? "Cada fila suma stock; para restar, usá Ajustes masivos de Egresos." : "Cada fila resta stock, con la cantidad sin signo; para sumar, usá Ajustes masivos de Ingresos."} Se pueden pegar filas desde Excel. El motivo general se usa en las filas que no tengan uno propio.
             </p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="text-[11px] font-extrabold text-[#334b6b]">
@@ -193,7 +232,7 @@ export function AjusteMasivoModal({
               </label>
               <label className="text-[11px] font-extrabold text-[#334b6b]">
                 Motivo general
-                <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Conteo de stock, rotura..." className={fieldClass} />
+                <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={mode === "suma" ? "Conteo de stock, sobrante..." : "Rotura, faltante..."} className={fieldClass} />
               </label>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -224,7 +263,7 @@ export function AjusteMasivoModal({
                         value={row[col]}
                         aria-label={`${COLUMNS[col]}, fila ${rowIndex + 1}`}
                         list={col === 0 ? "ajuste-codigos" : undefined}
-                        placeholder={col === 1 && rowIndex === 0 ? "-5" : col === 2 ? reason : ""}
+                        placeholder={col === 1 && rowIndex === 0 ? "5" : col === 2 ? reason : ""}
                         onChange={(event) => editCell(rowIndex, col, event.target.value)}
                         onPaste={(event) => {
                           const text = event.clipboardData.getData("text");
@@ -267,7 +306,7 @@ export function AjusteMasivoModal({
         {created === null && preview.length > 0 && (
           <>
             <p className="mt-1 text-xs font-bold text-[#334b6b]">
-              {client} · Filas: {preview.length} · Suman {added} · Restan {removed}
+              {client} · Filas: {preview.length} · {mode === "suma" ? "Suman" : "Restan"} {added} unidades
             </p>
             {withErrors > 0 && (
               <div className="mt-3 rounded-xl bg-[#fce9e8] px-4 py-3 text-xs font-bold text-[#a43d39]">
@@ -299,7 +338,7 @@ export function AjusteMasivoModal({
                       </td>
                       <td className="px-3 py-2">{row.reason}</td>
                       <td className="px-3 py-2 text-right">{row.stock ?? ""}</td>
-                      <td className="px-3 py-2 text-right font-bold">{row.quantity > 0 ? `+${row.quantity}` : row.quantity}</td>
+                      <td className="px-3 py-2 text-right font-bold">{row.quantity > 0 ? `${mode === "suma" ? "+" : "−"}${row.quantity}` : row.quantity}</td>
                       <td className="px-3 py-2 text-right font-bold">{row.result ?? ""}</td>
                     </tr>
                   ))}

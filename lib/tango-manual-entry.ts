@@ -28,19 +28,25 @@ export const manualTangoIncomeSchema = z
     path: ["transferOrigin"],
   });
 
+export const ADJUSTMENT_OPERATION = "ROBO/AJUSTE";
+
 export type ManualTangoIncomeInput = z.infer<typeof manualTangoIncomeSchema>;
 
 export async function createManualTangoIncome(input: ManualTangoIncomeInput, createdBy: string) {
+  // Un ajuste suma stock como ROBO/AJUSTE, igual que los demás ajustes; si es valorizado o no queda en el
+  // comentario, para cuando lo carguen en Tango.
+  const isAdjustment = input.operation.startsWith("AJUSTE");
+  const kind = input.operation === "AJUSTE VALORIZADO" ? "Ajuste valorizado" : "Ajuste no valorizado";
   return excelPostgres.tangoIncome.create({
     data: {
-      operation: input.operation,
+      operation: isAdjustment ? ADJUSTMENT_OPERATION : input.operation,
       client: input.client,
       clientCode: input.clientCode,
       quantity: input.quantity,
       deliveredQuantity: input.quantity,
       deliveryDate: new Date(`${input.deliveryDate}T00:00:00.000Z`),
       transferOrigin: input.operation === "PASAJE" ? (input.transferOrigin || null) : null,
-      comments: input.comments || null,
+      comments: isAdjustment ? [kind, input.comments].filter(Boolean).join(": ") : input.comments || null,
       pendingTangoEntry: true,
       createdBy,
     },

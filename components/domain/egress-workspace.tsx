@@ -12,6 +12,7 @@ import { egressSheetIndex, readEgressWorkbook } from "@/lib/egress-workbook";
 import { relativeDates, type RelativeDateRange } from "@/lib/relative-dates";
 import { useOutsideClick } from "@/lib/use-outside-click";
 import { inClientScope, useClientScope } from "@/lib/use-client-scope";
+import { AjusteMasivoButton } from "@/components/domain/ajuste-masivo-modal";
 import { EgressProductChangeModal } from "@/components/domain/egress-product-change-modal";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -303,7 +304,7 @@ function emptyGridRow(cols: ColDef[], id: string, fillFecha = false): GridRow {
 }
 
 function validateRow(row: GridRow, cols: ColDef[], validCodes: Set<string>): { missing: boolean; invalidCode: boolean } {
-  const missing     = cols.filter((c) => c.required && c.key !== "fecha").some((c) => !row[c.key]?.trim());
+  const missing     = cols.filter((c) => c.required && c.key !== "fecha").some((c) => !row[c.key]?.trim() || (c.type === "number" && !(Number(row[c.key].replace(",", ".")) > 0)));
   const code        = row.codigo_cliente?.trim().toLowerCase();
   const invalidCode = !!code && validCodes.size > 0 && !validCodes.has(code);
   return { missing, invalidCode };
@@ -687,7 +688,7 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
                       <td className="border-b border-[#e1e8f1] px-2 py-1 text-center text-[11px] text-[#5a6a82]">{ri + 1}</td>
                       {cols.map((col, ci) => {
                         const isInvalidCode = showErrors && col.key === "codigo_cliente" && invalidCode;
-                        const isMissing     = showErrors && missing && col.required && col.key !== "fecha" && !row[col.key]?.trim();
+                        const isMissing     = showErrors && missing && col.required && col.key !== "fecha" && (!row[col.key]?.trim() || (col.type === "number" && !(Number(row[col.key].replace(",", ".")) > 0)));
                         return (
                           <td key={col.key} className="border-b border-[#e1e8f1] px-1 py-1">
                             <input
@@ -718,7 +719,7 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
           </button>
           {showErrors && hasErrors && (
             <div className="mt-3 space-y-1 rounded-xl border border-[#f5d4d4] bg-[#fff5f5] px-4 py-3 text-[11px] text-[#b7433f]">
-              {validations.some((v) => v.missing)     && <div>• Hay celdas requeridas vacías (rojo).</div>}
+              {validations.some((v) => v.missing)     && <div>• Hay celdas requeridas vacías o cantidades que no son mayores a cero (rojo). Acá la cantidad va sin signo: siempre resta.</div>}
               {validations.some((v) => v.invalidCode) && <div>• Algunos códigos cliente no existen en la base (amarillo).</div>}
             </div>
           )}
@@ -1827,7 +1828,8 @@ export function EgressWorkspace() {
         </span>
 
         {cfg.configurado && (
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap gap-2">
+            <AjusteMasivoButton mode="resta" onCreated={() => void loadEgresses(cliente).catch(() => undefined)} />
             <Button variant="secondary" onClick={() => setView(view === "ops" ? "list" : "ops")}
               className="bg-[#f4f7fb] font-black">
               <Pencil size={15} /> Cargar otras operaciones

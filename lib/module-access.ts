@@ -6,7 +6,7 @@ export const accessModules = {
   productos: "Productos",
   ventas: "Ventas y egresos",
   stock: "Stock",
-  pasajes: "Pasajes y ajustes",
+  pasajes: "Pasajes",
   correos: "Correos (casilla de proveedores)",
 } as const;
 

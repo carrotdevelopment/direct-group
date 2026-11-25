@@ -1,10 +1,10 @@
 import "server-only";
-import type { AjusteRequest, PasajeRequest, Prisma } from "../node_modules/.prisma/excel-client";
+import type { PasajeRequest, Prisma } from "../node_modules/.prisma/excel-client";
 import { excelPostgres } from "@/lib/excel-postgres-client";
 import { invalidateIncomeGroups } from "@/lib/postgres-operation-db";
 import { tangoPasajeOperations, tangoWindowStart } from "@/lib/pasaje-tango-match";
 import { availableStockForCodes } from "@/lib/pasaje-stock-db";
-import { canActForClient, canApprovePasaje, canCancelPasaje, canReceivePasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
+import { canApprovePasaje, canCancelPasaje, canReceivePasaje, canSeePasaje, type PasajeActor } from "@/lib/module-access";
 
 export class PasajeAjusteError extends Error {
   constructor(message: string, public status = 400) {
@@ -18,18 +18,6 @@ function text(value: unknown) {
 
 function normalizeCode(value: string) {
   return value.trim().toLowerCase();
-}
-
-// Un operador solo puede generar ajustes de los clientes que se le asignaron en Permisos; el
-// administrador no tiene restricción. Los pasajes se pueden cargar desde cualquier cliente.
-export function assertCanCreateFor(actor: PasajeActor, client: string) {
-  if (!canActForClient(actor, client)) {
-    throw new PasajeAjusteError(`No tenés asignado el cliente ${client} para generar este movimiento.`, 403);
-  }
-}
-
-export function visibleToActor(actor: PasajeActor, clients: string[]) {
-  return actor.role === "ADMIN" || clients.some((client) => canActForClient(actor, client));
 }
 
 // El código único identifica el producto: un pasaje solo tiene sentido si el código cliente origen y el
@@ -500,139 +488,4 @@ export async function confirmPasajes(items: { id: string; quantity: number }[], 
     }
   }
   return { done, failed };
-}
-
-export type AjusteInput = {
-  client: string;
-  clientCode: string;
-  uniqueCode: string;
-  product?: string;
-  quantity: number;
-  reason?: string;
-};
-
-// El ajuste impacta en el stock al cargarlo: lo hace quien tiene el cliente a cargo, sin otra aprobación.
-export async function createAjuste(input: AjusteInput, actor: PasajeActor) {
-  const createdBy = actor.name;
-  if (!Number.isFinite(input.quantity) || input.quantity === 0) {
-    throw new PasajeAjusteError("La cantidad tiene que ser distinta de cero.");
-  }
-  if (!input.client.trim() || !input.clientCode.trim()) {
-    throw new PasajeAjusteError("Completá el cliente y su código cliente.");
-  }
-  assertCanCreateFor(actor, input.client);
-  const mapping = await excelPostgres.excelClientCode.findFirst({
-    where: {
-      client: { equals: text(input.client), mode: "insensitive" },
-      clientCode: { equals: text(input.clientCode), mode: "insensitive" },
-      active: true, voidedAt: null,
-    },
-  });
-  if (!mapping) throw new PasajeAjusteError(`${text(input.client)} no tiene activo el código ${text(input.clientCode)}.`);
-  const now = new Date();
-  const ajuste = await excelPostgres.$transaction((tx) => insertAjuste(tx, {
-    ...input,
-    client: text(mapping.client),
-    clientCode: text(mapping.clientCode),
-    uniqueCode: text(mapping.uniqueCode),
-  }, createdBy, now));
-  invalidateIncomeGroups();
-  return ajuste;
-}
-
-// Guarda un ajuste ya validado y su movimiento de stock.
-export async function insertAjuste(tx: Prisma.TransactionClient, input: AjusteInput, createdBy: string, now: Date) {
-  const created = await tx.ajusteRequest.create({
-    data: {
-      client: input.client,
-      clientCode: input.clientCode,
-      uniqueCode: input.uniqueCode,
-      product: text(input.product) || null,
-      quantity: input.quantity,
-      reason: text(input.reason) || null,
-      createdBy,
-      status: "accepted",
-      respondedBy: createdBy,
-      respondedAt: now,
-    },
-  });
-  await applyAjuste(tx, created, createdBy, now);
-  return created;
-}
-
-// Movimiento de stock de un ajuste: si suma, un ingreso; si resta, un egreso.
-async function applyAjuste(tx: Prisma.TransactionClient, ajuste: AjusteRequest, actorName: string, now: Date) {
-  const quantity = Number(ajuste.quantity);
-  const comments = `Ajuste de stock${ajuste.reason ? `: ${ajuste.reason}` : ""}`;
-  if (quantity > 0) {
-    await tx.tangoIncome.create({
-      data: {
-        client: ajuste.client,
-        clientCode: ajuste.clientCode,
-        operation: "ROBO/AJUSTE",
-        orderDate: now,
-        quantity,
-        deliveredQuantity: quantity,
-        deliveryDate: now,
-        comments,
-        pendingTangoEntry: true,
-        createdBy: actorName,
-      },
-    });
-  } else {
-    await tx.egress.create({
-      data: {
-        client: ajuste.client,
-        clientCode: ajuste.clientCode,
-        uniqueCode: ajuste.uniqueCode,
-        product: ajuste.product,
-        operation: "ROBO/AJUSTE",
-        date: now,
-        quantity: Math.abs(quantity),
-        comments,
-        createdBy: actorName,
-      },
-    });
-  }
-}
-
-export async function listAjustes(actor: PasajeActor, status?: string) {
-  const rows = await excelPostgres.ajusteRequest.findMany({
-    where: status ? { status } : undefined,
-    orderBy: { createdAt: "desc" },
-  });
-  return rows.filter((row) => visibleToActor(actor, [row.client]));
-}
-
-// Ajustes que quedaron pendientes de cuando los tenía que aprobar otra persona.
-export async function respondAjuste(
-  id: string,
-  action: "accept" | "reject",
-  actor: PasajeActor,
-  comment?: string,
-) {
-  const respondedBy = actor.name;
-  const result = await excelPostgres.$transaction(async (tx) => {
-    const ajuste = await tx.ajusteRequest.findUnique({ where: { id } });
-    if (!ajuste) throw new PasajeAjusteError("El ajuste no existe.", 404);
-    if (ajuste.status !== "pending") throw new PasajeAjusteError("Ese ajuste ya fue resuelto.", 409);
-    if (!canActForClient(actor, ajuste.client)) {
-      throw new PasajeAjusteError(`Solo quien tiene asignado el cliente ${ajuste.client} puede aceptar o rechazar este ajuste.`, 403);
-    }
-    const now = new Date();
-    const updated = await tx.ajusteRequest.updateMany({
-      where: { id, status: "pending" },
-      data: {
-        status: action === "accept" ? "accepted" : "rejected",
-        respondedBy,
-        respondedAt: now,
-        responseComment: text(comment) || null,
-      },
-    });
-    if (updated.count !== 1) throw new PasajeAjusteError("Ese ajuste ya fue resuelto.", 409);
-    if (action === "accept") await applyAjuste(tx, ajuste, respondedBy, now);
-    return tx.ajusteRequest.findUnique({ where: { id } });
-  });
-  if (action === "accept") invalidateIncomeGroups();
-  return result;
 }

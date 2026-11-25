@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AjusteMasivoButton } from "@/components/domain/ajuste-masivo-modal";
 import { PageHeader } from "@/components/domain/page-header";
 
 type TangoIncomeRow = {
@@ -741,6 +742,7 @@ export function IncomeWorkspace() {
               <PlusCircle size={15} />
               Registrar movimiento
             </Button>
+            <AjusteMasivoButton mode="suma" className="h-10" onCreated={() => void loadRows()} />
           </div>
         </div>
         <div className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-3 text-[11px] font-bold text-[#5a6a82]">
@@ -980,8 +982,8 @@ export function IncomeWorkspace() {
               Registrar movimiento
             </h2>
             <p className="mt-2 text-xs font-bold text-[#5a6a82]">
-              Devoluciones, ajustes y pasajes que todavía no están cargados en
-              Tango. Quedan marcados como &quot;Falta cargar en Tango&quot; hasta que
+              Devoluciones, ajustes que suman stock y pasajes que todavía no están cargados en
+              Tango. Los ajustes que restan se cargan en Egresos. Quedan marcados como &quot;Falta cargar en Tango&quot; hasta que
               alguien los carga también ahí.
             </p>
             <div className="mt-6 grid gap-4">

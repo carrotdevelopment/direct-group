@@ -3,7 +3,7 @@ import { PASAJES_ALL } from "@/lib/module-access";
 import { PageHeader } from "@/components/domain/page-header";
 import { PasajesWorkspace } from "@/components/domain/pasajes-workspace";
 
-export const metadata = { title: "Pasajes y Ajustes" };
+export const metadata = { title: "Pasajes" };
 
 export default async function PasajesPage() {
   const user = await requirePageModule("pasajes");
@@ -11,8 +11,8 @@ export default async function PasajesPage() {
     <>
       <PageHeader
         eyebrow="Movimientos"
-        title="Pasajes y Ajustes"
-        description="Pasajes de stock entre clientes (con aprobación) y ajustes de stock por rotura, faltante o sobrante."
+        title="Pasajes"
+        description="Pasajes de stock entre clientes, con aprobación. Los ajustes se cargan en Ingresos (suman) o en Egresos (restan)."
       />
       <PasajesWorkspace
         restrictedClients={user.role === "ADMIN" ? null : (user.pasajeClients ?? [])}

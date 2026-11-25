@@ -1,5 +1,7 @@
-// Ajustes masivos de stock: lectura de la grilla o del Excel. Cantidad negativa resta, positiva suma.
+// Ajustes masivos de stock (Ingresos suma, Egresos resta): lectura de la grilla o del Excel.
 export const MAX_AJUSTES = 500;
+
+export type AjusteMode = "suma" | "resta";
 
 export type AjusteRow = { row: number; clientCode: string; quantity: string; reason: string };
 

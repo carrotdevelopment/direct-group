@@ -282,6 +282,17 @@ export async function appendGenericEgressRecords(
   const codeMap = latestUniqueCodes(clientCodes);
   const productMap = new Map(products.map((item) => [normalized(item.uniqueCode), text(item.product)]));
   const headers = source.headers ?? Object.keys(records[0] ?? {});
+  // Lo cargado en "otras operaciones" trae sus propias columnas, que el Excel de canjes del cliente puede no
+  // tener: sin esto la cantidad quedaba en 1, o la operación como canje.
+  const mapping = source.type === "MANUAL"
+    ? {
+        ...profile.mapping,
+        operation: ["Operación", ...profile.mapping.operation],
+        quantity: [...profile.mapping.quantity, "Cantidad"],
+        destination: [...profile.mapping.destination, "Destino"],
+        comments: ["Comentario", ...profile.mapping.comments],
+      }
+    : profile.mapping;
   const batch = await excelPostgres.egressImportBatch.create({
     data: {
       client, sourceType: source.type ?? "MANUAL", fileName: source.fileName || null,
@@ -294,7 +305,7 @@ export async function appendGenericEgressRecords(
       record,
       sourceHash: egressSourceHash(record),
       sourceRowNumber: index + profile.headerRow + 1,
-      canonical: canonicalizeEgressRecord(record, profile.mapping, {
+      canonical: canonicalizeEgressRecord(record, mapping, {
         resolveUniqueCode: (clientCode) => codeMap.get(normalized(clientCode)) ?? "",
         resolveProduct: (uniqueCode) => productMap.get(normalized(uniqueCode)) ?? "",
         rawUniqueCode: rawFallback?.uniqueCode,
@@ -398,7 +409,7 @@ function rowForUi(row: Awaited<ReturnType<typeof excelPostgres.egress.findFirst>
       for (const alias of aliases) {
         if (Object.hasOwn(currentPayload, alias)) currentPayload[alias] = current[field] ?? "";
       }
-      // Egresos sin fila de Excel (cargados a mano, desde Pasajes y Ajustes o por script): se completa
+      // Egresos sin fila de Excel (cargados a mano, desde Pasajes o por script): se completa
       // la columna del perfil para que la grilla muestre fecha, código, producto y cantidad.
       if (aliases.length && !aliases.some((alias) => Object.hasOwn(currentPayload, alias))) {
         currentPayload[aliases[0]] = current[field] ?? "";
