@@ -112,6 +112,12 @@ function sortValue(line: StockLine, key: StockColumn): string | number | null {
   return parts ? Number(parts[3]) * 10000 + Number(parts[2]) * 100 + Number(parts[1]) : null;
 }
 
+// Suma de una columna; null si ninguna fila tiene dato.
+export function sumColumn(lines: StockLine[], key: StockColumn) {
+  const values = lines.map((line) => line[key]).filter((value): value is number => typeof value === "number");
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+
 // Lo que no tiene dato queda siempre al final.
 export function sortLines(lines: StockLine[], sort: StockSort) {
   if (!sort) return lines;

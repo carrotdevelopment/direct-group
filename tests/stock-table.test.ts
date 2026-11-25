@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, stockExportFileName, stockExportSheet, type BalanceFilter, type StockRow, type TypeFilter } from "@/lib/stock-table";
+import { groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, stockExportFileName, stockExportSheet, sumColumn, type BalanceFilter, type StockRow, type TypeFilter } from "@/lib/stock-table";
 
 const base: StockRow = {
   id: "", vigente: true, clientCode: "", uniqueCode: "", product: "", supplier: "", category: "", totalOrder: 0, physicalIncome: 0,
@@ -52,5 +52,13 @@ describe("tabla de Stock", () => {
     expect([at(1, "Sobra/Falta"), at(1, "Stk. Urbano"), at(1, "Tipo"), at(3, "Tipo"), at(3, "Vigente")]).toEqual([-55, "", "Especial", "Sin clasificar", "No"]);
     expect(stockExportSheet(lines, false)[0]).not.toContain("Tipo");
     expect(stockExportFileName("Credicoop", new Date(2026, 10, 4))).toBe("stock-Credicoop-2026-11-04.xlsx");
+  });
+});
+
+describe("sumColumn", () => {
+  it("suma solo las filas con dato", () => {
+    const some = [line({ reportedStock: 5 }), line({ reportedStock: null }), line({ reportedStock: -2 })];
+    expect(sumColumn(some, "reportedStock")).toBe(3);
+    expect(sumColumn(some, "urbanoStock")).toBeNull();
   });
 });

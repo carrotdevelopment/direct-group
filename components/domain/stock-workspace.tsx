@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Minus, Plus, Search } fro
 import { PageHeader } from "@/components/domain/page-header";
 import { CODE_TYPES, CODE_TYPE_LABEL, usesCodeType, type CodeType } from "@/lib/code-type";
 import {
-  groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, stockExportFileName, stockExportSheet, STOCK_COLUMNS,
+  groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, sumColumn, stockExportFileName, stockExportSheet, STOCK_COLUMNS,
   type BalanceFilter, type StockColumn, type StockLine, type StockRow, type StockSort, type TypeFilter,
 } from "@/lib/stock-table";
 import { informadoByIncome, parseInformado, resolveInformado, type SavedInformado } from "@/lib/stock-informado";
@@ -343,10 +343,21 @@ export function StockWorkspace() {
 
   // Group header row cells (sticky top-0, h-7 = 28px fixed height)
   const grpBase = "sticky top-0 h-7 border-b border-[#c8d6e5] px-2 text-center text-[11px] font-black uppercase tracking-wide";
-  // Column header cells (sticky top-7 = below group row)
-  const colHdr = "sticky top-7 z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[11px] font-black text-[#334b6b]";
+  // Totals row (sticky top-7 = below group row, h-6 = 24px fixed height)
+  const sumBase = "sticky top-7 h-6 border-b border-[#c5d3e0] px-1.5 text-right text-[11px] font-black tabular-nums";
+  const sumCell = (key: StockColumn, style: string) => {
+    const total = sumColumn(visibleRows, key);
+    const label = STOCK_COLUMNS.find((column) => column.key === key)?.label;
+    return (
+      <td key={key} title={`Suma de ${label} de las filas que se ven`} className={`${sumBase} z-20 ${style}`}>
+        {total === null ? "—" : fmt(Math.round(total))}
+      </td>
+    );
+  };
+  // Column header cells (below group and totals rows)
+  const colHdr = "sticky top-[52px] z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[11px] font-black text-[#334b6b]";
   // Sticky column header cells (also left-pinned)
-  const colHdrSticky = "sticky top-7 z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[11px] font-black text-[#334b6b]";
+  const colHdrSticky = "sticky top-[52px] z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[11px] font-black text-[#334b6b]";
   const controlClass = "h-8 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs font-semibold normal-case text-[#10233f] outline-none focus:border-[#0b5bbb]";
   // Body number cells
   const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[11px] text-right tabular-nums";
@@ -715,7 +726,29 @@ export function StockWorkspace() {
                 </th>
               </tr>
 
-              {/* Row 2 – column headers */}
+              {/* Row 2 – totals of the visible rows */}
+              <tr>
+                <td className={`${sumBase} left-0 z-50 bg-[#e4ecf5]`} />
+                <td className={`${sumBase} left-[80px] z-50 bg-[#e4ecf5]`} />
+                <td className={`${sumBase} left-[170px] z-50 bg-[#e4ecf5] text-[#334b6b]`}>Total de lo que se ve</td>
+                <td colSpan={withType ? 3 : 2} className={`${sumBase} z-20 bg-[#edf3f9]`} />
+                {(["totalOrder", "physicalIncome", "egress", "theoreticalStock", "realStock", "pendingDeliveries"] as const).map((key) =>
+                  sumCell(key, "bg-[#e9f2ff] text-[#1e4db7]"),
+                )}
+                {(["urbanoStock", "urbanoDifference"] as const).map((key) => sumCell(key, "bg-[#e6f5f3] text-[#0f5e57]"))}
+                {(["reportedStock", "webAvailable", "adjustment"] as const).map((key) => sumCell(key, "bg-[#fef9e6] text-[#7a5b00]"))}
+                {sumCell("totalTransactions", "bg-[#f3f7fb] text-[#334b6b]")}
+                <td colSpan={3} className={`${sumBase} z-20 bg-[#f3f7fb]`} />
+                <td className={`${sumBase} z-20 bg-[#f5f2fe]`} />
+                {(["requiredStock", "surplusShortage", "surplusShortageByPackage"] as const).map((key) => sumCell(key, "bg-[#f5f2fe] text-[#4b3080]"))}
+                <td className={`${sumBase} z-20 bg-[#f5f2fe]`} />
+                {sumCell("finalPurchase", "bg-[#f5f2fe] text-[#4b3080]")}
+                <td colSpan={2} className={`${sumBase} z-20 bg-[#e8f5ee]`} />
+                {sumCell("stockValue", "bg-[#e8f5ee] text-[#1a5c30]")}
+                <td colSpan={2} className={`${sumBase} z-20 bg-[#e8f5ee]`} />
+              </tr>
+
+              {/* Row 3 – column headers */}
               <tr>
                 {/* Sticky col 1 */}
                 <th className={`${colHdrSticky} left-0 w-[80px] min-w-[80px] text-left`}>
