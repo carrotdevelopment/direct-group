@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -21,8 +21,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { initialSelection, PriceImportPreviewTable } from "@/components/domain/price-import-preview";
 import { PriceManualWorkspace } from "@/components/domain/price-manual-workspace";
 import { parseEmailList } from "@/lib/email-list";
+import type { PricePreviewRow } from "@/lib/price-importer";
+import type { SupplierListRow } from "@/lib/supplier-price-list";
 
 type SupplierMailConfig = {
   id: string;
@@ -84,6 +87,9 @@ type PriceOptions = {
 type ProductRecord = {
   supplier: string;
 };
+
+// Adjuntos que pueden ser una lista de precios (los correos también traen logos y firmas).
+const isPriceFile = (name: string) => /\.(xlsx|xls|xlsm|csv|pdf)$/i.test(name);
 
 const emptySupplierForm = { supplier: "", contactName: "", email: "" };
 function formatDate(value: string | null) {
@@ -169,7 +175,10 @@ export function PriceRequestWorkspace() {
     String(new Date().getFullYear()),
   );
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importPreview, setImportPreview] = useState<PriceRecord[]>([]);
+  const [importPreview, setImportPreview] = useState<PricePreviewRow[]>([]);
+  const [importUnmatched, setImportUnmatched] = useState<SupplierListRow[]>([]);
+  const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
+  const importSection = useRef<HTMLElement>(null);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importStatus, setImportStatus] = useState("");
   const [importProcessing, setImportProcessing] = useState(false);
@@ -313,28 +322,36 @@ export function PriceRequestWorkspace() {
     }
   }
 
-  async function processImportFile() {
-    if (!importSupplier.trim() || !importMonth || !importYear || !importFile) {
+  function clearImportPreview() {
+    setImportPreview([]);
+    setImportUnmatched([]);
+    setImportSelected(new Set());
+    setImportWarnings([]);
+    setImportStatus("");
+  }
+
+  async function processImportFile(supplier = importSupplier.trim(), file = importFile) {
+    clearImportPreview();
+    if (!supplier || !importMonth || !importYear || !file) {
       setImportStatus("Elegí proveedor, mes, año y archivo.");
       return;
     }
 
     setImportProcessing(true);
-    setImportPreview([]);
-    setImportWarnings([]);
-    setImportStatus("Procesando archivo...");
+    setImportStatus(`Procesando ${file.name}...`);
     try {
       const formData = new FormData();
-      formData.append("supplier", importSupplier.trim());
+      formData.append("supplier", supplier);
       formData.append("month", importMonth);
       formData.append("year", importYear);
-      formData.append("file", importFile);
+      formData.append("file", file);
       const response = await fetch("/api/local-db/prices/preview", {
         method: "POST",
         body: formData,
       });
       const data = (await response.json()) as {
-        prices?: PriceRecord[];
+        prices?: PricePreviewRow[];
+        unmatched?: SupplierListRow[];
         message?: string;
         warnings?: string[];
       };
@@ -343,6 +360,8 @@ export function PriceRequestWorkspace() {
       }
       const previewRows = data.prices ?? [];
       setImportPreview(previewRows);
+      setImportUnmatched(data.unmatched ?? []);
+      setImportSelected(initialSelection(previewRows));
       setImportWarnings(data.warnings ?? []);
       setImportStatus(
         previewRows.length
@@ -359,54 +378,74 @@ export function PriceRequestWorkspace() {
     }
   }
 
+  // Lleva el adjunto que mandó el proveedor directo a la carga, sin descargarlo.
+  async function importReplyAttachment(config: SupplierMailConfig, attachment: { name: string; url: string }) {
+    setOpeningAttachmentId(config.id);
+    try {
+      const response = await fetch(attachment.url, { cache: "no-store" });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message || "No pude leer el adjunto.");
+      }
+      const file = new File([await response.blob()], attachment.name);
+      setImportSupplier(config.supplier);
+      setImportFile(file);
+      importSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      await processImportFile(config.supplier, file);
+    } catch (error) {
+      setMailStatus({ tone: "error", text: error instanceof Error ? error.message : "No pude leer el adjunto." });
+    } finally {
+      setOpeningAttachmentId(null);
+    }
+  }
+
+  async function importFromReply(config: SupplierMailConfig) {
+    const attachments = await fetchReplyAttachments(config);
+    if (!attachments) return;
+    const lists = attachments.filter((attachment) => isPriceFile(attachment.name));
+    if (lists.length === 1) await importReplyAttachment(config, lists[0]);
+    else if (lists.length > 1) setReplyAttachments((current) => ({ ...current, [config.id]: attachments }));
+    else setMailStatus({ tone: "error", text: `La respuesta de ${config.supplier} no trae un Excel ni un PDF.` });
+  }
+
   function updateImportPreview(
     id: string,
-    field: keyof PriceRecord,
-    value: string,
+    field: "costDg" | "vatRate" | "publicPrice",
+    value: number,
   ) {
-    const numericFields: Array<keyof PriceRecord> = [
-      "costDg",
-      "vatRate",
-      "publicPrice",
-    ];
     setImportPreview((current) =>
-      current.map((record) =>
-        record.id === id
-          ? withCalculatedMarkup({
-              ...record,
-              [field]: numericFields.includes(field) ? Number(value) : value,
-            })
-          : record,
-      ),
+      current.map((record) => {
+        if (record.id !== id) return record;
+        const next = { ...record, [field]: value };
+        return { ...next, markup: calculateMarkup(next.costDg, next.vatRate, next.publicPrice) };
+      }),
     );
   }
 
   async function confirmImportPreview() {
-    const validRows = importPreview
-      .filter(
-        (record) => record.supplier && record.uniqueCode && record.informedAt,
-      )
-      .map(withCalculatedMarkup);
-    if (!validRows.length) {
-      setImportStatus("No hay filas válidas para cargar.");
+    const rows = importPreview.filter((record) => importSelected.has(record.id));
+    if (!rows.length) {
+      setImportStatus("No hay filas marcadas para cargar.");
+      return;
+    }
+    const incomplete = rows.find((row) => [row.costDg, row.vatRate, row.publicPrice].some((value) => !Number.isFinite(value) || value < 0));
+    if (incomplete) {
+      setImportStatus(`Revisá los valores de ${incomplete.uniqueCode}: no son válidos.`);
       return;
     }
 
     setImportSaving(true);
     setImportStatus("Guardando precios...");
     try {
-      await fetch("/api/local-db/prices", {
-        method: "PUT",
+      const response = await fetch("/api/local-db/prices/import", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prices: validRows }),
+        body: JSON.stringify({
+          prices: rows.map(({ uniqueCode, informedAt, costDg, vatRate, publicPrice }) => ({ uniqueCode, informedAt, costDg, vatRate, publicPrice })),
+        }),
       });
-      if (pricesLoaded) {
-        setPrices((current) => {
-          const merged = new Map(current.map((record) => [record.id, record]));
-          for (const record of validRows) merged.set(record.id, record);
-          return Array.from(merged.values());
-        });
-      }
+      const data = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(data.message || "No se pudieron cargar los precios.");
       setPriceOptions((current) => ({
         suppliers: Array.from(
           new Set(
@@ -420,9 +459,12 @@ export function PriceRequestWorkspace() {
           (left, right) => Number(right) - Number(left),
         ),
       }));
-      setImportStatus(`${validRows.length} precios cargados.`);
-      setImportPreview([]);
+      clearImportPreview();
+      setImportStatus(data.message || `${rows.length} precios cargados.`);
       setImportFile(null);
+      if (pricesLoaded) void loadPrices();
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : "No se pudieron cargar los precios.");
     } finally {
       setImportSaving(false);
     }
@@ -614,26 +656,28 @@ export function PriceRequestWorkspace() {
     setPriceDraft(null);
   }
 
-  // Abre el adjunto de la respuesta en la misma pestaña; si trae varios, los lista debajo.
-  async function openReplyAttachment(config: SupplierMailConfig) {
+  async function fetchReplyAttachments(config: SupplierMailConfig) {
     setOpeningAttachmentId(config.id);
     try {
       const response = await fetch(`/api/price-requests/contacts/${config.id}/adjuntos`, { cache: "no-store" });
       const data = (await response.json()) as { attachments?: { name: string; url: string }[]; message?: string };
       if (!response.ok) throw new Error(data.message || "No pude abrir la respuesta del proveedor.");
       const attachments = data.attachments ?? [];
-      if (attachments.length === 0) {
-        setMailStatus({ tone: "error", text: `Todavía no está ubicado el adjunto de ${config.supplier}: tocá "Revisar respuestas" y probá de nuevo.` });
-      } else if (attachments.length === 1) {
-        window.location.assign(attachments[0].url);
-      } else {
-        setReplyAttachments((current) => ({ ...current, [config.id]: attachments }));
-      }
+      if (attachments.length) return attachments;
+      setMailStatus({ tone: "error", text: `Todavía no está ubicado el adjunto de ${config.supplier}: tocá "Revisar respuestas" y probá de nuevo.` });
     } catch (error) {
       setMailStatus({ tone: "error", text: error instanceof Error ? error.message : "No pude abrir la respuesta del proveedor." });
     } finally {
       setOpeningAttachmentId(null);
     }
+    return null;
+  }
+
+  // Abre el adjunto de la respuesta en la misma pestaña; si trae varios, los lista debajo.
+  async function openReplyAttachment(config: SupplierMailConfig) {
+    const attachments = await fetchReplyAttachments(config);
+    if (attachments?.length === 1) window.location.assign(attachments[0].url);
+    else if (attachments) setReplyAttachments((current) => ({ ...current, [config.id]: attachments }));
   }
 
   const activeSupplierCount = suppliers.filter((config) => config.active).length;
@@ -763,11 +807,19 @@ export function PriceRequestWorkspace() {
                         <div className="mt-0.5">
                           {replyAttachments[config.id] ? (
                             replyAttachments[config.id].map((attachment) => (
-                              <a key={attachment.url} href={attachment.url} className="block max-w-[160px] truncate text-[11px] font-bold text-[#0b5bbb] hover:underline" title={attachment.name}>
-                                {attachment.name}
-                              </a>
+                              <div key={attachment.url} className="flex items-center justify-center gap-2 text-[11px] font-bold text-[#0b5bbb]">
+                                <a href={attachment.url} className="block max-w-[160px] truncate hover:underline" title={attachment.name}>
+                                  {attachment.name}
+                                </a>
+                                {isPriceFile(attachment.name) && (
+                                  <button type="button" onClick={() => void importReplyAttachment(config, attachment)} disabled={openingAttachmentId === config.id || importProcessing} className="inline-flex shrink-0 items-center gap-1 hover:underline disabled:text-[#8a99ad]">
+                                    <Upload size={11} /> Cargar
+                                  </button>
+                                )}
+                              </div>
                             ))
                           ) : (
+                            <div className="flex flex-col items-center gap-0.5">
                             <button
                               type="button"
                               onClick={() => void openReplyAttachment(config)}
@@ -777,6 +829,15 @@ export function PriceRequestWorkspace() {
                               {openingAttachmentId === config.id ? <LoaderCircle size={11} className="animate-spin" /> : <Paperclip size={11} />}
                               Ver adjunto
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => void importFromReply(config)}
+                              disabled={openingAttachmentId === config.id || importProcessing}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0b5bbb] hover:underline disabled:text-[#8a99ad]"
+                            >
+                              <Upload size={11} /> Cargar precios
+                            </button>
+                            </div>
                           )}
                         </div>
                       )}
@@ -862,7 +923,7 @@ export function PriceRequestWorkspace() {
         )}
       </section>
 
-      <section className="card relative z-10 mb-5 overflow-visible">
+      <section ref={importSection} className="card relative z-10 mb-5 overflow-visible">
         <div className="flex flex-col gap-3 border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="eyebrow">Importación asistida</div>
@@ -894,7 +955,7 @@ export function PriceRequestWorkspace() {
             >
               <input
                 value={importSupplier}
-                onChange={(event) => setImportSupplier(event.target.value)}
+                onChange={(event) => { setImportSupplier(event.target.value); clearImportPreview(); }}
                 placeholder="Buscar proveedor"
                 className="h-10 w-full rounded-xl border border-[#dbe4ef] bg-white py-0 pl-3 pr-10 text-xs font-semibold normal-case tracking-normal text-[#10233f] outline-none focus:border-[#7da4d3]"
               />
@@ -919,6 +980,7 @@ export function PriceRequestWorkspace() {
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => {
                           setImportSupplier(supplier);
+                          clearImportPreview();
                           setSupplierPickerOpen(false);
                         }}
                         className="block h-8 w-full rounded-lg px-3 text-left text-xs font-bold normal-case tracking-normal text-[#10233f] hover:bg-[#edf4fc]"
@@ -939,7 +1001,7 @@ export function PriceRequestWorkspace() {
             Mes
             <select
               value={importMonth}
-              onChange={(event) => setImportMonth(event.target.value)}
+              onChange={(event) => { setImportMonth(event.target.value); clearImportPreview(); }}
               className="mt-2 h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs font-semibold normal-case tracking-normal text-[#10233f] outline-none focus:border-[#7da4d3]"
             >
               {Array.from({ length: 12 }, (_, index) => {
@@ -957,7 +1019,7 @@ export function PriceRequestWorkspace() {
             <input
               type="number"
               value={importYear}
-              onChange={(event) => setImportYear(event.target.value)}
+              onChange={(event) => { setImportYear(event.target.value); clearImportPreview(); }}
               className="mt-2 h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs font-semibold normal-case tracking-normal text-[#10233f] outline-none focus:border-[#7da4d3]"
             />
           </label>
@@ -966,16 +1028,17 @@ export function PriceRequestWorkspace() {
             <input
               type="file"
               accept=".pdf,.xlsx,.xls,.xlsm,.csv"
-              onChange={(event) =>
-                setImportFile(event.target.files?.[0] ?? null)
-              }
+              onChange={(event) => {
+                setImportFile(event.target.files?.[0] ?? null);
+                clearImportPreview();
+              }}
               className="mt-2 block h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 py-2 text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-[#e9f1fb] file:px-3 file:py-1 file:text-[11px] file:font-black file:text-[#0b5bbb]"
             />
           </label>
           <div className="flex items-end">
             <Button
               type="button"
-              onClick={processImportFile}
+              onClick={() => void processImportFile()}
               disabled={importProcessing}
               className="h-10 w-full"
             >
@@ -1003,140 +1066,16 @@ export function PriceRequestWorkspace() {
           </div>
         )}
 
-        {importPreview.length > 0 && (
-          <>
-            <div className="max-h-[420px] overflow-auto">
-              <table className="w-full min-w-[980px] text-left text-[11px]">
-                <thead>
-                  <tr className="sticky top-0 z-10 border-b border-[#dbe4ef] bg-[#edf4fc] font-bold text-[#334b6b]">
-                    <th className="px-3 py-2">Proveedor</th>
-                    <th className="px-2 py-2">Código único</th>
-                    <th className="px-2 py-2 text-center">Fecha</th>
-                    <th className="px-2 py-2 text-right">Costo DG</th>
-                    <th className="px-2 py-2 text-right">IVA %</th>
-                    <th className="px-2 py-2 text-right">Precio público</th>
-                    <th className="px-2 py-2 text-right">Markup %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#e7edf4]">
-                  {importPreview.map((record) => {
-                    const inputClass =
-                      "h-7 w-full rounded-md border border-[#b9cce3] bg-white px-2 text-right text-[11px] outline-none focus:border-[#0b5bbb]";
-                    return (
-                      <tr key={record.id} className="hover:bg-[#f8fafd]">
-                        <td className="px-3 py-2">
-                          <input
-                            value={record.supplier}
-                            onChange={(event) =>
-                              updateImportPreview(
-                                record.id,
-                                "supplier",
-                                event.target.value,
-                              )
-                            }
-                            className={`${inputClass} text-left`}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            value={record.uniqueCode}
-                            onChange={(event) =>
-                              updateImportPreview(
-                                record.id,
-                                "uniqueCode",
-                                event.target.value,
-                              )
-                            }
-                            className={`${inputClass} text-left font-mono`}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="date"
-                            value={record.informedAt}
-                            onChange={(event) =>
-                              updateImportPreview(
-                                record.id,
-                                "informedAt",
-                                event.target.value,
-                              )
-                            }
-                            className="h-7 w-32 rounded-md border border-[#b9cce3] bg-white px-2 text-center text-[11px] outline-none focus:border-[#0b5bbb]"
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            value={record.costDg}
-                            onChange={(event) =>
-                              updateImportPreview(
-                                record.id,
-                                "costDg",
-                                event.target.value,
-                              )
-                            }
-                            className={inputClass}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={record.vatRate}
-                            onChange={(event) =>
-                              updateImportPreview(
-                                record.id,
-                                "vatRate",
-                                event.target.value,
-                              )
-                            }
-                            className={inputClass}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="number"
-                            value={record.publicPrice}
-                            onChange={(event) =>
-                              updateImportPreview(
-                                record.id,
-                                "publicPrice",
-                                event.target.value,
-                              )
-                            }
-                            className={inputClass}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <div className="h-7 rounded-md border border-[#dbe4ef] bg-[#f8fafd] px-2 py-1 text-right text-[11px] font-bold text-[#425979]">
-                            {formatNumber(record.markup)}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-col gap-2 border-t border-[#e7edf4] bg-[#f8fafd] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-[11px] font-semibold text-[#5a6a82]">
-                Revisá y editá antes de confirmar. La carga se agrega a la base
-                histórica de precios.
-              </div>
-              <Button
-                type="button"
-                onClick={confirmImportPreview}
-                disabled={importSaving}
-              >
-                {importSaving ? (
-                  <LoaderCircle size={15} className="animate-spin" />
-                ) : (
-                  <Save size={15} />
-                )}
-                Confirmar carga
-              </Button>
-            </div>
-          </>
+        {(importPreview.length > 0 || importUnmatched.length > 0) && (
+          <PriceImportPreviewTable
+            rows={importPreview}
+            unmatched={importUnmatched}
+            selected={importSelected}
+            saving={importSaving}
+            onSelect={setImportSelected}
+            onEdit={updateImportPreview}
+            onConfirm={() => void confirmImportPreview()}
+          />
         )}
       </section>
 

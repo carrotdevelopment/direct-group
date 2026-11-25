@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     );
   }
   const validation = validateUploadedFile(file, {
-    allowedExtensions: ["xlsx", "xls", "pdf"],
+    allowedExtensions: ["xlsx", "xls", "xlsm", "csv", "pdf"],
     label: "La lista de precios",
   });
   if (!validation.ok) {

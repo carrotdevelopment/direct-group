@@ -4,12 +4,20 @@ import { pathToFileURL } from "node:url";
 import * as XLSX from "xlsx";
 import { PDFParse } from "pdf-parse";
 import {
+  readPricesFromExcel,
   readProductsFromExcel,
   type ExcelPrice,
   type ExcelProduct,
 } from "@/lib/local-excel-db";
 import { usesPostgres } from "@/lib/data-source";
-import { readProductsFromPostgres } from "@/lib/postgres-replica-db";
+import { readPricesFromPostgres, readProductsFromPostgres } from "@/lib/postgres-replica-db";
+import {
+  matchSupplierCode,
+  readSupplierPriceList,
+  supplierPriceFormat,
+  type SupplierListRow,
+  type SupplierPriceFormat,
+} from "@/lib/supplier-price-list";
 
 type ImportInput = {
   supplier: string;
@@ -19,10 +27,34 @@ type ImportInput = {
   buffer: Buffer;
 };
 
-export type PriceImportPreview = {
+type PriceValues = Pick<ExcelPrice, "informedAt" | "costDg" | "vatRate" | "publicPrice">;
+
+export type PricePreviewRow = ExcelPrice & {
+  productName: string;
+  // Código como viene en el archivo del proveedor.
+  sourceCode: string;
+  // El código del archivo no es igual al del producto: hay que confirmarlo.
+  needsReview: boolean;
+  // Precio ya cargado para el mismo producto y fecha: si se confirma, se reemplaza.
+  existing: PriceValues | null;
+  // Último precio anterior a la fecha de la lista.
+  previous: PriceValues | null;
+};
+
+type ParsedImport = {
   prices: ExcelPrice[];
   message: string;
   warnings: string[];
+  unmatched?: SupplierListRow[];
+  sources?: Map<string, { sourceCode: string; needsReview: boolean }>;
+};
+
+export type PriceImportPreview = {
+  prices: PricePreviewRow[];
+  message: string;
+  warnings: string[];
+  // Filas del archivo que no son de ningún producto cargado.
+  unmatched: SupplierListRow[];
 };
 
 type ParsedPdf = {
@@ -98,7 +130,7 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function calculateMarkup(costDg: number, vatRate: number, publicPrice: number) {
+export function calculateMarkup(costDg: number, vatRate: number, publicPrice: number) {
   if (!costDg || !publicPrice) return 0;
   const netPublicPrice = publicPrice / (1 + vatRate / 100);
   return roundMoney(((netPublicPrice - costDg) / costDg) * 100);
@@ -254,7 +286,61 @@ function rowToPrice(
   };
 }
 
-function parseExcel(input: ImportInput, allProducts: ExcelProduct[]): PriceImportPreview {
+function parseSupplierList(input: ImportInput, format: SupplierPriceFormat, allProducts: ExcelProduct[]): ParsedImport {
+  const products = productsForSupplier(input.supplier, allProducts);
+  const list = readSupplierPriceList(input.buffer, format);
+  if (!list.sheets.length) {
+    return {
+      prices: [],
+      message: `El archivo no tiene el formato de lista de ${input.supplier}.`,
+      warnings: [`Busqué las columnas "${format.code[0]}", "${format.costDg[0]}", "${format.vatRate[0]}" y "${format.publicPrice[0]}" y no están. Si el proveedor cambió la lista, avisá para actualizarla.`],
+    };
+  }
+  const matches = list.rows.map((row) => ({ row, match: matchSupplierCode(row.sourceCode, products) }));
+  // Primero los códigos iguales: un parecido nunca ocupa el lugar de un producto que ya está en la lista.
+  const taken = new Set<string>();
+  const chosen = new Set<SupplierListRow>();
+  for (const exact of [true, false]) {
+    for (const { row, match } of matches) {
+      if (!match || match.exact !== exact || taken.has(match.product.code)) continue;
+      taken.add(match.product.code);
+      chosen.add(row);
+    }
+  }
+  const sources: ParsedImport["sources"] = new Map();
+  const unmatched: SupplierListRow[] = [];
+  const prices: ExcelPrice[] = [];
+  for (const { row, match } of matches) {
+    if (!match || !chosen.has(row)) {
+      unmatched.push(row);
+      continue;
+    }
+    const price = rowToPrice(input, match.product, prices.length, row);
+    prices.push(price);
+    sources.set(price.id, { sourceCode: row.sourceCode, needsReview: !match.exact });
+  }
+
+  const warnings = [...list.warnings];
+  if (list.period && (list.period.month !== input.month || list.period.year !== input.year)) {
+    warnings.push(`El archivo dice ${list.period.label} y se va a cargar con fecha 01/${String(input.month).padStart(2, "0")}/${input.year}. Si no corresponde, cambiá el mes y volvé a procesar.`);
+  }
+  const belowCost = prices.filter((price) => price.markup <= 0).map((price) => price.uniqueCode);
+  if (belowCost.length) warnings.push(`El precio público no supera el costo con IVA: ${belowCost.join(", ")}.`);
+  return {
+    prices,
+    unmatched,
+    sources,
+    warnings,
+    message: prices.length
+      ? `${list.rows.length} precios leídos de ${input.fileName}: ${prices.length} son de productos cargados.`
+      : `Leí ${list.rows.length} precios de ${input.fileName}, pero ninguno es de un producto activo de ${input.supplier}.`,
+  };
+}
+
+function parseExcel(input: ImportInput, allProducts: ExcelProduct[]): ParsedImport {
+  const format = supplierPriceFormat(input.supplier);
+  if (format) return parseSupplierList(input, format, allProducts);
+
   const products = productsForSupplier(input.supplier, allProducts);
   const lookup = productLookup(products);
   const workbook = XLSX.read(input.buffer, {
@@ -469,7 +555,7 @@ function parseAlpacaCatalogText(
 async function parsePdf(
   input: ImportInput,
   allProducts: ExcelProduct[],
-): Promise<PriceImportPreview> {
+): Promise<ParsedImport> {
   const parser = new PDFParse({ data: input.buffer });
   try {
     const result = await parser.getText();
@@ -504,6 +590,8 @@ async function parsePdf(
   }
 }
 
+const priceValues = ({ informedAt, costDg, vatRate, publicPrice }: ExcelPrice): PriceValues => ({ informedAt, costDg, vatRate, publicPrice });
+
 export async function previewPriceImport(
   input: ImportInput,
 ): Promise<PriceImportPreview> {
@@ -512,13 +600,42 @@ export async function previewPriceImport(
     : readProductsFromExcel();
   const allProducts = productSource.filter((product) => product.active);
   const extension = input.fileName.split(".").pop()?.toLowerCase();
-  if (extension === "pdf") return parsePdf(input, allProducts);
-  if (["xlsx", "xls", "xlsm", "csv"].includes(extension || "")) {
-    return parseExcel(input, allProducts);
+  let parsed: ParsedImport;
+  if (extension === "pdf") parsed = await parsePdf(input, allProducts);
+  else if (["xlsx", "xls", "xlsm", "csv"].includes(extension || "")) parsed = parseExcel(input, allProducts);
+  else parsed = { prices: [], message: "Formato no soportado.", warnings: ["Usa PDF, XLSX, XLS, XLSM o CSV."] };
+
+  const stored = !parsed.prices.length
+    ? []
+    : usesPostgres()
+      ? await readPricesFromPostgres(parsed.prices.map((price) => price.uniqueCode))
+      : readPricesFromExcel();
+  const storedByCode = new Map<string, ExcelPrice[]>();
+  for (const price of stored) {
+    const key = price.uniqueCode.trim().toLowerCase();
+    storedByCode.set(key, [...(storedByCode.get(key) ?? []), price]);
   }
+  const names = new Map(allProducts.map((product) => [product.code, product.name]));
+
   return {
-    prices: [],
-    message: "Formato no soportado.",
-    warnings: ["Usa PDF, XLSX, XLS, XLSM o CSV."],
+    message: parsed.message,
+    warnings: parsed.warnings,
+    unmatched: parsed.unmatched ?? [],
+    prices: parsed.prices.map((price) => {
+      const history = storedByCode.get(price.uniqueCode.trim().toLowerCase()) ?? [];
+      const existing = history.find((item) => item.informedAt === price.informedAt);
+      const previous = history
+        .filter((item) => item.informedAt && item.informedAt < price.informedAt)
+        .reduce<ExcelPrice | null>((last, item) => (!last || item.informedAt > last.informedAt ? item : last), null);
+      const source = parsed.sources?.get(price.id);
+      return {
+        ...price,
+        productName: names.get(price.uniqueCode) ?? "",
+        sourceCode: source?.sourceCode ?? price.uniqueCode,
+        needsReview: source?.needsReview ?? false,
+        existing: existing ? priceValues(existing) : null,
+        previous: previous ? priceValues(previous) : null,
+      };
+    }),
   };
 }
