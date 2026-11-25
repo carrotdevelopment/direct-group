@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { initialSelection, PriceImportPreviewTable } from "@/components/domain/price-import-preview";
+import { PriceListsInbox, type ReceivedListGroup } from "@/components/domain/price-lists-inbox";
 import { PriceManualWorkspace } from "@/components/domain/price-manual-workspace";
 import { parseEmailList } from "@/lib/email-list";
 import type { PricePreviewRow } from "@/lib/price-importer";
@@ -178,6 +179,9 @@ export function PriceRequestWorkspace() {
   const [importPreview, setImportPreview] = useState<PricePreviewRow[]>([]);
   const [importUnmatched, setImportUnmatched] = useState<SupplierListRow[]>([]);
   const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
+  // Listas recibidas por correo: las pendientes y las que se están revisando.
+  const [receivedLists, setReceivedLists] = useState<ReceivedListGroup[]>([]);
+  const [reviewing, setReviewing] = useState<ReceivedListGroup | null>(null);
   const importSection = useRef<HTMLElement>(null);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importStatus, setImportStatus] = useState("");
@@ -188,6 +192,7 @@ export function PriceRequestWorkspace() {
   useEffect(() => {
     let active = true;
     void loadContacts();
+    void loadReceivedLists();
     fetch("/api/local-db/prices?meta=1")
       .then((response) => response.json())
       .then((data: { options?: PriceOptions }) => {
@@ -291,6 +296,56 @@ export function PriceRequestWorkspace() {
     }
   }
 
+  async function loadReceivedLists() {
+    try {
+      const response = await fetch("/api/price-requests/listas", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = (await response.json()) as { groups?: ReceivedListGroup[] };
+      setReceivedLists(data.groups ?? []);
+    } catch {
+      // Sin la bandeja se puede seguir cargando por archivo.
+    }
+  }
+
+  async function reviewReceivedLists(group: ReceivedListGroup) {
+    const [year, month] = group.period.split("-");
+    setImportSupplier(group.supplier);
+    setImportMonth(month);
+    setImportYear(year);
+    setImportFile(null);
+    setReviewing(group);
+    importSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    await runImportPreview(`Procesando ${group.files.length === 1 ? group.files[0].name : `${group.files.length} listas`}...`, () =>
+      fetchListsPreview(group, month, year),
+    );
+  }
+
+  async function discardReceivedLists(group: ReceivedListGroup) {
+    if (!window.confirm(`¿Descartar ${group.files.length === 1 ? "la lista" : `las ${group.files.length} listas`} de ${group.supplier}? No se carga ningún precio.`)) return;
+    const response = await fetch("/api/price-requests/listas", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: group.files.map((file) => file.id) }),
+    });
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      setMailStatus({ tone: "error", text: data.message || "No se pudo descartar la lista." });
+    }
+    if (reviewing?.supplier === group.supplier && reviewing.period === group.period) {
+      setReviewing(null);
+      clearImportPreview();
+    }
+    await loadReceivedLists();
+  }
+
+  function fetchListsPreview(group: ReceivedListGroup, month: string, year: string) {
+    return fetch("/api/price-requests/listas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: group.files.map((file) => file.id), month: Number(month), year: Number(year) }),
+    });
+  }
+
   async function persistPrices(next: PriceRecord[]) {
     setPrices(next);
     await fetch("/api/local-db/prices", {
@@ -331,24 +386,32 @@ export function PriceRequestWorkspace() {
   }
 
   async function processImportFile(supplier = importSupplier.trim(), file = importFile) {
+    if (reviewing && !file) {
+      await runImportPreview("Procesando las listas recibidas...", () => fetchListsPreview(reviewing, importMonth, importYear));
+      return;
+    }
     clearImportPreview();
     if (!supplier || !importMonth || !importYear || !file) {
       setImportStatus("Elegí proveedor, mes, año y archivo.");
       return;
     }
 
+    const formData = new FormData();
+    formData.append("supplier", supplier);
+    formData.append("month", importMonth);
+    formData.append("year", importYear);
+    formData.append("file", file);
+    await runImportPreview(`Procesando ${file.name}...`, () =>
+      fetch("/api/local-db/prices/preview", { method: "POST", body: formData }),
+    );
+  }
+
+  async function runImportPreview(status: string, request: () => Promise<Response>) {
+    clearImportPreview();
     setImportProcessing(true);
-    setImportStatus(`Procesando ${file.name}...`);
+    setImportStatus(status);
     try {
-      const formData = new FormData();
-      formData.append("supplier", supplier);
-      formData.append("month", importMonth);
-      formData.append("year", importYear);
-      formData.append("file", file);
-      const response = await fetch("/api/local-db/prices/preview", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await request();
       const data = (await response.json()) as {
         prices?: PricePreviewRow[];
         unmatched?: SupplierListRow[];
@@ -389,6 +452,7 @@ export function PriceRequestWorkspace() {
       }
       const file = new File([await response.blob()], attachment.name);
       setImportSupplier(config.supplier);
+      setReviewing(null);
       setImportFile(file);
       importSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       await processImportFile(config.supplier, file);
@@ -442,6 +506,7 @@ export function PriceRequestWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prices: rows.map(({ uniqueCode, informedAt, costDg, vatRate, publicPrice }) => ({ uniqueCode, informedAt, costDg, vatRate, publicPrice })),
+          listIds: reviewing ? reviewing.files.map((item) => item.id) : [],
         }),
       });
       const data = (await response.json()) as { message?: string };
@@ -462,6 +527,10 @@ export function PriceRequestWorkspace() {
       clearImportPreview();
       setImportStatus(data.message || `${rows.length} precios cargados.`);
       setImportFile(null);
+      if (reviewing) {
+        setReviewing(null);
+        void loadReceivedLists();
+      }
       if (pricesLoaded) void loadPrices();
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "No se pudieron cargar los precios.");
@@ -581,12 +650,12 @@ export function PriceRequestWorkspace() {
     setMailStatus(null);
     try {
       const response = await fetch("/api/price-requests/replies", { method: "POST" });
-      const data = (await response.json()) as { checked?: number; replied?: number; errors?: string[]; message?: string };
+      const data = (await response.json()) as { checked?: number; replied?: number; newLists?: number; errors?: string[]; message?: string };
       if (!response.ok) throw new Error(data.message || "No se pudieron revisar las respuestas.");
-      await loadContacts();
+      await Promise.all([loadContacts(), loadReceivedLists()]);
       setMailStatus({
         tone: data.errors?.length ? "error" : "success",
-        text: `Se revisaron ${data.checked} proveedores: ${data.replied} contestaron.${data.errors?.length ? ` No se pudo revisar: ${data.errors.join("; ")}.` : ""}`,
+        text: `Se revisaron ${data.checked} proveedores: ${data.replied} contestaron.${data.newLists ? ` Listas nuevas para revisar: ${data.newLists}.` : ""}${data.errors?.length ? ` No se pudo revisar: ${data.errors.join("; ")}.` : ""}`,
       });
     } catch (error) {
       setMailStatus({ tone: "error", text: error instanceof Error ? error.message : "No se pudieron revisar las respuestas." });
@@ -919,6 +988,13 @@ export function PriceRequestWorkspace() {
         )}
       </section>
 
+      <PriceListsInbox
+        groups={receivedLists}
+        busy={importProcessing || importSaving}
+        onReview={(group) => void reviewReceivedLists(group)}
+        onDiscard={(group) => void discardReceivedLists(group)}
+      />
+
       <section ref={importSection} className="card relative z-10 mb-5 overflow-visible">
         <div className="flex flex-col gap-3 border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -951,7 +1027,7 @@ export function PriceRequestWorkspace() {
             >
               <input
                 value={importSupplier}
-                onChange={(event) => { setImportSupplier(event.target.value); clearImportPreview(); }}
+                onChange={(event) => { setImportSupplier(event.target.value); setReviewing(null); clearImportPreview(); }}
                 placeholder="Buscar proveedor"
                 className="h-10 w-full rounded-xl border border-[#dbe4ef] bg-white py-0 pl-3 pr-10 text-xs font-semibold normal-case tracking-normal text-[#10233f] outline-none focus:border-[#7da4d3]"
               />
@@ -976,6 +1052,7 @@ export function PriceRequestWorkspace() {
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => {
                           setImportSupplier(supplier);
+                          setReviewing(null);
                           clearImportPreview();
                           setSupplierPickerOpen(false);
                         }}
@@ -1026,6 +1103,7 @@ export function PriceRequestWorkspace() {
               accept=".pdf,.xlsx,.xls,.xlsm,.csv"
               onChange={(event) => {
                 setImportFile(event.target.files?.[0] ?? null);
+                setReviewing(null);
                 clearImportPreview();
               }}
               className="mt-2 block h-10 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 py-2 text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-[#e9f1fb] file:px-3 file:py-1 file:text-[11px] file:font-black file:text-[#0b5bbb]"
@@ -1047,6 +1125,12 @@ export function PriceRequestWorkspace() {
             </Button>
           </div>
         </div>
+
+        {reviewing && (
+          <div className="border-b border-[#e7edf4] bg-[#edf4fc] px-5 py-2 text-[11px] font-semibold text-[#334b6b]">
+            Revisando por correo: {reviewing.files.map((item) => item.name).join(", ")}. Si el mes no corresponde, cambialo y tocá Procesar.
+          </div>
+        )}
 
         {(importStatus || importWarnings.length > 0) && (
           <div className="space-y-2 border-b border-[#e7edf4] px-5 py-3 text-[11px] font-semibold text-[#5a6a82]">

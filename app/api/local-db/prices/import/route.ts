@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { checkApiAccess } from "@/server/lib/access";
+import { checkApiAccess, currentPasajeActor } from "@/server/lib/access";
 import { readPricesFromExcel, readProductsFromExcel, writePricesToExcel, type ExcelPrice } from "@/lib/local-excel-db";
 import { usesPostgres } from "@/lib/data-source";
 import { readPricesFromPostgres, readProductsFromPostgres, upsertPricesToPostgres } from "@/lib/postgres-replica-db";
 import { calculateMarkup } from "@/lib/price-importer";
+import { resolvePriceLists } from "@/lib/supplier-lists";
 import { supplierPriceFormat } from "@/lib/supplier-price-list";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ const keyOf = (code: string, informedAt: string) => `${code.trim().toLowerCase()
 export async function POST(request: Request) {
   const denied = await checkApiAccess(["precios"], true);
   if (denied) return denied;
-  const body = (await request.json().catch(() => null)) as { prices?: Array<Partial<ExcelPrice>> } | null;
+  const body = (await request.json().catch(() => null)) as { prices?: Array<Partial<ExcelPrice>>; listIds?: unknown } | null;
   const incoming = Array.isArray(body?.prices) ? body.prices : [];
   if (!incoming.length) return fail("No hay precios para cargar.");
 
@@ -69,6 +70,10 @@ export async function POST(request: Request) {
   } else {
     writePricesToExcel([...new Map([...stored, ...prices].map((price) => [price.id, price])).values()]);
   }
+
+  // Si los precios salieron de listas recibidas por correo, dejan de estar pendientes.
+  const listIds = Array.isArray(body?.listIds) ? body.listIds.map(String).filter((id) => /^[0-9a-f-]{36}$/i.test(id)) : [];
+  if (listIds.length) await resolvePriceLists(listIds, "cargada", (await currentPasajeActor()).name);
 
   const created = prices.length - replaced;
   const parts = [

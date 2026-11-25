@@ -816,6 +816,30 @@ model SupplierMailLog {
   @@map("supplier_mail_logs")
 }
 
+// Lista de precios recibida por correo, pendiente de revisar (estado: pendiente, cargada, descartada o repetida).
+model ReceivedPriceList {
+  id              String    @id @default(uuid()) @db.Uuid
+  supplier        String    @map("proveedor") @db.VarChar(255)
+  period          String    @map("periodo") @db.VarChar(7)
+  fileName        String    @map("archivo") @db.VarChar(255)
+  sender          String    @map("remitente") @db.VarChar(255)
+  receivedAt      DateTime  @map("recibida_at") @db.Timestamptz(6)
+  messageId       String    @map("mensaje_id") @db.VarChar(64)
+  attachmentIndex Int       @map("adjunto")
+  sha256          String    @db.Char(64)
+  // Se vacía cuando la lista se carga o se descarta.
+  content         Bytes?    @map("contenido")
+  status          String    @default("pendiente") @map("estado") @db.VarChar(20)
+  resolvedBy      String?   @map("resuelta_por") @db.VarChar(255)
+  resolvedAt      DateTime? @map("resuelta_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([messageId, attachmentIndex, supplier], map: "listas_precios_recibidas_mensaje_adjunto_key")
+  @@index([status], map: "listas_precios_recibidas_estado_idx")
+  @@index([supplier, period, sha256], map: "listas_precios_recibidas_sha256_idx")
+  @@map("listas_precios_recibidas")
+}
+
 // Migración de código cliente: el stock de un código pasa a otro código del mismo cliente y producto.
 model ClientCodeMigration {
   id         String   @id @default(uuid()) @db.Uuid
