@@ -31,6 +31,8 @@ type PriceValues = Pick<ExcelPrice, "informedAt" | "costDg" | "vatRate" | "publi
 
 export type PricePreviewRow = ExcelPrice & {
   productName: string;
+  // Markup fijo del proveedor, si tiene: no cambia al editar los precios.
+  fixedMarkup: number | null;
   // Código como viene en el archivo del proveedor.
   sourceCode: string;
   // El código del archivo no es igual al del producto: hay que confirmarlo.
@@ -282,7 +284,7 @@ function rowToPrice(
     costDg,
     vatRate,
     publicPrice,
-    markup: calculateMarkup(costDg, vatRate, publicPrice),
+    markup: supplierPriceFormat(input.supplier)?.markup ?? calculateMarkup(costDg, vatRate, publicPrice),
   };
 }
 
@@ -324,8 +326,14 @@ function parseSupplierList(input: ImportInput, format: SupplierPriceFormat, allP
   if (list.period && (list.period.month !== input.month || list.period.year !== input.year)) {
     warnings.push(`El archivo dice ${list.period.label} y se va a cargar con fecha 01/${String(input.month).padStart(2, "0")}/${input.year}. Si no corresponde, cambiá el mes y volvé a procesar.`);
   }
-  const belowCost = prices.filter((price) => price.markup <= 0).map((price) => price.uniqueCode);
+  const real = (price: ExcelPrice) => calculateMarkup(price.costDg, price.vatRate, price.publicPrice);
+  const belowCost = prices.filter((price) => real(price) <= 0).map((price) => price.uniqueCode);
   if (belowCost.length) warnings.push(`El precio público no supera el costo con IVA: ${belowCost.join(", ")}.`);
+  const { markup } = format;
+  if (markup !== undefined) {
+    const different = prices.filter((price) => Math.abs(real(price) - markup) > 0.5).map((price) => price.uniqueCode);
+    if (different.length) warnings.push(`Se cargan con markup ${markup}%, pero los precios del archivo dan otro: ${different.join(", ")}.`);
+  }
   return {
     prices,
     unmatched,
@@ -631,6 +639,7 @@ export async function previewPriceImport(
       return {
         ...price,
         productName: names.get(price.uniqueCode) ?? "",
+        fixedMarkup: supplierPriceFormat(price.supplier)?.markup ?? null,
         sourceCode: source?.sourceCode ?? price.uniqueCode,
         needsReview: source?.needsReview ?? false,
         existing: existing ? priceValues(existing) : null,

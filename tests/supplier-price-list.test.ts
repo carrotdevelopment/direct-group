@@ -34,6 +34,10 @@ describe("lista de precios de Rayovac", () => {
     expect(list.warnings).toEqual([]);
   });
 
+  it("tiene markup fijo de 1,65", () => {
+    expect(format.markup).toBe(65);
+  });
+
   it("no lee las hojas ocultas", () => {
     const list = readSupplierPriceList(workbook([header, row("A1", 10, 0.21, 20)], [header, row("B2", 1, 0.21, 2)]), format);
     expect(list.sheets).toEqual(["REM"]);

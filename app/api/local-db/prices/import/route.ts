@@ -4,6 +4,7 @@ import { readPricesFromExcel, readProductsFromExcel, writePricesToExcel, type Ex
 import { usesPostgres } from "@/lib/data-source";
 import { readPricesFromPostgres, readProductsFromPostgres, upsertPricesToPostgres } from "@/lib/postgres-replica-db";
 import { calculateMarkup } from "@/lib/price-importer";
+import { supplierPriceFormat } from "@/lib/supplier-price-list";
 
 export const runtime = "nodejs";
 
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
       costDg: round(costDg, 2),
       vatRate: round(vatRate, 3),
       publicPrice: round(publicPrice, 2),
-      markup: calculateMarkup(costDg, vatRate, publicPrice),
+      markup: supplierPriceFormat(product.supplier)?.markup ?? calculateMarkup(costDg, vatRate, publicPrice),
     });
   }
 

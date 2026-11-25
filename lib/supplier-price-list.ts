@@ -8,6 +8,8 @@ export type SupplierPriceFormat = {
   costDg: string[];
   vatRate: string[];
   publicPrice: string[];
+  // Markup fijo del proveedor en % (65 = 1,65). Sin esto, se calcula con los precios.
+  markup?: number;
 };
 
 const FORMATS: Record<string, SupplierPriceFormat> = {
@@ -17,6 +19,7 @@ const FORMATS: Record<string, SupplierPriceFormat> = {
     costDg: ["Precio Factura Sin IVA"],
     vatRate: ["IVA"],
     publicPrice: ["Precio Público"],
+    markup: 65,
   },
 };
 
@@ -86,9 +89,13 @@ function periodIn(matrix: unknown[][]): SupplierList["period"] {
 
 export function readSupplierPriceList(buffer: Buffer, format: SupplierPriceFormat): SupplierList {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
-  const aliases = Object.fromEntries(
-    Object.entries(format).map(([field, names]) => [field, names.map(compact)]),
-  ) as Record<keyof SupplierPriceFormat, string[]>;
+  const aliases = {
+    code: format.code.map(compact),
+    description: format.description.map(compact),
+    costDg: format.costDg.map(compact),
+    vatRate: format.vatRate.map(compact),
+    publicPrice: format.publicPrice.map(compact),
+  };
   const result: SupplierList = { rows: [], period: null, sheets: [], warnings: [] };
   const incomplete: string[] = [];
   const repeated = new Set<string>();
@@ -104,7 +111,7 @@ export function readSupplierPriceList(buffer: Buffer, format: SupplierPriceForma
     });
     if (headerIndex === -1) return;
     const headers = matrix[headerIndex].map(compact);
-    const column = (field: keyof SupplierPriceFormat) => headers.findIndex((header) => aliases[field].includes(header));
+    const column = (field: keyof typeof aliases) => headers.findIndex((header) => aliases[field].includes(header));
     const at = { code: column("code"), description: column("description"), costDg: column("costDg"), vatRate: column("vatRate"), publicPrice: column("publicPrice") };
     result.sheets.push(sheetName);
     result.period ??= periodIn(matrix.slice(0, headerIndex + 1));

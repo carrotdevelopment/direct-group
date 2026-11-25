@@ -417,7 +417,7 @@ export function PriceRequestWorkspace() {
       current.map((record) => {
         if (record.id !== id) return record;
         const next = { ...record, [field]: value };
-        return { ...next, markup: calculateMarkup(next.costDg, next.vatRate, next.publicPrice) };
+        return { ...next, markup: next.fixedMarkup ?? calculateMarkup(next.costDg, next.vatRate, next.publicPrice) };
       }),
     );
   }
