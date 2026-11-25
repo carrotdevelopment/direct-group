@@ -25,6 +25,8 @@ import { stockEgressOperations, stockIncomeOperations, stockOperation } from "@/
 import { usesCodeType } from "@/lib/code-type";
 import { readCodeTypes } from "@/lib/code-type-db";
 import { latestUrbanoStockByCode } from "@/lib/urbano-stock-db";
+import { resolveInformado } from "@/lib/stock-informado";
+import { readInformado } from "@/lib/stock-informado-db";
 
 export const runtime = "nodejs";
 
@@ -163,7 +165,7 @@ export async function GET(request: Request) {
   const sameClient = (name: string) => canonicalClient(name) === canonicalClient(clientName);
 
   // En PostgreSQL todo se lee filtrado por cliente y en paralelo.
-  const [mappingRows, productRows, allStockRows, allCostRows, postgresOperations, postgresUrbano, pendingOrders] = postgres
+  const [mappingRows, productRows, allStockRows, allCostRows, postgresOperations, postgresUrbano, pendingOrders, informado] = postgres
     ? await Promise.all([
         readClientCodesFromPostgres(clientName),
         readProductsFromPostgres(),
@@ -172,6 +174,7 @@ export async function GET(request: Request) {
         readStockOperationRowsFromPostgres(clientName),
         latestUrbanoStockByCode(),
         readPendingPurchaseOrdersFromPostgres(clientName),
+        readInformado(clientName),
       ])
     : [
         readClientCodesFromExcel(),
@@ -181,6 +184,7 @@ export async function GET(request: Request) {
         null,
         null,
         [],
+        null,
       ];
   const persistedStockRows = allStockRows.filter((row) => sameClient(row.client));
   const costRows = allCostRows.filter((row) => sameClient(row.client));
@@ -346,11 +350,12 @@ export async function GET(request: Request) {
       costs.get(normalizeCode(assignment.clientCode)) ||
       byProduct(costs.get(normalizeCode(assignment.uniqueCode)), clientCode);
     const packageSize = stock?.packageSize || cost?.unitsPerPackage || 1;
-    const reportedStock = stock?.reportedStock || realStock;
+    const savedInformado = informado?.get(clientCode);
+    const reportedStock = informado ? resolveInformado(clientName, savedInformado, physicalIncome) : (stock?.reportedStock ?? null);
     // Si Urbano informa stock de este cliente, un código que no figura en su reporte no tiene stock allá.
     const urbano = urbanoStock.get(clientCode) ?? (latestUrbanoDate ? { quantity: 0, reportDate: latestUrbanoDate } : undefined);
-    const webAvailable = reportedStock - totalTransactions;
-    const adjustment = realStock - webAvailable;
+    const webAvailable = reportedStock === null ? null : reportedStock - totalTransactions;
+    const adjustment = webAvailable === null ? null : realStock - webAvailable;
     return {
       id: `${assignment.clientCode}-${assignment.uniqueCode}`,
       vigente: assignment.vigente,
@@ -370,6 +375,9 @@ export async function GET(request: Request) {
       totalTransactions,
       firstIncomeDate: displayDate(firstIncome),
       reportedStock,
+      reportedBy: savedInformado
+        ? { fixed: savedInformado.quantity !== null && !savedInformado.overIncome, user: savedInformado.updatedBy, at: savedInformado.updatedAt }
+        : null,
       urbanoStock: urbano ? urbano.quantity : null,
       urbanoDifference: urbano ? urbano.quantity - realStock : null,
       webAvailable,

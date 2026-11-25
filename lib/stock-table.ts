@@ -23,7 +23,9 @@ export type StockRow = {
   urbanoDifference: number | null;
   totalTransactions: number;
   firstIncomeDate: string;
-  reportedStock: number;
+  // Lo que se le informó a la web del cliente (null = sin informar) y quién lo cambió por última vez.
+  reportedStock: number | null;
+  reportedBy?: { fixed: boolean; user: string; at: string } | null;
   validity: number;
   transactionsPerDay: number;
   stockDays: number;
@@ -44,8 +46,8 @@ export function packageRound(value: number, size: number) {
 }
 
 export function stockCalc(row: StockRow, months: number) {
-  const webAvailable = row.reportedStock - row.totalTransactions;
-  const adjustment = row.realStock - webAvailable;
+  const webAvailable = row.reportedStock === null ? null : row.reportedStock - row.totalTransactions;
+  const adjustment = webAvailable === null ? null : row.realStock - webAvailable;
   const requiredStock = row.transactionsPerDay * months * 30;
   const surplusShortage = row.theoreticalStock - requiredStock;
   const surplusShortageByPackage = packageRound(surplusShortage, row.packageSize);

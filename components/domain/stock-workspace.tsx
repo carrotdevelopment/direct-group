@@ -8,6 +8,7 @@ import {
   groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, stockExportFileName, stockExportSheet, STOCK_COLUMNS,
   type BalanceFilter, type StockColumn, type StockLine, type StockRow, type StockSort, type TypeFilter,
 } from "@/lib/stock-table";
+import { informadoByIncome, parseInformado, resolveInformado, type SavedInformado } from "@/lib/stock-informado";
 
 // Zoom de la tabla, en porcentaje. Se recuerda en este navegador.
 const ZOOM_MIN = 50;
@@ -36,6 +37,7 @@ const MONTH_LABEL = MONTHS[today.getMonth()];
 const YEAR = today.getFullYear();
 const BASE_COLS = 31; // 3 sticky + 2 info + 6 mov + 2 urbano + 3 si + 4 canjes + 6 nec + 5 costos
 
+// Antes el stock informado se guardaba solo en el navegador: quedan ediciones viejas por pasar a la base.
 const STOCK_KEY = (c: string) => `stock-informado-v1-${c.toLowerCase()}`;
 const LAST_CLIENT_KEY = "stock-ultimo-cliente";
 
@@ -52,6 +54,33 @@ function money(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
+}
+
+// Vacío = sin informar. Guarda al salir de la celda o con Enter; Escape deshace.
+function InformadoInput({ label, title, value, onSave }: { label: string; title: string; value: number | null; onSave: (value: number | null) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  function commit() {
+    if (draft === null) return;
+    const next = parseInformado(draft);
+    setDraft(null);
+    if (next !== undefined && next !== value) onSave(next);
+  }
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={label}
+      title={title}
+      value={draft ?? value ?? ""}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") setDraft(null);
+      }}
+      className="h-6 w-full min-w-[60px] rounded border border-[#e4c878] bg-white px-1 text-right text-[11px] tabular-nums outline-none focus:border-[#b88a00] focus:ring-1 focus:ring-[#b88a00]/30"
+    />
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -89,6 +118,8 @@ export function StockWorkspace() {
   const [typeChoice, setTypeChoice] = useState<TypeFilter>("");
   const [savingType, setSavingType] = useState(false);
   const [notice, setNotice] = useState("");
+  // Informados que quedaron solo en este navegador y difieren de los de la base.
+  const [localEdits, setLocalEdits] = useState<Record<string, number>>({});
   const withType = usesCodeType(client);
   const typeFilter: TypeFilter = withType ? typeChoice : "";
   const totalCols = BASE_COLS + (withType ? 1 : 0);
@@ -144,21 +175,18 @@ export function StockWorkspace() {
         const data = (await res.json()) as { rows: StockRow[]; message?: string };
         if (!res.ok) throw new Error(data.message || "Error al cargar");
 
-        const saved = JSON.parse(
-          localStorage.getItem(STOCK_KEY(client)) || "{}",
-        ) as Record<string, number>;
-        const merged = data.rows.map((r) => ({
-          ...r,
-          vigente: r.vigente ?? true,
-          reportedStock:
-            r.clientCode in saved ? saved[r.clientCode] : r.reportedStock,
-        }));
-
-        setRows(merged);
+        let saved: Record<string, number> = {};
+        try {
+          saved = JSON.parse(localStorage.getItem(STOCK_KEY(client)) || "{}") as Record<string, number>;
+        } catch {}
+        const current = new Map(data.rows.map((r) => [r.clientCode, r.reportedStock]));
+        setLocalEdits(Object.fromEntries(Object.entries(saved).filter(([code, value]) => current.has(code) && current.get(code) !== value)));
+        setRows(data.rows.map((r) => ({ ...r, vigente: r.vigente ?? true })));
         setStatus(data.message || "");
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setRows([]);
+        setLocalEdits({});
         setStatus(
           err instanceof Error ? err.message : "No se pudo cargar el stock.",
         );
@@ -179,17 +207,57 @@ export function StockWorkspace() {
 
   // ── Edit reported stock ───────────────────────────────────────────────────
 
-  function updateReportedStock(clientCode: string, value: string) {
-    const num = parseFloat(value);
-    const next = Number.isFinite(num) ? num : 0;
-    setRows((cur) =>
-      cur.map((r) => (r.clientCode === clientCode ? { ...r, reportedStock: next } : r)),
-    );
-    const saved = JSON.parse(
-      localStorage.getItem(STOCK_KEY(client)) || "{}",
-    ) as Record<string, number>;
-    saved[clientCode] = next;
-    localStorage.setItem(STOCK_KEY(client), JSON.stringify(saved));
+  async function saveReportedStock(values: { code: string; quantity: number | null }[]) {
+    setNotice("");
+    try {
+      const response = await fetch("/api/local-db/stock/informado", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client, values }),
+      });
+      const data = (await response.json()) as { saved?: Record<string, SavedInformado>; message?: string };
+      if (!response.ok || !data.saved) throw new Error(data.message || "No se pudo guardar el stock informado.");
+      const saved = data.saved;
+      setRows((current) =>
+        current.map((row) => {
+          const item = saved[row.clientCode.trim().toLowerCase()];
+          if (!item) return row;
+          return {
+            ...row,
+            reportedStock: resolveInformado(client, item, row.physicalIncome),
+            reportedBy: { fixed: item.quantity !== null && !item.overIncome, user: item.updatedBy, at: item.updatedAt },
+          };
+        }),
+      );
+      const count = Object.keys(saved).length;
+      setNotice(count === 1 ? `Stock informado de ${values[0].code} guardado.` : `${count} stocks informados guardados para todos.`);
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo guardar el stock informado.");
+      return false;
+    }
+  }
+
+  function discardLocalEdits() {
+    try {
+      localStorage.removeItem(STOCK_KEY(client));
+    } catch {}
+    setLocalEdits({});
+  }
+
+  async function shareLocalEdits() {
+    const values = Object.entries(localEdits).map(([code, quantity]) => ({ code, quantity }));
+    if (await saveReportedStock(values)) discardLocalEdits();
+  }
+
+  function informadoTitle(row: StockRow) {
+    const by = row.reportedBy
+      ? `Cambiado por ${row.reportedBy.user} el ${new Date(row.reportedBy.at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}. `
+      : "";
+    if (!informadoByIncome(client)) return by || "Sin informar";
+    return row.reportedBy?.fixed
+      ? `${by}Número fijo: no sube con las entregas. Borralo para que vuelva al ingreso físico.`
+      : `${by}Sube solo con cada ingreso físico.`;
   }
 
   // ── Regular / especial ────────────────────────────────────────────────────
@@ -387,15 +455,15 @@ export function StockWorkspace() {
         </td>
         {/* Stock informado */}
         <td className="border-b border-[#e8eef5] bg-[#fffbec] px-1 py-1">
-          <input
-            type="number"
+          <InformadoInput
+            label={`Stock informado de ${row.clientCode}`}
+            title={informadoTitle(row)}
             value={row.reportedStock}
-            onChange={(e) => updateReportedStock(row.clientCode, e.target.value)}
-            className="h-6 w-full min-w-[60px] rounded border border-[#e4c878] bg-white px-1 text-right text-[7.5px] tabular-nums outline-none focus:border-[#b88a00] focus:ring-1 focus:ring-[#b88a00]/30"
+            onSave={(quantity) => void saveReportedStock([{ code: row.clientCode, quantity }])}
           />
         </td>
-        <td className={`${td} bg-[#fffbec]`}>{fmt(webAvailable)}</td>
-        <td className={`${td} bg-[#fffbec]`}>{fmt(adjustment)}</td>
+        <td className={`${td} bg-[#fffbec]`}>{webAvailable === null ? "—" : fmt(webAvailable)}</td>
+        <td className={`${td} bg-[#fffbec]`}>{adjustment === null ? "—" : fmt(adjustment)}</td>
         {/* Canjes */}
         <td className={td}>{fmt(row.totalTransactions)}</td>
         <td className={`${td} text-center font-mono`}>{row.firstIncomeDate || "—"}</td>
@@ -593,6 +661,21 @@ export function StockWorkspace() {
           </div>
         </div>
 
+        {Object.keys(localEdits).length > 0 && (
+          <div role="status" className="flex flex-wrap items-center gap-3 border-b border-[#e4c878] bg-[#fffbec] px-5 py-2 text-[11px] font-bold text-[#7a5b00]">
+            <span>
+              Tenés {Object.keys(localEdits).length === 1 ? "un stock informado editado" : `${Object.keys(localEdits).length} stocks informados editados`} solo en
+              este navegador: {Object.entries(localEdits).slice(0, 5).map(([code, value]) => `${code} = ${fmt(value)}`).join(" · ")}
+              {Object.keys(localEdits).length > 5 ? "…" : ""}
+            </span>
+            <button type="button" onClick={() => void shareLocalEdits()} className="rounded-lg border border-[#b88a00] bg-white px-3 py-1 font-black hover:bg-[#fff4cf]">
+              Guardarlos para todos
+            </button>
+            <button type="button" onClick={discardLocalEdits} className="rounded-lg px-2 py-1 font-black underline">
+              Descartar
+            </button>
+          </div>
+        )}
         {notice && (
           <div role="status" className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-2 text-[11px] font-bold text-[#334b6b]">{notice}</div>
         )}
