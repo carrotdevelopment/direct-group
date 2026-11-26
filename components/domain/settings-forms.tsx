@@ -98,6 +98,51 @@ const ALERTS: { key: "urbano" | "tango" | "backups"; label: string; help: string
   { key: "backups", label: "Respaldos de la base", help: "Si no se hizo el respaldo automático de la noche." },
 ];
 
+// Quienes reciben solo el aviso de Tango, además de los destinatarios generales.
+function TangoRecipients({ value, onChange, onError }: { value: string[]; onChange: (next: string[]) => void; onError: (message: string) => void }) {
+  const [draft, setDraft] = useState("");
+  function add() {
+    const email = draft.trim().toLowerCase();
+    if (!email) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return onError("El correo no es válido.");
+    if (!value.includes(email)) onChange([...value, email]);
+    setDraft("");
+    onError("");
+  }
+  return (
+    <span className="mt-3 block text-[11px] text-[#334b6b]">
+      <span className="font-bold">También avisar solo de Tango a:</span>
+      <span className="mt-1.5 flex flex-wrap gap-2">
+        {value.length === 0 && <span className="text-[#5a6a82]">Nadie más (solo los destinatarios generales).</span>}
+        {value.map((email) => (
+          <span key={email} className="inline-flex items-center gap-1 rounded-full bg-[#e9f1fb] px-3 py-1 text-xs font-bold text-[#0b5bbb]">
+            {email}
+            <button type="button" aria-label={`Quitar ${email}`} onClick={() => onChange(value.filter((item) => item !== email))} className="rounded-full p-0.5 hover:bg-[#d6e5f7]">
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+      </span>
+      <span className="mt-2 flex max-w-md gap-2">
+        <input
+          type="email"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            }
+          }}
+          placeholder="correo@directgroup.com.ar"
+          className="h-9 flex-1 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#7da4d3]"
+        />
+        <Button type="button" variant="secondary" onClick={add}>Agregar</Button>
+      </span>
+    </span>
+  );
+}
+
 export function NotificationsForm({ initial, saved: initialSaved }: { initial: NotificationSettings; saved: Saved }) {
   const [form, setForm] = useState(initial);
   const [saved, setSaved] = useState(initialSaved);
@@ -214,6 +259,13 @@ export function NotificationsForm({ initial, saved: initialSaved }: { initial: N
                   />
                   días hábiles sin ingresos (0 = no avisar por eso)
                 </span>
+              )}
+              {alert.key === "tango" && form.tango && (
+                <TangoRecipients
+                  value={form.tangoRecipients ?? []}
+                  onChange={(tangoRecipients) => setForm({ ...form, tangoRecipients })}
+                  onError={setError}
+                />
               )}
             </span>
           </label>

@@ -27,6 +27,8 @@ export const notificationsSchema = z.object({
   tango: z.boolean(),
   // Días hábiles seguidos sin ingresos nuevos de Tango a partir de los cuales se avisa (0 = no avisar).
   tangoIdleBusinessDays: z.number().int().min(0).max(30),
+  // Además de los destinatarios generales, quienes reciben solo el aviso de Tango (por ejemplo, quien carga los ingresos).
+  tangoRecipients: z.array(z.string().trim().toLowerCase().email("Hay un correo que no es válido.")).max(10).default([]),
   backups: z.boolean(),
 });
 export type NotificationSettings = z.infer<typeof notificationsSchema>;
@@ -36,6 +38,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
   urbano: true,
   tango: true,
   tangoIdleBusinessDays: 3,
+  tangoRecipients: [],
   backups: true,
 };
 
