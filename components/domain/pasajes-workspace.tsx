@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, FileSpreadsheet, MapPin, Pencil, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, MapPin, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { readDraft, saveDraft } from "@/lib/browser-draft";
 import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
-import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
 type ProductLookup = { code: string; name: string };
@@ -78,7 +77,6 @@ export function PasajesWorkspace({
   const [pasajes, setPasajes] = useState<Pasaje[]>([]);
   const [status, setStatus] = useState("Cargando...");
   const [pasajeModalOpen, setPasajeModalOpen] = useState(false);
-  const [solicitudModalOpen, setSolicitudModalOpen] = useState(false);
   const [batches, setBatches] = useState<PasajeBatch[]>([]);
   const [selectedApprove, setSelectedApprove] = useState<Set<string>>(new Set());
   // Destino elegido para cada pasaje sin destino, como "cliente|código".
@@ -281,11 +279,8 @@ export function PasajesWorkspace({
       <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="hidden text-[11px] font-bold text-[#5a6a82] sm:inline">{status}</span>
-          <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
-            <ArrowRightLeft size={15} /> Un pasaje
-          </Button>
-          <Button size="sm" className="whitespace-nowrap" onClick={() => setSolicitudModalOpen(true)}>
-            <FileSpreadsheet size={15} /> Cargar pasajes
+          <Button size="sm" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
+            <ArrowRightLeft size={15} /> Cargar pasaje
           </Button>
         </div>
       </div>
@@ -310,9 +305,10 @@ export function PasajesWorkspace({
               <span className="hidden group-open:inline">Ocultar explicación</span>
             </summary>
             <p className="mt-2 pb-1">
-              Los pasajes se cargan acá (&quot;Cargar pasajes&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
+              Los pasajes se cargan de a uno acá (&quot;Cargar pasaje&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
               origen y queda el ingreso pendiente en el destino; cuando Urbano avisa por correo que llegaron, los confirma la
-              encargada del cliente destino. De cada carga se bajan el Excel para mandarle a Urbano y la planilla para subir en Urbano.
+              encargada del cliente destino. El Excel para mandarle a Urbano y la planilla para subir en Urbano se bajan en
+              &quot;Exportar por fechas&quot;.
             </p>
           </details>
 
@@ -618,9 +614,6 @@ export function PasajesWorkspace({
           }}
         />
       )}
-      {solicitudModalOpen && (
-        <PasajeSolicitudModal draftKey={`pasajes:${userName}`} mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
-      )}
     </>
   );
 }
@@ -708,6 +701,7 @@ function ChoiceDropdown({
   placeholder,
   disabled,
   hint,
+  detail,
 }: {
   label: string;
   value: string;
@@ -716,6 +710,8 @@ function ChoiceDropdown({
   placeholder: string;
   disabled?: boolean;
   hint?: React.ReactNode;
+  // Dato chico a la derecha de cada opción (por ejemplo, el stock).
+  detail?: (option: string) => string | undefined;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -785,7 +781,10 @@ function ChoiceDropdown({
                   }`}
                 >
                   <span className="truncate">{option}</span>
-                  {isSelected && <Check size={14} className="shrink-0" />}
+                  <span className="flex shrink-0 items-center gap-2">
+                    {detail?.(option) && <span className="text-[11px] font-semibold text-[#5a6a82]">{detail(option)}</span>}
+                    {isSelected && <Check size={14} />}
+                  </span>
                 </button>
               );
             })}
@@ -802,13 +801,6 @@ function distinct(values: string[]) {
 
 function sameText(left: string, right: string) {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
-}
-
-function skuOptionsFrom(mappings: Mapping[], productByCode: Map<string, string>) {
-  return distinct(mappings.filter((m) => m.active && m.uniqueCode).map((m) => m.uniqueCode)).map((code) => {
-    const name = productByCode.get(code.toLowerCase());
-    return { value: code, label: name ? `${name} - ${code}` : code };
-  });
 }
 
 const selectClass =
@@ -906,32 +898,75 @@ function PasajeModal({
   const stock = originStock && originStock.key === originKey ? originStock : null;
   const requested = Number(draft.quantity);
   const shortage = !!stock && Number.isFinite(requested) && requested > 0 && requested > stock.available;
-  const skuOptions = useMemo(() => skuOptionsFrom(mappings, productByCode), [mappings, productByCode]);
-  const { forSku, fromPool } = optionsForSku(mappings, draft.sku, allowedClients);
-  const fromClients = distinct(fromPool.map((m) => m.client));
-  const toClients = distinct(forSku.map((m) => m.client));
-  const fromCodes = codesFor(fromPool, draft.fromClient);
-  const toCodes = codesFor(forSku, draft.toClient).filter(
-    (code) => !(sameText(draft.toClient, draft.fromClient) && sameText(code, draft.fromClientCode)),
+  // Origen: cliente y SKU origen (código cliente). El producto (código único) sale del SKU origen, y del
+  // otro lado solo aparecen los clientes y SKU nuevos de ese mismo producto.
+  const activeMappings = useMemo(() => mappings.filter((m) => m.active && m.uniqueCode), [mappings]);
+  const fromClients = useMemo(() => {
+    const pool = allowedClients ? activeMappings.filter((m) => allowedClients.some((c) => sameText(c, m.client))) : activeMappings;
+    return distinct(pool.map((m) => m.client));
+  }, [activeMappings, allowedClients]);
+  const fromCodeOptions = useMemo(
+    () =>
+      activeMappings
+        .filter((m) => sameText(m.client, draft.fromClient))
+        .sort((a, b) => a.clientCode.localeCompare(b.clientCode, "es", { numeric: true }))
+        .map((m) => {
+          const name = productByCode.get(m.uniqueCode.toLowerCase());
+          return { value: m.clientCode, label: name ? `${m.clientCode} · ${name}` : m.clientCode };
+        }),
+    [activeMappings, draft.fromClient, productByCode],
   );
+  const { forSku } = optionsForSku(mappings, draft.sku, allowedClients);
+  const isOriginCode = (client: string, code: string) => sameText(client, draft.fromClient) && sameText(code, draft.fromClientCode);
+  const destinations = forSku.filter((m) => !isOriginCode(m.client, m.clientCode));
+  const toClients = distinct(destinations.map((m) => m.client));
+  const toCodes = codesFor(destinations, draft.toClient);
+  const productName = draft.sku ? productByCode.get(draft.sku.toLowerCase()) : undefined;
 
-  function chooseSku(sku: string) {
-    const { fromPool: pool } = optionsForSku(mappings, sku, allowedClients);
-    const clients = distinct(pool.map((m) => m.client));
-    const fromClient = clients.length === 1 ? clients[0] : "";
-    const codes = fromClient ? codesFor(pool, fromClient) : [];
-    setDraft({ ...draft, sku, fromClient, fromClientCode: codes.length === 1 ? codes[0] : "", toClient: "", toClientCode: "" });
-  }
+  // Stock de cada SKU nuevo posible del cliente destino: sirve para elegir cuando el cliente tiene más de un
+  // código para el mismo producto (por ejemplo Amex, con DG99 y OFED).
+  const [destinationStock, setDestinationStock] = useState<Record<string, number>>({});
+  const toCodesKey = draft.toClient ? `${draft.toClient}|${toCodes.join(",")}` : "";
+  useEffect(() => {
+    if (!toCodesKey) return;
+    const [client, list] = toCodesKey.split("|");
+    const codes = list ? list.split(",") : [];
+    if (codes.length < 2) return;
+    const controller = new AbortController();
+    void Promise.all(
+      codes.map((code) =>
+        fetch(`/api/pasajes/stock?client=${encodeURIComponent(client)}&code=${encodeURIComponent(code)}`, { signal: controller.signal })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data: { real: number } | null) => [`${client}|${code}`, data?.real] as const)
+          .catch(() => [`${client}|${code}`, undefined] as const),
+      ),
+    ).then((entries) => {
+      if (controller.signal.aborted) return;
+      setDestinationStock((current) => {
+        const next = { ...current };
+        for (const [key, value] of entries) if (typeof value === "number") next[key] = value;
+        return next;
+      });
+    });
+    return () => controller.abort();
+  }, [toCodesKey]);
 
   function chooseFromClient(client: string) {
-    const codes = codesFor(fromPool, client);
-    setDraft({ ...draft, fromClient: client, fromClientCode: codes.length === 1 ? codes[0] : "", toClientCode: "" });
+    const codes = activeMappings.filter((m) => sameText(m.client, client));
+    const only = codes.length === 1 ? codes[0] : null;
+    setDraft({ ...draft, fromClient: client, fromClientCode: only?.clientCode ?? "", sku: only?.uniqueCode ?? "", toClient: "", toClientCode: "" });
+  }
+
+  function chooseFromCode(code: string) {
+    const mapping = activeMappings.find((m) => sameText(m.client, draft.fromClient) && sameText(m.clientCode, code));
+    const sku = mapping?.uniqueCode ?? "";
+    // Si el destino elegido sigue teniendo el mismo producto, se mantiene; si no, se limpia.
+    const keepTo = !!sku && sameText(sku, draft.sku);
+    setDraft({ ...draft, fromClientCode: code, sku, toClient: keepTo ? draft.toClient : "", toClientCode: keepTo ? draft.toClientCode : "" });
   }
 
   function chooseToClient(client: string) {
-    const codes = codesFor(forSku, client).filter(
-      (code) => !(sameText(client, draft.fromClient) && sameText(code, draft.fromClientCode)),
-    );
+    const codes = codesFor(destinations, client);
     setDraft({ ...draft, toClient: client, toClientCode: codes.length === 1 ? codes[0] : "" });
   }
 
@@ -977,62 +1012,67 @@ function PasajeModal({
         <div className="eyebrow">Nuevo pasaje</div>
         <h2 className="mt-2 text-xl font-black">Registrar pasaje entre clientes</h2>
         <p className="mt-1 text-xs text-[#5a6a82]">
-          Elegí primero el producto: se habilitan los clientes y códigos que lo tienen asignado. Queda esperando la
-          aprobación de la encargada del origen: ahí egresa y se crea el ingreso pendiente en el destino, que se confirma cuando Urbano informa la recepción.
+          Elegí el cliente y el SKU origen: del otro lado solo aparecen los clientes y SKU nuevos del mismo producto. Queda
+          esperando la aprobación de la encargada del origen: ahí egresa y se crea el ingreso pendiente en el destino, que se
+          confirma cuando Urbano informa la recepción.
         </p>
         <div className="mt-5 space-y-4">
-          <SearchSelect
-            label="Producto (nombre - código único)"
-            value={draft.sku}
-            options={skuOptions}
-            onChange={chooseSku}
-            placeholder="Buscá por nombre o código único"
-          />
           <div className="grid gap-3 sm:grid-cols-2">
             <ChoiceDropdown
               label="Cliente origen"
               value={draft.fromClient}
               options={fromClients}
-              disabled={!draft.sku}
               onChange={chooseFromClient}
-              placeholder={draft.sku ? "Elegí un cliente" : "Primero elegí el producto"}
-              hint={
-                draft.sku && fromClients.length === 0 ? (
-                  <span className="mt-1 block text-[11px] font-bold text-[#a43d39]">
-                    Ninguno de tus clientes tiene este producto asignado.
-                  </span>
-                ) : null
-              }
+              placeholder="Elegí un cliente"
             />
-            <ChoiceDropdown
-              label="Código cliente origen"
+            <SearchSelect
+              label="SKU origen"
               value={draft.fromClientCode}
-              options={fromCodes}
+              options={fromCodeOptions}
               disabled={!draft.fromClient}
-              onChange={(code) => setDraft({ ...draft, fromClientCode: code, toClientCode: "" })}
-              placeholder={draft.fromClient ? "Elegí un código" : "Primero elegí el cliente"}
+              onChange={chooseFromCode}
+              placeholder={draft.fromClient ? "Buscá por SKU o producto" : "Primero elegí el cliente"}
             />
+          </div>
+          {draft.sku && (
+            <div className="rounded-xl bg-[#eef5ff] px-4 py-2.5 text-xs font-bold text-[#0b5bbb]">
+              Producto: {productName ? `${productName} · ` : ""}
+              {draft.sku}
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
             <ChoiceDropdown
               label="Cliente destino"
               value={draft.toClient}
               options={toClients}
               disabled={!draft.sku}
               onChange={chooseToClient}
-              placeholder={draft.sku ? "Elegí un cliente" : "Primero elegí el producto"}
+              placeholder={draft.sku ? "Elegí un cliente" : "Primero elegí el SKU origen"}
             />
             <ChoiceDropdown
-              label="Código cliente destino"
+              label="SKU nuevo"
               value={draft.toClientCode}
               options={toCodes}
               disabled={!draft.toClient}
               onChange={(code) => setDraft({ ...draft, toClientCode: code })}
-              placeholder={draft.toClient ? "Elegí un código" : "Primero elegí el cliente"}
+              placeholder={draft.toClient ? "Elegí un SKU" : "Primero elegí el cliente"}
+              detail={(code) => {
+                const value = destinationStock[`${draft.toClient}|${code}`];
+                return typeof value === "number" ? `stock ${value}` : undefined;
+              }}
+              hint={
+                toCodes.length > 1 ? (
+                  <span className="mt-1 block text-[11px] font-bold text-[#985b00]">
+                    {draft.toClient} tiene {toCodes.length} SKU para este producto: elegí a cuál entra.
+                  </span>
+                ) : null
+              }
             />
           </div>
-          {draft.sku && toClients.length <= 1 && (
+          {draft.sku && toClients.length === 0 && (
             <p className="text-[11px] font-bold text-[#985b00]">
-              Solo un cliente tiene este producto asignado: para pasarlo a otro hay que cargar su código cliente en
-              Códigos cliente.
+              Ningún otro cliente tiene este producto asignado: para pasarlo hay que cargar su código cliente en Códigos
+              cliente.
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
