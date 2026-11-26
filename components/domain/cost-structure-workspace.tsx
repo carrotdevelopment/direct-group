@@ -75,6 +75,7 @@ type HistoryRow = {
   pvcNoVat: number;
   pvcWithVat: number;
   profitPercentage: number;
+  active?: boolean;
 };
 
 type SaveError = {
@@ -84,6 +85,16 @@ type SaveError = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Columnas por las que se puede ordenar la tabla.
+const TEXT_SORT_KEYS = { clientCode: "clientCode", uniqueCode: "uniqueCode", product: "product", supplier: "supplier", category: "category" } as const;
+const NUMBER_SORT_KEYS = {
+  costDgNoVat: "costDgNoVat", publicPrice: "publicPrice", freightNoVat: "freightNoVat",
+  pvcNoVat: "pvcNoVat", pvcWithVat: "pvcWithVat", stock: "stock",
+} as const;
+type SortKey =
+  | "costDgUpdatedAt" | "pvcUpdatedAt" | "profitAmt" | "profitPct" | "ppNoVat"
+  | keyof typeof TEXT_SORT_KEYS | keyof typeof NUMBER_SORT_KEYS;
 
 const now = new Date();
 const currentMonth = now.getMonth() + 1;
@@ -177,14 +188,14 @@ export function CostStructureWorkspace() {
   const [proposedIds, setProposedIds] = useState<Set<string>>(new Set());
   const [showRates, setShowRates] = useState(false);
 
-  const [sortKey, setSortKey] = useState<
-    "costDgUpdatedAt" | "pvcUpdatedAt" | "profitAmt" | "profitPct" | null
-  >("profitPct");
+  const [sortKey, setSortKey] = useState<SortKey | null>("profitPct");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   // History panel
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
   const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyStatus, setHistoryStatus] = useState("");
@@ -654,17 +665,41 @@ export function CostStructureWorkspace() {
 
   // ── Sort ─────────────────────────────────────────────────────────────────
 
-  function toggleSort(key: NonNullable<typeof sortKey>) {
+  function toggleSort(key: SortKey) {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir("asc");
+      // Importes y utilidad arrancan de mayor a menor; textos y fechas, de la A a la Z.
+      setSortDir(key in TEXT_SORT_KEYS || key === "costDgUpdatedAt" || key === "pvcUpdatedAt" ? "asc" : "desc");
     }
+  }
+
+  // Encabezado que ordena la tabla al hacer clic: primero de menor a mayor, otro clic de mayor a menor.
+  function sortable(key: SortKey, label: string) {
+    return (
+      <button type="button" onClick={() => toggleSort(key)} className="inline-flex items-center gap-1 font-black hover:underline" title="Ordenar por esta columna">
+        {label}
+        <span className={sortKey === key ? "text-[#0b5bbb]" : "opacity-40"}>
+          {sortKey === key ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    );
   }
 
   function sortRows(rows: CostRow[]): CostRow[] {
     if (!sortKey) return rows;
+    const textKey = TEXT_SORT_KEYS[sortKey as keyof typeof TEXT_SORT_KEYS];
+    const numberKey = NUMBER_SORT_KEYS[sortKey as keyof typeof NUMBER_SORT_KEYS];
+    if (textKey || numberKey || sortKey === "ppNoVat") {
+      const value = (row: CostRow) => sortKey === "ppNoVat" ? calculate(row, costoRates, precioRates).ppNoVat : numberKey ? Number(row[numberKey]) || 0 : 0;
+      return [...rows].sort((a, b) => {
+        const cmp = textKey
+          ? String(a[textKey] ?? "").localeCompare(String(b[textKey] ?? ""), "es", { numeric: true, sensitivity: "base" })
+          : value(a) - value(b);
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
     return [...rows].sort((a, b) => {
       let cmp: number;
       if (sortKey === "costDgUpdatedAt" || sortKey === "pvcUpdatedAt") {
@@ -687,7 +722,7 @@ export function CostStructureWorkspace() {
   // ── History handlers ─────────────────────────────────────────────────────
 
   async function searchHistory() {
-    if (!historySearch.trim()) return;
+    if (!historySearch.trim() && !historyFrom && !historyTo) return;
     if (!client) { setHistoryStatus("Seleccioná un cliente primero."); return; }
     setHistoryLoading(true);
     setHistoryStatus("Buscando...");
@@ -697,7 +732,7 @@ export function CostStructureWorkspace() {
     setHistoryDeleteConfirm(null);
     try {
       const res = await fetch(
-        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&historyFor=${encodeURIComponent(historySearch.trim())}&channel=${encodeURIComponent(channel)}`,
+        `/api/local-db/cost-structures?client=${encodeURIComponent(client)}&historyFor=${encodeURIComponent(historySearch.trim())}&from=${historyFrom}&to=${historyTo}&channel=${encodeURIComponent(channel)}`,
       );
       const data = (await res.json()) as { rows: HistoryRow[]; message?: string };
       if (!res.ok) throw new Error(data.message || "Error al buscar");
@@ -708,6 +743,48 @@ export function CostStructureWorkspace() {
     } finally {
       setHistoryLoading(false);
     }
+  }
+
+  // Excel del historial buscado: todos los registros encontrados (también de códigos inactivos).
+  async function exportHistoryExcel() {
+    if (historyRows.length === 0) return;
+    const XLSX = await import("xlsx");
+    const range = historyFrom || historyTo
+      ? `Períodos ${historyFrom ? displayPeriod(historyFrom) : "inicio"} a ${historyTo ? displayPeriod(historyTo) : "hoy"}`
+      : "Todos los períodos";
+    const headers = ["Período", "Cód.", "Cód.Único", "Producto", "Proveedor", "Estado", "IVA %", "Flete s/IVA", "PVC s/IVA", "PVC c/IVA", "Util. %"];
+    const data = [
+      [`Historial de estructura de costos · ${client}${channel ? ` · ${channel}` : ""}`],
+      [`${range}${historySearch.trim() ? ` · código ${historySearch.trim()}` : ""} · ${historyRows.length} registros`],
+      [],
+      headers,
+      ...historyRows.map((row) => [
+        displayPeriod(row.period), row.clientCode, row.uniqueCode, row.product, row.supplier,
+        row.active === false ? "Inactivo" : "Activo", row.vatRate,
+        row.freightNoVat, row.pvcNoVat, row.pvcWithVat, round2(row.profitPercentage) / 100,
+      ]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(data);
+    sheet["!cols"] = [10, 12, 14, 48, 22, 10, 8, 14, 14, 14, 10].map((wch) => ({ wch }));
+    sheet["!autofilter"] = { ref: `A4:K${data.length}` };
+    for (let r = 4; r < data.length; r += 1) {
+      for (const c of [7, 8, 9]) {
+        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+        if (cell) cell.z = '"$" #,##0.00';
+      }
+      const pct = sheet[XLSX.utils.encode_cell({ r, c: 10 })];
+      if (pct) pct.z = "0.00%";
+    }
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Historial");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    const safeClient = client.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "cliente";
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `historial-estructura-${safeClient}${historyFrom ? `-${historyFrom}` : ""}${historyTo ? `-a-${historyTo}` : ""}.xlsx`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function saveHistoryEdit(row: HistoryRow) {
@@ -768,8 +845,8 @@ export function CostStructureWorkspace() {
       <PageHeader title="Estructura mensual por cliente" />
 
       {/* ── Filter card ──────────────────────────────────────────────────── */}
-      <section className="card mb-4 p-5">
-        <div className="grid gap-4 md:grid-cols-[minmax(260px,1fr)_180px]">
+      <section className="card mb-3 p-4">
+        <div className="grid gap-3 md:grid-cols-[minmax(260px,1fr)_180px]">
           <label className="text-[11px] font-extrabold text-[#334b6b]">
             Cliente
             <select
@@ -784,7 +861,7 @@ export function CostStructureWorkspace() {
                 setOriginalAmexPct(0);
               }}
               disabled={clientsLoading}
-              className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
+              className="mt-1.5 h-9 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
             >
               <option value="" disabled>Elegí un cliente</option>
               {clientList.map((c) => (
@@ -809,7 +886,7 @@ export function CostStructureWorkspace() {
                   setHistoryDeleteConfirm(null);
                   setHistoryStatus("");
                 }}
-                className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
+                className="mt-1.5 h-9 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
               >
                 {costChannels(client).map((name) => (
                   <option key={name}>{name}</option>
@@ -822,7 +899,7 @@ export function CostStructureWorkspace() {
               variant="secondary"
               onClick={() => loadStructure()}
               disabled={loading || !client}
-              className="h-11 w-full"
+              className="h-9 w-full"
             >
               {loading ? "Cargando..." : "Cargar estructura"}
             </Button>
@@ -830,7 +907,7 @@ export function CostStructureWorkspace() {
         </div>
 
         {/* Status + rates toggle */}
-        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-4 py-3">
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#dbe4ef] bg-[#f8fafd] px-3 py-1.5">
           <div className="flex-1 text-[11px] font-bold text-[#5a6a82]">
             {status}
             {alertCount > 0 && (
@@ -1093,7 +1170,7 @@ export function CostStructureWorkspace() {
         </div>
 
         {/* Table */}
-        <div className="max-h-[calc(100vh-270px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
+        <div className="max-h-[calc(100vh-140px)] min-h-[320px] overflow-auto overscroll-contain bg-white">
           <table className={`cost-table ${isAmex ? "w-[1760px]" : "w-[1600px]"} table-fixed border-separate text-left text-[11px]`} style={{ borderSpacing: 0 }}>
             <colgroup>
               <col style={{ width: 36 }} />
@@ -1135,25 +1212,25 @@ export function CostStructureWorkspace() {
                 </th>
                 {/* Sticky text cols */}
                 <th className={`${stickyTh} left-9 z-50 w-16`}>
-                  <div>Cód.</div>
+                  {sortable("clientCode", "Cód.")}
                   <InlineSearch value={clientCodeSearch} onChange={setClientCodeSearch} />
                 </th>
                 <th className={`${stickyTh} left-[100px] z-50 w-[76px]`}>
-                  <div>Cód.Único</div>
+                  {sortable("uniqueCode", "Cód.Único")}
                   <InlineSearch value={uniqueCodeSearch} onChange={setUniqueCodeSearch} />
                 </th>
                 <th title="Descripción guardada en estructura; si falta, maestro de productos."
                   className={`${stickyTh} left-[176px] z-50 w-60 shadow-[6px_0_8px_-5px_rgba(16,35,63,.55)]`}
                 >
-                  <div>Producto</div>
+                  {sortable("product", "Producto")}
                   <InlineSearch value={productSearch} onChange={setProductSearch} />
                 <ColumnFormula text="Descripción guardada en estructura; si falta, maestro de productos." /></th>
                 {/* Regular cols */}
                 <th title="Proveedor guardado en estructura; si falta, maestro de productos." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
-                  Proveedor
+                  {sortable("supplier", "Proveedor")}
                 <ColumnFormula text="Proveedor guardado en estructura; si falta, maestro de productos." /></th>
                 <th title="Categoría guardada en estructura; si falta, maestro de productos." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
-                  Categoría
+                  {sortable("category", "Categoría")}
                 <ColumnFormula text="Categoría guardada en estructura; si falta, maestro de productos." /></th>
                 {/* Price-file cols — blue tint */}
                 <th title="Fecha del último costo proveedor disponible. Puede diferir de la fecha del costo aplicado."
@@ -1168,13 +1245,13 @@ export function CostStructureWorkspace() {
                   </span>
                 <ColumnFormula text="Fecha del último costo proveedor disponible. Puede diferir de la fecha del costo aplicado." /></th>
                 <th title="Costo DG aplicado: último costo guardado; si falta, último precio proveedor válido hasta el período." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
-                  Costo DG s/IVA
+                  {sortable("costDgNoVat", "Costo DG s/IVA")}
                 <ColumnFormula text="Costo DG aplicado: último costo guardado; si falta, último precio proveedor válido hasta el período." /></th>
                 <th title="Precio público con IVA / (1 + IVA / 100)." className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
-                  PP s/IVA
+                  {sortable("ppNoVat", "PP s/IVA")}
                 <ColumnFormula text="Precio público con IVA / (1 + IVA / 100)." /></th>
                 <th title="último precio público positivo hasta el período; si falta, precio público guardado." className="sticky top-0 z-10 w-[72px] border-b border-[#c3d0df] bg-[#ddeaf8] px-1 py-2 text-center font-black text-[#1a3a5c]">
-                  PP c/IVA
+                  {sortable("publicPrice", "PP c/IVA")}
                 <ColumnFormula text="último precio público positivo hasta el período; si falta, precio público guardado." /></th>
                 {isAmex && (
                   <th title="Amex: precio público con IVA × (1 + porcentaje Amex / 100). Informativo." className="sticky top-0 z-10 w-20 border-b border-[#c9b3e6] bg-[#efe6fb] px-1 py-2 text-center font-black text-[#4a2d73]">
@@ -1207,13 +1284,13 @@ export function CostStructureWorkspace() {
                   Fecha PVC
                 <ColumnFormula text="Conserva el período guardado de cada producto. Solo una fila modificada toma el período seleccionado; se confirma al guardar." /></th>
                 <th title="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." className="sticky top-0 z-10 w-16 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
-                  Flete s/IVA
+                  {sortable("freightNoVat", "Flete s/IVA")}
                 <ColumnFormula text="Flete sin IVA: importe fijo o costo DG × porcentaje / 100, según criterio vigente." /></th>
                 <th title="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
-                  PVC s/IVA
+                  {sortable("pvcNoVat", "PVC s/IVA")}
                 <ColumnFormula text="Precio de venta cliente editable o propuesto por rentabilidad. PVC con IVA / (1 + IVA / 100)." /></th>
                 <th title="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." className="sticky top-0 z-10 w-20 border-b border-[#c3d0df] bg-[#fce6df] px-1 py-2 text-center font-black text-[#5c2a24]">
-                  PVC c/IVA
+                  {sortable("pvcWithVat", "PVC c/IVA")}
                 <ColumnFormula text="PVC sin IVA × (1 + IVA / 100). El flete integra el costo total; no se agrega de nuevo al aplicar IVA." /></th>
                 {isAmex && (
                   <th title="Amex: PVC sin IVA × (1 + porcentaje Amex / 100). Informativo: no cambia la utilidad." className="sticky top-0 z-10 w-20 border-b border-[#c9b3e6] bg-[#efe6fb] px-1 py-2 text-center font-black text-[#4a2d73]">
@@ -1243,7 +1320,7 @@ export function CostStructureWorkspace() {
                   </span>
                 <ColumnFormula text="Utilidad / PVC sin IVA × 100. Margen sobre el precio de venta. Bordó: negativa · rojo: 0 a 15% · amarillo: 15 a 20% · azul: 20% o más." /></th>
                 <th className="sticky top-0 z-10 w-10 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2 text-center font-black text-[#34452f]">
-                  Stock
+                  {sortable("stock", "Stock")}
                 </th>
                 <th className="sticky top-0 z-10 w-8 border-b border-[#c3d0df] bg-[#eaf1df] px-1 py-2" />
               </tr>
@@ -1707,23 +1784,51 @@ export function CostStructureWorkspace() {
         {historyOpen && (
           <div className="p-5">
             {/* Search */}
-            <div className="mb-4 flex gap-2">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
               <input
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && searchHistory()}
-                placeholder="Código cliente (ej. DIR012)"
-                className="h-9 flex-1 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]"
+                placeholder="Código cliente (ej. DIR012), opcional"
+                className="h-9 min-w-[200px] flex-1 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs outline-none focus:border-[#0b5bbb] focus:ring-2 focus:ring-[#dce9f8]"
               />
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5a6a82]">
+                Desde
+                <input
+                  type="month"
+                  value={historyFrom}
+                  onChange={(e) => setHistoryFrom(e.target.value)}
+                  className="h-9 rounded-xl border border-[#dbe4ef] bg-white px-2 text-xs text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5a6a82]">
+                Hasta
+                <input
+                  type="month"
+                  value={historyTo}
+                  onChange={(e) => setHistoryTo(e.target.value)}
+                  className="h-9 rounded-xl border border-[#dbe4ef] bg-white px-2 text-xs text-[#10233f] outline-none focus:border-[#0b5bbb]"
+                />
+              </label>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={searchHistory}
-                disabled={historyLoading || !historySearch.trim()}
+                disabled={historyLoading || (!historySearch.trim() && !historyFrom && !historyTo)}
                 className="h-9"
               >
                 <Search size={13} />
                 {historyLoading ? "Buscando..." : "Buscar"}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void exportHistoryExcel()}
+                disabled={historyRows.length === 0}
+                className="h-9"
+                title="Descargar en Excel los registros encontrados, también los de códigos inactivos"
+              >
+                <Download size={13} /> Excel
               </Button>
             </div>
 
@@ -1760,7 +1865,10 @@ export function CostStructureWorkspace() {
                           className={`border-b border-[#e1e8f1] transition-colors ${isEditing ? "bg-[#f0f7ff]" : isDeleting ? "bg-[#fff5f3]" : "bg-white hover:bg-[#f8fafd]"}`}
                         >
                           <td className="px-3 py-1.5 tabular-nums text-[#5a6a82]">{displayPeriod(row.period)}</td>
-                          <td className="px-3 py-1.5 font-mono text-[#425979]">{row.clientCode}</td>
+                          <td className="px-3 py-1.5 font-mono text-[#425979]">
+                            {row.clientCode}
+                            {row.active === false && <span className="ml-1 rounded bg-[#f2f4f7] px-1 text-[10px] font-bold text-[#5a6a82]">inactivo</span>}
+                          </td>
                           <td className="px-3 py-1.5 font-mono text-[#425979]">{row.uniqueCode}</td>
                           <td className="max-w-[200px] truncate px-3 py-1.5 text-[#334b6b]" title={row.product}>{row.product}</td>
 

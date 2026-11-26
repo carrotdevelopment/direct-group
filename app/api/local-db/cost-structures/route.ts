@@ -220,11 +220,18 @@ export async function GET(request: Request) {
   const targetPeriod = periodIndex(targetYear, targetMonth);
   const targetPeriodKey = periodLabel(targetYear, targetMonth);
 
-  // History search mode — return all periods for codes matching clientCode
-  if (historyFor) {
+  // Historial: registros guardados de todos los períodos (también de códigos que hoy están inactivos),
+  // filtrados por código cliente y/o por rango de períodos (desde/hasta en formato AAAA-MM).
+  const historyFrom = /^\d{4}-\d{2}$/.test(url.searchParams.get("from") ?? "") ? String(url.searchParams.get("from")) : "";
+  const historyTo = /^\d{4}-\d{2}$/.test(url.searchParams.get("to") ?? "") ? String(url.searchParams.get("to")) : "";
+  if (historyFor || historyFrom || historyTo) {
     const needle = historyFor.trim().toLowerCase();
+    const activeCodes = new Set(
+      assignmentSource.filter((mapping) => mapping.active && sameClient(mapping.client)).map((mapping) => mapping.clientCode.trim().toLowerCase()),
+    );
     const matched = allCostRows
-      .filter((row) => row.clientCode.toLowerCase().includes(needle))
+      .filter((row) => !needle || row.clientCode.toLowerCase().includes(needle))
+      .filter((row) => (!historyFrom || row.period.slice(0, 7) >= historyFrom) && (!historyTo || row.period.slice(0, 7) <= historyTo))
       .sort(
         (a, b) =>
           b.period.localeCompare(a.period) ||
@@ -242,6 +249,7 @@ export async function GET(request: Request) {
         pvcNoVat: row.pvcNoVat,
         pvcWithVat: row.pvcWithVat,
         profitPercentage: row.profitPercentage,
+        active: activeCodes.has(row.clientCode.trim().toLowerCase()),
       })),
       message: `${matched.length} registro${matched.length !== 1 ? "s" : ""} encontrado${matched.length !== 1 ? "s" : ""}.`,
     });
