@@ -27,6 +27,7 @@ type TangoIncomeRow = {
   orderNumber: string;
   clientCode: string;
   uniqueCode: string;
+  description?: string;
   quantity: number;
   source: string;
   deliveryDate: string;
@@ -833,7 +834,7 @@ export function IncomeWorkspace() {
           </div>
         </div>
         <div className="max-h-[calc(100vh-280px)] min-h-[360px] overflow-auto overscroll-contain bg-white">
-          <table className="min-w-[1420px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
+          <table className="min-w-[1676px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
             <thead>
               <tr className="sticky top-0 z-10 bg-[#edf4fc] text-[11px] font-bold uppercase tracking-wide text-[#334b6b]">
                 <th className="w-36 px-3 py-3">Estado</th>
@@ -841,8 +842,9 @@ export function IncomeWorkspace() {
                 <th className="w-44 px-3 py-3">Operación</th>
                 <th className="w-24 px-3 py-3 text-center">Pedido</th>
                 <th className="w-36 px-3 py-3">Orden compra</th>
-                <th className="w-32 px-3 py-3">Código cliente</th>
                 <th className="w-32 px-3 py-3">Código único DG</th>
+                <th className="w-32 px-3 py-3">Código cliente</th>
+                <th className="w-64 px-3 py-3">Descripción</th>
                 <th className="w-24 px-3 py-3 text-right">Cantidad</th>
                 <th className="w-24 px-3 py-3 text-right">Entregado</th>
                 <th className="w-24 px-3 py-3 text-right">Pendiente</th>
@@ -902,13 +904,16 @@ export function IncomeWorkspace() {
                   <td className="truncate px-3 py-2" title={row.orderNumber}>
                     {row.orderNumber || "-"}
                   </td>
-                  <td className="px-3 py-2 font-mono text-[#10233f]">
-                    {row.clientCode || "-"}
-                  </td>
                   <td className="px-3 py-2 font-mono">
                     {row.uniqueCode || (
                       <span className="text-[#b7433f]">Sin match</span>
                     )}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[#10233f]">
+                    {row.clientCode || "-"}
+                  </td>
+                  <td className="truncate px-3 py-2 text-[#334b6b]" title={row.description}>
+                    {row.description || "-"}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatNumber(row.quantity)}
@@ -937,7 +942,7 @@ export function IncomeWorkspace() {
               {!loading && rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={13}
+                    colSpan={14}
                     className="px-5 py-12 text-center text-sm font-bold text-[#5a6a82]"
                   >
                     {selectedClients.length === 0

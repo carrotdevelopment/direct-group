@@ -312,6 +312,8 @@ export type TangoIncomeRow = {
   orderNumber: string;
   clientCode: string;
   uniqueCode: string;
+  // Descripción del producto (maestro de productos, por código único).
+  description?: string;
   quantity: number;
   source: string;
   deliveryDate: string;

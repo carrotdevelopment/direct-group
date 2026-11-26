@@ -147,6 +147,7 @@ type IncomeDbRow = {
   orden_de_compra: string;
   codigo_cliente: string;
   codigo_unico: string;
+  descripcion: string | null;
   cantidad: number;
   origen: string;
   entrega_display: string | null;
@@ -256,18 +257,26 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
   const [rows, groups] = await Promise.all([
     excelPostgres.$queryRaw<(IncomeDbRow & IncomeWindowTotals)[]>(Prisma.sql`
       WITH ${RESOLVED_INCOME_CTE},
-      f AS MATERIALIZED (SELECT * FROM r ${where})
+      f AS MATERIALIZED (SELECT * FROM r ${where}),
+      -- Descripción de cada código único (un producto por código: el activo primero). Se cruza con un hash
+      -- join: buscarla fila por fila tardaba segundos porque no hay índice por lower(codigo_unico).
+      prod AS (
+        SELECT DISTINCT ON (lower(codigo_unico)) lower(codigo_unico) AS k, producto
+        FROM base_productos WHERE coalesce(codigo_unico, '') <> ''
+        ORDER BY lower(codigo_unico), activo DESC, id
+      )
       SELECT id, cliente_res, operacion, to_char(fecha_pedido, 'DD/MM/YYYY') AS fecha_display,
         extract(year FROM fecha_pedido)::int AS anio, extract(month FROM fecha_pedido)::int AS mes,
-        orden_de_compra, codigo_cliente, codigo_unico, cantidad::float8 AS cantidad, origen,
+        orden_de_compra, codigo_cliente, codigo_unico, prod.producto AS descripcion,
+        cantidad::float8 AS cantidad, origen,
         to_char(fecha_entrega, 'DD/MM/YYYY') AS entrega_display, entregado::float8 AS entregado,
         pendiente::float8 AS pendiente, comentarios, pending_tango_entry, created_by,
         (count(*) OVER ())::int AS t_total, (sum(cantidad) OVER ())::float8 AS t_cantidad,
         (sum(entregado) OVER ())::float8 AS t_entregado, (sum(pendiente) OVER ())::float8 AS t_pendiente,
         (count(*) FILTER (WHERE pendiente > 0) OVER ())::int AS t_filas_pendientes,
         (count(*) FILTER (WHERE codigo_unico = '') OVER ())::int AS t_sin_unico
-      FROM f
-      ORDER BY fecha_entrega DESC NULLS LAST, fecha_pedido DESC NULLS LAST, id DESC
+      FROM f LEFT JOIN prod ON prod.k = lower(f.codigo_unico)
+      ORDER BY fecha_entrega DESC NULLS LAST, fecha_pedido DESC NULLS LAST, f.id DESC
       LIMIT ${limit}`),
     readIncomeGroups(),
   ]).then(([incomeRows, allGroups]) => [incomeRows, filterByClientScope(scope, allGroups, (group) => group.cliente_res)] as const);
@@ -322,6 +331,7 @@ export async function readTangoIncomeViewFromPostgres(options: TangoIncomeFilter
       orderNumber: row.orden_de_compra,
       clientCode: row.codigo_cliente,
       uniqueCode: row.codigo_unico,
+      description: row.descripcion ?? "",
       quantity: row.cantidad,
       source: row.origen,
       deliveryDate: row.entrega_display ?? "",
