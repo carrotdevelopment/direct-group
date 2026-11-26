@@ -191,6 +191,19 @@ async function readExcel(file: File, sheetIdx: number | null, startRow: number, 
 }
 
 // Fecha de una celda en formato AAAA-MM-DD: número de serie de Excel, AAAA-MM-DD o DD/MM/AAAA.
+// Valor de una columna del archivo original. Las columnas Día/Mes/Año vienen de las planillas migradas; los
+// egresos cargados con una sola columna de fecha (o a mano) no las tienen, así que se completan con la
+// fecha guardada del egreso.
+const DATE_PART_KEYS: Record<string, [number, number]> = { Dia: [8, 10], "Día": [8, 10], Mes: [5, 7], "Año": [0, 4], Anio: [0, 4] };
+export function rawCellValue(raw: Record<string, string | undefined>, key: string) {
+  const value = raw[key];
+  if (value || !DATE_PART_KEYS[key]) return value ?? "";
+  const iso = /^\d{4}-\d{2}-\d{2}/.test(raw.fecha ?? "") ? String(raw.fecha) : "";
+  if (!iso) return "";
+  const [start, end] = DATE_PART_KEYS[key];
+  return String(Number(iso.slice(start, end)));
+}
+
 export function isoDateFromCell(value: string | undefined) {
   const raw = String(value ?? "").trim();
   if (/^\d{5}(\.\d+)?$/.test(raw)) {
@@ -1409,7 +1422,8 @@ function FlatHistoryTable({ lotes, configs, cliente, onDeleteRows, onUpdateRow, 
                     if (k === "codigo") return <td key={k} className={`${td} font-mono text-xs`}>{row.codigo || "—"}</td>;
                     if (k === "desc")   return <td key={k} className={`${td} max-w-[200px] truncate text-[#425979]`} title={row.desc}>{row.desc || "—"}</td>;
                     if (k === "cant")   return <td key={k} className={`${td} text-right tabular-nums font-semibold`}>{row.cant || "—"}</td>;
-                    return <td key={k} className={`${td} max-w-[140px] truncate text-[#425979]`} title={row.raw[k]}>{row.raw[k] || "—"}</td>;
+                    const value = rawCellValue(row.raw, k);
+                    return <td key={k} className={`${td} max-w-[140px] truncate text-[#425979]`} title={value}>{value || "—"}</td>;
                   })}
                 </tr>
               ))}
