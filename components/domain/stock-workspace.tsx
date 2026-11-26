@@ -1,11 +1,14 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Minus, Plus, Search } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, Download, Minus, Plus, Search } from "lucide-react";
 import { PageHeader } from "@/components/domain/page-header";
+import { ColPicker } from "@/components/domain/column-picker";
+import { useOutsideClick } from "@/lib/use-outside-click";
 import { CODE_TYPES, CODE_TYPE_LABEL, usesCodeType, type CodeType } from "@/lib/code-type";
 import {
-  groupBySupplier, matchesFilters, nextSort, sortLines, stockCalc, sumColumn, stockExportFileName, stockExportSheet, STOCK_COLUMNS,
+  amexCodeGroup, CONFIGURABLE_STOCK_COLUMNS, defaultStockColumns, groupBySupplier, isAmexClient, matchesColumnFilter, matchesFilters,
+  nextSort, sortLines, stockCalc, sumColumn, stockExportFileName, stockExportSheet, STICKY_STOCK_COLUMNS, STOCK_COLUMNS,
   type BalanceFilter, type StockColumn, type StockLine, type StockRow, type StockSort, type TypeFilter,
 } from "@/lib/stock-table";
 import { informadoByIncome, parseInformado, resolveInformado, type SavedInformado } from "@/lib/stock-informado";
@@ -35,7 +38,6 @@ const MONTHS = [
 ];
 const MONTH_LABEL = MONTHS[today.getMonth()];
 const YEAR = today.getFullYear();
-const BASE_COLS = 31; // 3 sticky + 2 info + 6 mov + 2 urbano + 3 si + 4 canjes + 6 nec + 5 costos
 
 // Antes el stock informado se guardaba solo en el navegador: quedan ediciones viejas por pasar a la base.
 const STOCK_KEY = (c: string) => `stock-informado-v1-${c.toLowerCase()}`;
@@ -83,6 +85,67 @@ function InformadoInput({ label, title, value, onSave }: { label: string; title:
   );
 }
 
+// ─── Columns ──────────────────────────────────────────────────────────────────
+
+type GroupKey = "info" | "mov" | "urbano" | "informado" | "canjes" | "necesidad" | "costos";
+
+// Grupo de cada columna: el encabezado de arriba y los colores. Si el usuario mezcla columnas de distintos
+// grupos, el encabezado de grupo se arma por tramos seguidos.
+const GROUPS: Record<GroupKey, { label: string; head: string; sum: string; th: string; td: string }> = {
+  info: { label: "", head: "bg-[#edf3f9] text-[#5a6a82]", sum: "bg-[#edf3f9] text-[#334b6b]", th: "", td: "" },
+  mov: { label: "Movimientos", head: "bg-[#dceafe] text-[#1e4db7]", sum: "bg-[#e9f2ff] text-[#1e4db7]", th: "bg-[#eef5ff]", td: "bg-[#f6f9ff]" },
+  urbano: { label: "Urbano", head: "bg-[#d9f1ee] text-[#0f5e57]", sum: "bg-[#e6f5f3] text-[#0f5e57]", th: "bg-[#e6f5f3]", td: "bg-[#eef8f7]" },
+  informado: { label: "Stock informado", head: "bg-[#fef5d4] text-[#7a5b00]", sum: "bg-[#fef9e6] text-[#7a5b00]", th: "bg-[#fdf6de]", td: "bg-[#fffbec]" },
+  canjes: { label: "Canjes", head: "bg-[#edf3f9] text-[#334b6b]", sum: "bg-[#f3f7fb] text-[#334b6b]", th: "", td: "" },
+  necesidad: { label: "Necesidad de compra", head: "bg-[#ede8fa] text-[#4b3080]", sum: "bg-[#f5f2fe] text-[#4b3080]", th: "bg-[#f5f2fe]", td: "bg-[#f8f6fd]" },
+  costos: { label: "Costos", head: "bg-[#d8f0e3] text-[#1a5c30]", sum: "bg-[#e8f5ee] text-[#1a5c30]", th: "bg-[#e8f5ee]", td: "bg-[#edf8f1]" },
+};
+
+type ConfigurableColumn = Exclude<StockColumn, (typeof STICKY_STOCK_COLUMNS)[number]>;
+
+const COLUMN_META: Record<ConfigurableColumn, { group: GroupKey; width: number; sum?: boolean; title?: string }> = {
+  type: { group: "info", width: 104 },
+  category: { group: "info", width: 96 },
+  totalOrder: { group: "mov", width: 72, sum: true },
+  physicalIncome: { group: "mov", width: 72, sum: true },
+  egress: { group: "mov", width: 72, sum: true },
+  theoreticalStock: { group: "mov", width: 72, sum: true },
+  realStock: { group: "mov", width: 72, sum: true },
+  pendingDeliveries: { group: "mov", width: 72, sum: true },
+  urbanoStock: { group: "urbano", width: 72, sum: true },
+  urbanoDifference: { group: "urbano", width: 72, sum: true, title: "Stock Urbano menos stock real" },
+  reportedStock: { group: "informado", width: 80, sum: true },
+  webAvailable: { group: "informado", width: 72, sum: true },
+  adjustment: { group: "informado", width: 72, sum: true },
+  totalTransactions: { group: "canjes", width: 72, sum: true },
+  firstIncomeDate: { group: "canjes", width: 80 },
+  validity: { group: "canjes", width: 64 },
+  transactionsPerDay: { group: "canjes", width: 64 },
+  stockDays: { group: "necesidad", width: 64 },
+  requiredStock: { group: "necesidad", width: 72, sum: true },
+  surplusShortage: { group: "necesidad", width: 72, sum: true },
+  surplusShortageByPackage: { group: "necesidad", width: 64, sum: true },
+  packageSize: { group: "necesidad", width: 56 },
+  finalPurchase: { group: "necesidad", width: 72, sum: true },
+  costDgNoVat: { group: "costos", width: 80 },
+  totalCost: { group: "costos", width: 80 },
+  stockValue: { group: "costos", width: 88, sum: true },
+  unitProfit: { group: "costos", width: 80 },
+  salePrice: { group: "costos", width: 72 },
+};
+
+// Columnas fijas a la izquierda: código, código único, producto y proveedor.
+const STICKY = [
+  { key: "clientCode", width: 80, left: 0, mono: true },
+  { key: "uniqueCode", width: 90, left: 80, mono: true },
+  { key: "product", width: 260, left: 170, mono: false },
+  { key: "supplier", width: 110, left: 430, mono: false },
+] as const;
+const STICKY_WIDTH = 540;
+
+const columnLabel = (key: string) => STOCK_COLUMNS.find((column) => column.key === key)?.label ?? key;
+const COLUMNS_KEY = (client: string) => `dg:stock:cols:${client.toLowerCase()}`;
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function StockWorkspace() {
@@ -90,11 +153,12 @@ export function StockWorkspace() {
   // Vacío hasta leer el último cliente elegido, para no cargar Santander de más al entrar.
   const [client, setClient] = useState("");
   const [rows, setRows] = useState<StockRow[]>([]);
+  // Filas con las que se arma el orden y qué filas se ven. Editar el stock informado cambia `rows` pero no
+  // esta copia, así la fila no salta de lugar; se actualiza al recargar o al cambiar el orden o un filtro.
+  const [basis, setBasis] = useState<StockRow[]>([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
-  const [codeSearch, setCodeSearch] = useState("");
-  const [uniqueSearch, setUniqueSearch] = useState("");
-  const [productSearch, setProductSearch] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const [zoom, setZoomState] = useState(100);
   // El zoom guardado se lee después de montar, para que el HTML del servidor y el del navegador coincidan.
   useEffect(() => {
@@ -121,8 +185,99 @@ export function StockWorkspace() {
   // Informados que quedaron solo en este navegador y difieren de los de la base.
   const [localEdits, setLocalEdits] = useState<Record<string, number>>({});
   const withType = usesCodeType(client);
+  const amex = isAmexClient(client);
   const typeFilter: TypeFilter = withType ? typeChoice : "";
-  const totalCols = BASE_COLS + (withType ? 1 : 0);
+
+  // Columnas que eligió el usuario para este cliente (además de las fijas).
+  const [columns, setColumns] = useState<ConfigurableColumn[]>([]);
+  const [colPickerOpen, setColPickerOpen] = useState(false);
+  const [colSaveState, setColSaveState] = useState<"" | "saving" | "saved" | "error">("");
+  const closeColPicker = useCallback(() => setColPickerOpen(false), []);
+  const colPickerRef = useOutsideClick<HTMLDivElement>(closeColPicker, colPickerOpen);
+  const columnsDirty = useRef(false);
+  const draggedColumn = useRef<string | null>(null);
+  const clientRef = useRef(client);
+  useEffect(() => { clientRef.current = client; });
+  const availableColumns = useMemo(
+    () => (CONFIGURABLE_STOCK_COLUMNS as ConfigurableColumn[]).filter((key) => withType || key !== "type"),
+    [withType],
+  );
+
+  useEffect(() => {
+    if (!client) return;
+    const allowed = new Set<string>(availableColumns);
+    const clean = (list: string[]) => list.filter((key): key is ConfigurableColumn => allowed.has(key));
+    let initial = defaultStockColumns(client, withType) as ConfigurableColumn[];
+    try {
+      const saved = localStorage.getItem(COLUMNS_KEY(client));
+      if (saved) initial = clean(JSON.parse(saved) as string[]);
+    } catch {}
+    // Restore the column layout saved for this client.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setColumns(initial);
+    setColSaveState("");
+    // Lo guardado para el usuario manda sobre lo de este navegador.
+    const requested = client;
+    fetch(`/api/columnas?view=${encodeURIComponent(`stock:${client}`)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { columns?: string[] | null } | null) => {
+        if (data?.columns?.length && clientRef.current === requested) setColumns(clean(data.columns));
+      })
+      .catch(() => undefined);
+  }, [client, withType, availableColumns]);
+
+  async function saveColumns(list: string[] = columns, forClient = client) {
+    setColSaveState("saving");
+    try {
+      const response = await fetch("/api/columnas", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ view: `stock:${forClient}`, columns: list }),
+      });
+      setColSaveState(response.ok ? "saved" : "error");
+    } catch {
+      setColSaveState("error");
+    }
+  }
+
+  useEffect(() => {
+    if (!client || columns.length === 0) return;
+    try { localStorage.setItem(COLUMNS_KEY(client), JSON.stringify(columns)); } catch {}
+    if (!columnsDirty.current) return;
+    columnsDirty.current = false;
+    const timer = setTimeout(() => void saveColumns(columns, client), 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- saveColumns recibe todo por parámetro.
+  }, [columns]);
+
+  function changeColumns(update: (current: ConfigurableColumn[]) => ConfigurableColumn[]) {
+    columnsDirty.current = true;
+    setColumns(update);
+  }
+  const addColumn = (key: string) => changeColumns((current) => (current.includes(key as ConfigurableColumn) ? current : [...current, key as ConfigurableColumn]));
+  const removeColumn = (key: string) => changeColumns((current) => current.filter((item) => item !== key));
+  function moveColumnTo(key: string, target: string) {
+    if (key === target) return;
+    changeColumns((current) => {
+      const from = current.indexOf(key as ConfigurableColumn);
+      const to = current.indexOf(target as ConfigurableColumn);
+      if (from < 0 || to < 0) return current;
+      const next = [...current];
+      next.splice(from, 1);
+      next.splice(to, 0, key as ConfigurableColumn);
+      return next;
+    });
+  }
+  function moveColumn(key: string, direction: -1 | 1) {
+    changeColumns((current) => {
+      const index = current.indexOf(key as ConfigurableColumn);
+      if (index < 0) return current;
+      const next = [...current];
+      next.splice(index, 1);
+      next.splice(Math.max(0, Math.min(current.length - 1, index + direction)), 0, key as ConfigurableColumn);
+      return next;
+    });
+  }
 
   useEffect(() => {
     let last = "";
@@ -137,6 +292,7 @@ export function StockWorkspace() {
   function chooseClient(next: string) {
     setClient(next);
     setNotice("");
+    setFilters({});
     try {
       localStorage.setItem(LAST_CLIENT_KEY, next);
     } catch {}
@@ -181,11 +337,14 @@ export function StockWorkspace() {
         } catch {}
         const current = new Map(data.rows.map((r) => [r.clientCode, r.reportedStock]));
         setLocalEdits(Object.fromEntries(Object.entries(saved).filter(([code, value]) => current.has(code) && current.get(code) !== value)));
-        setRows(data.rows.map((r) => ({ ...r, vigente: r.vigente ?? true })));
+        const loaded = data.rows.map((r) => ({ ...r, vigente: r.vigente ?? true }));
+        setRows(loaded);
+        setBasis(loaded);
         setStatus(data.message || "");
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setRows([]);
+        setBasis([]);
         setLocalEdits({});
         setStatus(
           err instanceof Error ? err.message : "No se pudo cargar el stock.",
@@ -204,6 +363,11 @@ export function StockWorkspace() {
     void loadStock(controller.signal);
     return () => controller.abort();
   }, [loadStock]);
+
+  // Al cambiar el orden, un filtro o los meses se vuelve a ordenar con los valores actuales.
+  function rearrange() {
+    setBasis(rows);
+  }
 
   // ── Edit reported stock ───────────────────────────────────────────────────
 
@@ -286,31 +450,43 @@ export function StockWorkspace() {
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const months = Number(planningMonths) || 0;
+  const filterKeys = useMemo(() => Object.entries(filters).filter(([, value]) => value.trim()), [filters]);
 
   const { activeGroups, inactiveGroups, activeRows, inactiveRows } = useMemo(() => {
-    const cc = codeSearch.trim().toLowerCase();
-    const uc = uniqueSearch.trim().toLowerCase();
-    const pc = productSearch.trim().toLowerCase();
-    const filtered = rows.map((r): StockLine => ({ ...r, ...stockCalc(r, months) })).filter(
-      (r) =>
-        matchesFilters(r, balance, typeFilter) &&
-        (!cc || r.clientCode.toLowerCase().includes(cc)) &&
-        (!uc || r.uniqueCode.toLowerCase().includes(uc)) &&
-        (!pc || r.product.toLowerCase().includes(pc)),
+    const currentById = new Map(rows.map((row) => [row.id, row]));
+    const toLine = (row: StockRow): StockLine => ({ ...row, ...stockCalc(row, months) });
+    // Qué filas se ven y en qué orden sale de `basis`; los valores que se muestran, de `rows`.
+    const filteredBasis = basis.map(toLine).filter(
+      (r) => matchesFilters(r, balance, typeFilter) && filterKeys.every(([key, value]) => matchesColumnFilter(r, key as StockColumn, value)),
     );
+    const current = (lines: StockLine[]) => lines.map((line) => {
+      const row = currentById.get(line.id);
+      return row ? toLine(row) : line;
+    });
+    const bySupplier = (lines: StockLine[], prefix: string) =>
+      grouped
+        ? groupBySupplier(lines).map((group) => ({ label: [prefix, group.supplier || "Sin proveedor"].filter(Boolean).join(" · "), lines: group.lines }))
+        : [{ label: prefix, lines }];
     const arrange = (lines: StockLine[]) => {
-      const sorted = sortLines(lines, sort);
-      return grouped ? groupBySupplier(sorted) : [{ supplier: "", lines: sorted }];
+      const sorted = current(sortLines(lines, sort));
+      // Amex: primero los códigos DG y al fondo los OFED, cada bloque con su encabezado.
+      if (amex) {
+        return [
+          ...bySupplier(sorted.filter((line) => amexCodeGroup(line.clientCode) === "DG"), "DG"),
+          ...bySupplier(sorted.filter((line) => amexCodeGroup(line.clientCode) === "OFED"), "OFED"),
+        ].filter((group) => group.lines.length > 0);
+      }
+      return bySupplier(sorted, "");
     };
-    const active = arrange(filtered.filter((r) => r.vigente && validity !== "no"));
-    const inactive = arrange(filtered.filter((r) => !r.vigente && validity !== "si" && (r.theoreticalStock > 0 || r.realStock > 0)));
+    const active = arrange(filteredBasis.filter((r) => r.vigente && validity !== "no"));
+    const inactive = arrange(filteredBasis.filter((r) => !r.vigente && validity !== "si" && (r.theoreticalStock > 0 || r.realStock > 0)));
     return {
       activeGroups: active,
       inactiveGroups: inactive,
       activeRows: active.flatMap((group) => group.lines),
       inactiveRows: inactive.flatMap((group) => group.lines),
     };
-  }, [rows, codeSearch, uniqueSearch, productSearch, months, validity, balance, typeFilter, sort, grouped]);
+  }, [rows, basis, filterKeys, months, validity, balance, typeFilter, sort, grouped, amex]);
 
   const totals = useMemo(
     () => ({
@@ -325,6 +501,20 @@ export function StockWorkspace() {
   );
 
   const visibleRows = [...activeRows, ...inactiveRows];
+  const totalCols = STICKY.length + columns.length;
+  const tableWidth = STICKY_WIDTH + columns.reduce((sum, key) => sum + COLUMN_META[key].width, 0);
+
+  // Encabezado de grupos: tramos seguidos de columnas del mismo grupo.
+  const groupRuns = useMemo(() => {
+    const runs: { group: GroupKey; span: number }[] = [];
+    for (const key of columns) {
+      const group = COLUMN_META[key].group;
+      const last = runs[runs.length - 1];
+      if (last && last.group === group) last.span += 1;
+      else runs.push({ group, span: 1 });
+    }
+    return runs;
+  }, [columns]);
 
   async function exportStock() {
     const XLSX = await import("xlsx");
@@ -345,33 +535,24 @@ export function StockWorkspace() {
   const grpBase = "sticky top-0 h-7 border-b border-[#c8d6e5] px-2 text-center text-[11px] font-black uppercase tracking-wide";
   // Totals row (sticky top-7 = below group row, h-6 = 24px fixed height)
   const sumBase = "sticky top-7 h-6 border-b border-[#c5d3e0] px-1.5 text-right text-[11px] font-black tabular-nums";
-  const sumCell = (key: StockColumn, style: string) => {
-    const total = sumColumn(visibleRows, key);
-    const label = STOCK_COLUMNS.find((column) => column.key === key)?.label;
-    return (
-      <td key={key} title={`Suma de ${label} de las filas que se ven`} className={`${sumBase} z-20 ${style}`}>
-        {total === null ? "—" : fmt(Math.round(total))}
-      </td>
-    );
-  };
   // Column header cells (below group and totals rows)
-  const colHdr = "sticky top-[52px] z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center text-[11px] font-black text-[#334b6b]";
+  const colHdr = "sticky top-[52px] z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center align-top text-[11px] font-black text-[#334b6b]";
   // Sticky column header cells (also left-pinned)
-  const colHdrSticky = "sticky top-[52px] z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-[11px] font-black text-[#334b6b]";
+  const colHdrSticky = "sticky top-[52px] z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 align-top text-[11px] font-black text-[#334b6b]";
   const controlClass = "h-8 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs font-semibold normal-case text-[#10233f] outline-none focus:border-[#0b5bbb]";
   // Body number cells
   const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[11px] text-right tabular-nums";
 
-  // ── Row renderer ──────────────────────────────────────────────────────────
+  // ── Header pieces ─────────────────────────────────────────────────────────
 
   function sortButton(key: StockColumn) {
-    const label = STOCK_COLUMNS.find((column) => column.key === key)?.label;
+    const label = columnLabel(key);
     const direction = sort?.key === key ? sort.direction : null;
     const Icon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ChevronsUpDown;
     return (
       <button
         type="button"
-        onClick={() => setSort(nextSort(sort, key))}
+        onClick={() => { setSort(nextSort(sort, key)); rearrange(); }}
         title={direction === "desc" ? "De mayor a menor" : direction === "asc" ? "De menor a mayor" : "Ordenar"}
         className={`inline-flex items-center gap-0.5 hover:text-[#0b5bbb] ${direction ? "text-[#0b5bbb]" : ""}`}
       >
@@ -381,14 +562,32 @@ export function StockWorkspace() {
     );
   }
 
-  function renderGroups(groups: { supplier: string; lines: StockLine[] }[], section: "active" | "inactive") {
+  // Filtro de cada columna: texto que contenga, o en números también >, <, >=, <= (por ejemplo "<0").
+  function filterInput(key: StockColumn, numeric: boolean) {
+    return (
+      <div className="relative mt-1">
+        <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
+        <input
+          value={filters[key] ?? ""}
+          onChange={(e) => { setFilters((current) => ({ ...current, [key]: e.target.value })); rearrange(); }}
+          aria-label={`Filtrar ${columnLabel(key)}`}
+          title={numeric ? "Filtrar: un número, o >, <, >=, <= (por ejemplo <0 o >=10)" : "Filtrar: lo que contenga"}
+          className={`h-5 w-full rounded border bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb] ${filters[key]?.trim() ? "border-[#0b5bbb]" : "border-[#c5d3e0]"}`}
+        />
+      </div>
+    );
+  }
+
+  // ── Row renderer ──────────────────────────────────────────────────────────
+
+  function renderGroups(groups: { label: string; lines: StockLine[] }[], section: "active" | "inactive") {
     return groups.map((group) => (
-      <Fragment key={group.supplier || "sin-proveedor"}>
-        {grouped && (
+      <Fragment key={group.label || "todos"}>
+        {group.label && (
           <tr>
             <td colSpan={totalCols} className="border-y border-[#c8d6e5] bg-[#e4ecf5] py-1.5 text-[11px] font-black text-[#10233f]">
               <span className="sticky left-0 inline-block px-2">
-                {group.supplier || "Sin proveedor"} · {group.lines.length} código{group.lines.length === 1 ? "" : "s"} · stock real{" "}
+                {group.label} · {group.lines.length} código{group.lines.length === 1 ? "" : "s"} · stock real{" "}
                 {fmt(group.lines.reduce((sum, line) => sum + line.realStock, 0))} · compra final{" "}
                 {fmt(group.lines.reduce((sum, line) => sum + line.finalPurchase, 0))} · valorizado $
                 {money(group.lines.reduce((sum, line) => sum + line.stockValue, 0))}
@@ -401,41 +600,12 @@ export function StockWorkspace() {
     ));
   }
 
-  function renderRow(row: StockLine, section: "active" | "inactive") {
-    const { webAvailable, adjustment, requiredStock, surplusShortage, surplusShortageByPackage, finalPurchase } = row;
-    const rowBg = section === "inactive"
-      ? "bg-[#f9f8fb]"
-      : row.hasStockData ? "bg-white" : "bg-[#fffcf0]";
-    const stickyBg = section === "inactive"
-      ? "bg-[#f3f0f9] bg-clip-padding"
-      : row.hasStockData ? "bg-[#f8fafd] bg-clip-padding" : "bg-[#fffbee] bg-clip-padding";
-
-    return (
-      <tr key={row.id} className={rowBg}>
-        {/* Sticky col 1: Código cliente */}
-        <td
-          className={`sticky left-0 z-30 w-[80px] min-w-[80px] max-w-[80px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[11px] ${stickyBg}`}
-          title={row.clientCode}
-        >
-          <div className="truncate">{row.clientCode}</div>
-        </td>
-        {/* Sticky col 2: Código único */}
-        <td
-          className={`sticky left-[80px] z-30 w-[90px] min-w-[90px] max-w-[90px] border-b border-r border-[#e8eef5] border-r-[#d6e0ec] px-1.5 py-1.5 font-mono text-[11px] ${stickyBg}`}
-          title={row.uniqueCode}
-        >
-          <div className="truncate">{row.uniqueCode}</div>
-        </td>
-        {/* Sticky col 3: Producto */}
-        <td
-          className={`sticky left-[170px] z-30 w-[280px] min-w-[280px] max-w-[280px] border-b border-r border-[#e8eef5] border-r-[#c3d0df] px-1.5 py-1.5 text-[11px] font-medium text-[#334b6b] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)] ${stickyBg}`}
-          title={row.product}
-        >
-          <div className="truncate">{row.product || "—"}</div>
-        </td>
-        {/* Info */}
-        {withType && (
-          <td className="border-b border-[#e8eef5] px-1 py-1">
+  function cell(row: StockLine, key: ConfigurableColumn) {
+    const tint = GROUPS[COLUMN_META[key].group].td;
+    switch (key) {
+      case "type":
+        return (
+          <td key={key} className="border-b border-[#e8eef5] px-1 py-1">
             <select
               aria-label={`Tipo de ${row.clientCode}`}
               value={row.type ?? ""}
@@ -447,60 +617,77 @@ export function StockWorkspace() {
               {CODE_TYPES.map((type) => <option key={type} value={type}>{CODE_TYPE_LABEL[type]}</option>)}
             </select>
           </td>
-        )}
-        <td className={`${td} text-left text-[#425979]`}>{row.supplier || "—"}</td>
-        <td className={`${td} text-left text-[#425979]`}>{row.category || "—"}</td>
-        {/* Movimientos */}
-        <td className={`${td} bg-[#f6f9ff]`}>{fmt(row.totalOrder)}</td>
-        <td className={`${td} bg-[#f6f9ff]`}>{fmt(row.physicalIncome)}</td>
-        <td className={`${td} bg-[#f6f9ff]`}>{fmt(row.egress)}</td>
-        <td className={`${td} bg-[#edf3ff] font-bold text-[#10233f]`}>{fmt(row.theoreticalStock)}</td>
-        <td className={`${td} bg-[#edf3ff] font-bold text-[#10233f]`}>{fmt(row.realStock)}</td>
-        <td className={`${td} bg-[#f6f9ff]`}>{fmt(row.pendingDeliveries)}</td>
-        {/* Stock Urbano */}
-        <td className={`${td} bg-[#eef8f7] font-bold text-[#0f5e57]`}>{row.urbanoStock === null ? "—" : fmt(row.urbanoStock)}</td>
-        <td
-          className={`${td} bg-[#eef8f7] font-bold ${row.urbanoDifference === null || row.urbanoDifference === 0 ? "text-[#5a6a82]" : row.urbanoDifference < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
-        >
-          {row.urbanoDifference === null ? "—" : fmt(row.urbanoDifference)}
-        </td>
-        {/* Stock informado */}
-        <td className="border-b border-[#e8eef5] bg-[#fffbec] px-1 py-1">
-          <InformadoInput
-            label={`Stock informado de ${row.clientCode}`}
-            title={informadoTitle(row)}
-            value={row.reportedStock}
-            onSave={(quantity) => void saveReportedStock([{ code: row.clientCode, quantity }])}
-          />
-        </td>
-        <td className={`${td} bg-[#fffbec]`}>{webAvailable === null ? "—" : fmt(webAvailable)}</td>
-        <td className={`${td} bg-[#fffbec]`}>{adjustment === null ? "—" : fmt(adjustment)}</td>
-        {/* Canjes */}
-        <td className={td}>{fmt(row.totalTransactions)}</td>
-        <td className={`${td} text-center font-mono`}>{row.firstIncomeDate || "—"}</td>
-        <td className={td}>{fmt(row.validity)}</td>
-        <td className={td}>{row.transactionsPerDay > 0 ? fmt(row.transactionsPerDay) : "—"}</td>
-        {/* Necesidad */}
-        <td className={`${td} bg-[#f8f6fd]`}>{row.stockDays > 0 ? fmt(row.stockDays) : "—"}</td>
-        <td className={`${td} bg-[#f8f6fd]`}>{fmt(requiredStock)}</td>
-        <td
-          className={`${td} bg-[#f2eefa] font-bold ${surplusShortage < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
-        >
-          {fmt(surplusShortage)}
-        </td>
-        <td
-          className={`${td} bg-[#f2eefa] font-bold ${surplusShortageByPackage < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}
-        >
-          {fmt(surplusShortageByPackage)}
-        </td>
-        <td className={`${td} bg-[#f8f6fd]`}>{fmt(row.packageSize)}</td>
-        <td className={`${td} bg-[#f2eefa] font-bold text-[#334b6b]`}>{fmt(finalPurchase)}</td>
-        {/* Costos */}
-        <td className={`${td} bg-[#edf8f1]`}>{money(row.costDgNoVat)}</td>
-        <td className={`${td} bg-[#edf8f1]`}>{money(row.totalCost)}</td>
-        <td className={`${td} bg-[#dff0e6] font-bold`}>{money(row.stockValue)}</td>
-        <td className={`${td} bg-[#edf8f1]`}>{money(row.unitProfit)}</td>
-        <td className={`${td} bg-[#edf8f1]`}>{money(row.salePrice)}</td>
+        );
+      case "category":
+        return <td key={key} className={`${td} truncate text-left text-[#425979]`} title={row.category}>{row.category || "—"}</td>;
+      case "theoreticalStock":
+      case "realStock":
+        return <td key={key} className={`${td} bg-[#edf3ff] font-bold text-[#10233f]`}>{fmt(row[key])}</td>;
+      case "urbanoStock":
+        return <td key={key} className={`${td} ${tint} font-bold text-[#0f5e57]`}>{row.urbanoStock === null ? "—" : fmt(row.urbanoStock)}</td>;
+      case "urbanoDifference":
+        return (
+          <td key={key} className={`${td} ${tint} font-bold ${row.urbanoDifference === null || row.urbanoDifference === 0 ? "text-[#5a6a82]" : row.urbanoDifference < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}>
+            {row.urbanoDifference === null ? "—" : fmt(row.urbanoDifference)}
+          </td>
+        );
+      case "reportedStock":
+        return (
+          <td key={key} className={`border-b border-[#e8eef5] ${tint} px-1 py-1`}>
+            <InformadoInput
+              label={`Stock informado de ${row.clientCode}`}
+              title={informadoTitle(row)}
+              value={row.reportedStock}
+              onSave={(quantity) => void saveReportedStock([{ code: row.clientCode, quantity }])}
+            />
+          </td>
+        );
+      case "webAvailable":
+      case "adjustment":
+        return <td key={key} className={`${td} ${tint}`}>{row[key] === null ? "—" : fmt(row[key])}</td>;
+      case "firstIncomeDate":
+        return <td key={key} className={`${td} text-center font-mono`}>{row.firstIncomeDate || "—"}</td>;
+      case "transactionsPerDay":
+      case "stockDays":
+        return <td key={key} className={`${td} ${tint}`}>{row[key] > 0 ? fmt(row[key]) : "—"}</td>;
+      case "surplusShortage":
+      case "surplusShortageByPackage":
+        return <td key={key} className={`${td} bg-[#f2eefa] font-bold ${row[key] < 0 ? "text-[#b7433f]" : "text-[#0b5bbb]"}`}>{fmt(row[key])}</td>;
+      case "finalPurchase":
+        return <td key={key} className={`${td} bg-[#f2eefa] font-bold text-[#334b6b]`}>{fmt(row.finalPurchase)}</td>;
+      case "costDgNoVat":
+      case "totalCost":
+      case "unitProfit":
+      case "salePrice":
+        return <td key={key} className={`${td} ${tint}`}>{money(row[key])}</td>;
+      case "stockValue":
+        return <td key={key} className={`${td} bg-[#dff0e6] font-bold`}>{money(row.stockValue)}</td>;
+      default:
+        return <td key={key} className={`${td} ${tint}`}>{fmt(row[key])}</td>;
+    }
+  }
+
+  function renderRow(row: StockLine, section: "active" | "inactive") {
+    const rowBg = section === "inactive"
+      ? "bg-[#f9f8fb]"
+      : row.hasStockData ? "bg-white" : "bg-[#fffcf0]";
+    const stickyBg = section === "inactive"
+      ? "bg-[#f3f0f9] bg-clip-padding"
+      : row.hasStockData ? "bg-[#f8fafd] bg-clip-padding" : "bg-[#fffbee] bg-clip-padding";
+
+    return (
+      <tr key={row.id} className={rowBg}>
+        {STICKY.map((column, index) => (
+          <td
+            key={column.key}
+            style={{ left: column.left, width: column.width, minWidth: column.width, maxWidth: column.width }}
+            className={`sticky z-30 border-b border-r border-[#e8eef5] px-1.5 py-1.5 text-[11px] ${column.mono ? "font-mono" : "font-medium text-[#334b6b]"} ${index === STICKY.length - 1 ? "border-r-[#c3d0df] shadow-[6px_0_8px_-5px_rgba(16,35,63,.12)]" : "border-r-[#d6e0ec]"} ${stickyBg}`}
+            title={row[column.key]}
+          >
+            <div className="truncate">{row[column.key] || "—"}</div>
+          </td>
+        ))}
+        {columns.map((key) => cell(row, key))}
       </tr>
     );
   }
@@ -599,12 +786,12 @@ export function StockWorkspace() {
             </button>
           </div>
           <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
-            <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-[#0b5bbb]" />
+            <input type="checkbox" checked={grouped} onChange={(e) => { setGrouped(e.target.checked); rearrange(); }} className="accent-[#0b5bbb]" />
             Agrupar por proveedor
           </label>
           <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
             Vigencia
-            <select value={validity} onChange={(e) => setValidity(e.target.value as typeof validity)} className={controlClass}>
+            <select value={validity} onChange={(e) => { setValidity(e.target.value as typeof validity); rearrange(); }} className={controlClass}>
               <option value="">Todos</option>
               <option value="si">Vigentes</option>
               <option value="no">No vigentes con stock</option>
@@ -612,7 +799,7 @@ export function StockWorkspace() {
           </label>
           <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
             Sobra/Falta
-            <select value={balance} onChange={(e) => setBalance(e.target.value as BalanceFilter)} className={controlClass}>
+            <select value={balance} onChange={(e) => { setBalance(e.target.value as BalanceFilter); rearrange(); }} className={controlClass}>
               <option value="">Todos</option>
               <option value="falta">Negativo (falta)</option>
               <option value="sobra">Positivo (sobra)</option>
@@ -622,7 +809,7 @@ export function StockWorkspace() {
             <>
               <label className="flex items-center gap-2 text-[11px] font-black uppercase text-[#5a6a82]">
                 Tipo
-                <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value as TypeFilter)} className={controlClass}>
+                <select value={typeChoice} onChange={(e) => { setTypeChoice(e.target.value as TypeFilter); rearrange(); }} className={controlClass}>
                   <option value="">Todos</option>
                   <option value="REGULAR">Regulares</option>
                   <option value="ESPECIAL">Especiales</option>
@@ -646,6 +833,40 @@ export function StockWorkspace() {
               </select>
             </>
           )}
+          {filterKeys.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setFilters({}); rearrange(); }}
+              className="h-8 rounded-lg px-2 text-xs font-black text-[#0b5bbb] underline"
+            >
+              Limpiar filtros ({filterKeys.length})
+            </button>
+          )}
+          <div className="relative" ref={colPickerRef}>
+            <button
+              type="button"
+              onClick={() => setColPickerOpen((open) => !open)}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-[#dbe4ef] bg-white px-3 text-xs font-black text-[#334b6b] hover:bg-[#f2f6fb]"
+              title="Elegí qué columnas ver y en qué orden (también podés arrastrar los encabezados)"
+            >
+              <Columns3 size={13} /> Columnas
+              <span className="rounded-full bg-[#0b5bbb] px-1.5 text-[11px] font-black text-white">{columns.length}</span>
+            </button>
+            {colPickerOpen && (
+              <ColPicker
+                visibleCols={columns}
+                allKeys={availableColumns}
+                labelOf={columnLabel}
+                onAdd={addColumn}
+                onRemove={removeColumn}
+                onMove={moveColumn}
+                onMoveTo={moveColumnTo}
+                onSave={() => void saveColumns()}
+                saveState={colSaveState}
+                onClose={closeColPicker}
+              />
+            )}
+          </div>
           <button
             type="button"
             onClick={() => void exportStock()}
@@ -661,7 +882,7 @@ export function StockWorkspace() {
               min="0"
               step="0.5"
               value={planningMonths}
-              onChange={(e) => setPlanningMonths(e.target.value)}
+              onChange={(e) => { setPlanningMonths(e.target.value); rearrange(); }}
               className="h-8 w-20 rounded-lg border border-[#dbe4ef] bg-white px-2 text-right text-xs text-[#10233f] outline-none focus:border-[#0b5bbb]"
             />
           </label>
@@ -686,145 +907,73 @@ export function StockWorkspace() {
         {notice && (
           <div role="status" className="border-b border-[#dbe4ef] bg-[#f8fafd] px-5 py-2 text-[11px] font-bold text-[#334b6b]">{notice}</div>
         )}
-        <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
+        <div className="max-h-[calc(100vh-200px)] min-h-[300px] overflow-auto overscroll-contain bg-white">
           <table
-            style={{ zoom: zoom / 100, minWidth: withType ? 2494 : 2390 }}
+            style={{ zoom: zoom / 100, minWidth: tableWidth, width: tableWidth }}
             className="table-fixed border-separate border-spacing-0 text-left text-[11px]"
           >
             <thead>
               {/* Row 1 – group headers */}
               <tr>
-                {/* Sticky placeholders (no label needed) */}
-                <th className={`${grpBase} sticky left-0 z-50 w-[80px] min-w-[80px] bg-[#e4ecf5]`} />
-                <th className={`${grpBase} sticky left-[80px] z-50 w-[90px] min-w-[90px] bg-[#e4ecf5]`} />
-                <th className={`${grpBase} sticky left-[170px] z-50 w-[280px] min-w-[280px] bg-[#e4ecf5]`} />
-                {/* Info (no label) */}
-                <th colSpan={withType ? 3 : 2} className={`${grpBase} z-20 bg-[#edf3f9] text-[#5a6a82]`} />
-                {/* Movimientos */}
-                <th colSpan={6} className={`${grpBase} z-20 bg-[#dceafe] text-[#1e4db7]`}>
-                  Movimientos
-                </th>
-                {/* Stock Urbano */}
-                <th colSpan={2} className={`${grpBase} z-20 bg-[#d9f1ee] text-[#0f5e57]`}>
-                  Urbano
-                </th>
-                {/* Stock informado */}
-                <th colSpan={3} className={`${grpBase} z-20 bg-[#fef5d4] text-[#7a5b00]`}>
-                  Stock informado
-                </th>
-                {/* Canjes */}
-                <th colSpan={4} className={`${grpBase} z-20 bg-[#edf3f9] text-[#334b6b]`}>
-                  Canjes
-                </th>
-                {/* Necesidad */}
-                <th colSpan={6} className={`${grpBase} z-20 bg-[#ede8fa] text-[#4b3080]`}>
-                  Necesidad de compra
-                </th>
-                {/* Costos */}
-                <th colSpan={5} className={`${grpBase} z-20 bg-[#d8f0e3] text-[#1a5c30]`}>
-                  Costos
-                </th>
+                {STICKY.map((column) => (
+                  <th key={column.key} style={{ left: column.left, width: column.width, minWidth: column.width }} className={`${grpBase} sticky z-50 bg-[#e4ecf5]`} />
+                ))}
+                {groupRuns.map((run, index) => (
+                  <th key={`${run.group}-${index}`} colSpan={run.span} className={`${grpBase} z-20 ${GROUPS[run.group].head}`}>
+                    {GROUPS[run.group].label}
+                  </th>
+                ))}
               </tr>
 
               {/* Row 2 – totals of the visible rows */}
               <tr>
-                <td className={`${sumBase} left-0 z-50 bg-[#e4ecf5]`} />
-                <td className={`${sumBase} left-[80px] z-50 bg-[#e4ecf5]`} />
-                <td className={`${sumBase} left-[170px] z-50 bg-[#e4ecf5] text-[#334b6b]`}>Total de lo que se ve</td>
-                <td colSpan={withType ? 3 : 2} className={`${sumBase} z-20 bg-[#edf3f9]`} />
-                {(["totalOrder", "physicalIncome", "egress", "theoreticalStock", "realStock", "pendingDeliveries"] as const).map((key) =>
-                  sumCell(key, "bg-[#e9f2ff] text-[#1e4db7]"),
-                )}
-                {(["urbanoStock", "urbanoDifference"] as const).map((key) => sumCell(key, "bg-[#e6f5f3] text-[#0f5e57]"))}
-                {(["reportedStock", "webAvailable", "adjustment"] as const).map((key) => sumCell(key, "bg-[#fef9e6] text-[#7a5b00]"))}
-                {sumCell("totalTransactions", "bg-[#f3f7fb] text-[#334b6b]")}
-                <td colSpan={3} className={`${sumBase} z-20 bg-[#f3f7fb]`} />
-                <td className={`${sumBase} z-20 bg-[#f5f2fe]`} />
-                {(["requiredStock", "surplusShortage", "surplusShortageByPackage"] as const).map((key) => sumCell(key, "bg-[#f5f2fe] text-[#4b3080]"))}
-                <td className={`${sumBase} z-20 bg-[#f5f2fe]`} />
-                {sumCell("finalPurchase", "bg-[#f5f2fe] text-[#4b3080]")}
-                <td colSpan={2} className={`${sumBase} z-20 bg-[#e8f5ee]`} />
-                {sumCell("stockValue", "bg-[#e8f5ee] text-[#1a5c30]")}
-                <td colSpan={2} className={`${sumBase} z-20 bg-[#e8f5ee]`} />
+                {STICKY.map((column, index) => (
+                  <td key={column.key} style={{ left: column.left }} className={`${sumBase} z-50 bg-[#e4ecf5] ${index === 2 ? "text-[#334b6b]" : ""}`}>
+                    {index === 2 ? "Total de lo que se ve" : ""}
+                  </td>
+                ))}
+                {columns.map((key) => {
+                  const meta = COLUMN_META[key];
+                  if (!meta.sum) return <td key={key} className={`${sumBase} z-20 ${GROUPS[meta.group].sum}`} />;
+                  const total = sumColumn(visibleRows, key);
+                  return (
+                    <td key={key} title={`Suma de ${columnLabel(key)} de las filas que se ven`} className={`${sumBase} z-20 ${GROUPS[meta.group].sum}`}>
+                      {total === null ? "—" : fmt(Math.round(total))}
+                    </td>
+                  );
+                })}
               </tr>
 
-              {/* Row 3 – column headers */}
+              {/* Row 3 – column headers, with a filter in each one */}
               <tr>
-                {/* Sticky col 1 */}
-                <th className={`${colHdrSticky} left-0 w-[80px] min-w-[80px] text-left`}>
-                  <div className="mb-1 pl-0.5">{sortButton("clientCode")}</div>
-                  <div className="relative">
-                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
-                    <input
-                      value={codeSearch}
-                      onChange={(e) => setCodeSearch(e.target.value)}
-                      aria-label="Buscar código cliente"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
-                    />
-                  </div>
-                </th>
-                {/* Sticky col 2 */}
-                <th className={`${colHdrSticky} left-[80px] w-[90px] min-w-[90px] text-left`}>
-                  <div className="mb-1 pl-0.5">{sortButton("uniqueCode")}</div>
-                  <div className="relative">
-                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
-                    <input
-                      value={uniqueSearch}
-                      onChange={(e) => setUniqueSearch(e.target.value)}
-                      aria-label="Buscar código único"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
-                    />
-                  </div>
-                </th>
-                {/* Sticky col 3 */}
-                <th className={`${colHdrSticky} left-[170px] w-[280px] min-w-[280px] text-left shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]`}>
-                  <div className="mb-1 pl-0.5">{sortButton("product")}</div>
-                  <div className="relative">
-                    <Search size={8} className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 text-[#5a6a82]" />
-                    <input
-                      value={productSearch}
-                      onChange={(e) => setProductSearch(e.target.value)}
-                      aria-label="Buscar producto"
-                      className="h-5 w-full rounded border border-[#c5d3e0] bg-white py-0.5 pl-4 pr-1 text-[11px] font-bold text-[#10233f] outline-none focus:border-[#0b5bbb]"
-                    />
-                  </div>
-                </th>
-                {/* Info */}
-                {withType && <th className={`${colHdr} w-[104px]`}>{sortButton("type")}</th>}
-                <th className={`${colHdr} w-[88px]`}>{sortButton("supplier")}</th>
-                <th className={`${colHdr} w-[88px]`}>{sortButton("category")}</th>
-                {/* Movimientos */}
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("totalOrder")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("physicalIncome")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("egress")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>{sortButton("theoreticalStock")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#e5eeff]`}>{sortButton("realStock")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#eef5ff]`}>{sortButton("pendingDeliveries")}</th>
-                {/* Stock Urbano */}
-                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`}>{sortButton("urbanoStock")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#e6f5f3]`} title="Stock Urbano menos stock real">{sortButton("urbanoDifference")}</th>
-                {/* Stock informado */}
-                <th className={`${colHdr} w-[72px] bg-[#fdf6de]`}>{sortButton("reportedStock")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>{sortButton("webAvailable")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#fdf6de]`}>{sortButton("adjustment")}</th>
-                {/* Canjes */}
-                <th className={`${colHdr} w-[64px]`}>{sortButton("totalTransactions")}</th>
-                <th className={`${colHdr} w-[72px]`}>{sortButton("firstIncomeDate")}</th>
-                <th className={`${colHdr} w-[56px]`}>{sortButton("validity")}</th>
-                <th className={`${colHdr} w-[56px]`}>{sortButton("transactionsPerDay")}</th>
-                {/* Necesidad */}
-                <th className={`${colHdr} w-[56px] bg-[#f5f2fe]`}>{sortButton("stockDays")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#f5f2fe]`}>{sortButton("requiredStock")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#eee8fb]`}>{sortButton("surplusShortage")}</th>
-                <th className={`${colHdr} w-[56px] bg-[#eee8fb]`}>{sortButton("surplusShortageByPackage")}</th>
-                <th className={`${colHdr} w-[48px] bg-[#f5f2fe]`}>{sortButton("packageSize")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#eee8fb]`}>{sortButton("finalPurchase")}</th>
-                {/* Costos */}
-                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>{sortButton("costDgNoVat")}</th>
-                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>{sortButton("totalCost")}</th>
-                <th className={`${colHdr} w-[80px] bg-[#d9f0e3]`}>{sortButton("stockValue")}</th>
-                <th className={`${colHdr} w-[72px] bg-[#e8f5ee]`}>{sortButton("unitProfit")}</th>
-                <th className={`${colHdr} w-[64px] bg-[#e8f5ee]`}>{sortButton("salePrice")}</th>
+                {STICKY.map((column, index) => (
+                  <th
+                    key={column.key}
+                    style={{ left: column.left, width: column.width, minWidth: column.width }}
+                    className={`${colHdrSticky} text-left ${index === STICKY.length - 1 ? "shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]" : ""}`}
+                  >
+                    <div className="pl-0.5">{sortButton(column.key)}</div>
+                    {filterInput(column.key, false)}
+                  </th>
+                ))}
+                {columns.map((key) => {
+                  const meta = COLUMN_META[key];
+                  return (
+                    <th
+                      key={key}
+                      draggable
+                      onDragStart={() => { draggedColumn.current = key; }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); if (draggedColumn.current) moveColumnTo(draggedColumn.current, key); draggedColumn.current = null; }}
+                      style={{ width: meta.width, minWidth: meta.width }}
+                      title={meta.title ?? "Arrastrá el encabezado para mover la columna"}
+                      className={`${colHdr} cursor-grab ${GROUPS[meta.group].th}`}
+                    >
+                      <div>{sortButton(key)}</div>
+                      {filterInput(key, !["type", "category", "firstIncomeDate"].includes(key))}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
 

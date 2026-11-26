@@ -146,6 +146,52 @@ export function groupBySupplier(lines: StockLine[]) {
   );
 }
 
+// Amex: los códigos OFED van en un bloque aparte, al fondo; el resto (DG) arriba.
+export function isAmexClient(client: string) {
+  return client.trim().toLowerCase() === "amex";
+}
+
+export function amexCodeGroup(clientCode: string): "DG" | "OFED" {
+  return /^ofed/i.test(clientCode.trim()) ? "OFED" : "DG";
+}
+
+// Columnas fijas a la izquierda (siempre visibles) y las que cada usuario elige y ordena.
+export const STICKY_STOCK_COLUMNS = ["clientCode", "uniqueCode", "product", "supplier"] as const satisfies readonly StockColumn[];
+export const CONFIGURABLE_STOCK_COLUMNS = STOCK_COLUMNS.map((column) => column.key).filter(
+  (key) => !(STICKY_STOCK_COLUMNS as readonly string[]).includes(key),
+);
+
+// Santander no trabaja con Urbano ni con stock informado: esas columnas arrancan ocultas.
+export function defaultStockColumns(client: string, withType: boolean): StockColumn[] {
+  const hidden = new Set<StockColumn>(withType ? [] : ["type"]);
+  if (client.trim().toLowerCase() === "santander") {
+    for (const key of ["urbanoStock", "urbanoDifference", "reportedStock", "webAvailable", "adjustment"] as const) hidden.add(key);
+  }
+  return CONFIGURABLE_STOCK_COLUMNS.filter((key) => !hidden.has(key));
+}
+
+// Filtro de una columna: en las de texto, que contenga lo escrito; en las de números, también acepta
+// >, <, >=, <= y = (por ejemplo "<0" o ">=10"). Un número solo busca ese valor.
+export function matchesColumnFilter(line: StockLine, key: StockColumn, filter: string) {
+  const wanted = filter.trim();
+  if (!wanted) return true;
+  const raw = key === "type" ? (line.type ? CODE_TYPE_LABEL[line.type] : "Sin clasificar") : line[key];
+  if (typeof raw === "number" || raw === null) {
+    const match = wanted.replace(",", ".").match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+    if (!match) return raw !== null && String(raw).includes(wanted);
+    if (raw === null) return false;
+    const target = Number(match[2]);
+    switch (match[1]) {
+      case ">": return raw > target;
+      case "<": return raw < target;
+      case ">=": return raw >= target;
+      case "<=": return raw <= target;
+      default: return Math.round(raw * 100) === Math.round(target * 100);
+    }
+  }
+  return String(raw ?? "").toLowerCase().includes(wanted.toLowerCase());
+}
+
 export type BalanceFilter = "" | "falta" | "sobra";
 export type TypeFilter = "" | CodeType | "SIN";
 
