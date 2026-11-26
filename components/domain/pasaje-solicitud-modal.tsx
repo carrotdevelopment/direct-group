@@ -44,7 +44,7 @@ const COLUMNS = [
 type GridRow = string[];
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
 type Shipper = { code: string; name: string; clients: string[] };
-type CodeStock = { real: number; reserved: number; available: number };
+type CodeStock = { real: number; reserved: number; available: number; urbano?: { quantity: number; reportDate: string } | null };
 
 const SIDES = GRID_SIDES;
 const shipperKey = gridShipperKey;
@@ -424,6 +424,12 @@ export function PasajeSolicitudModal({
                                 title={`Stock real ${info.stock.real} − pasajes abiertos ${info.stock.reserved}`}
                               >
                                 Disp. {info.stock.available}
+                                <div
+                                  className={info.stock.urbano && info.requested > info.stock.urbano.quantity ? "text-[#b7433f]" : "text-[#5a6a82]"}
+                                  title={info.stock.urbano ? `Stock de Urbano al ${info.stock.urbano.reportDate.split("-").reverse().join("/")}` : "Urbano no informa este código"}
+                                >
+                                  Urb. {info.stock.urbano ? info.stock.urbano.quantity : "—"}
+                                </div>
                               </div>
                             );
                           })()}

@@ -891,7 +891,7 @@ function PasajeModal({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Stock disponible del código origen elegido (stock real menos pasajes sin confirmar).
-  const [originStock, setOriginStock] = useState<{ key: string; real: number; reserved: number; available: number } | null>(null);
+  const [originStock, setOriginStock] = useState<{ key: string; real: number; reserved: number; available: number; urbano?: { quantity: number; reportDate: string } | null } | null>(null);
   const originKey = draft.fromClient && draft.fromClientCode ? `${draft.fromClient}|${draft.fromClientCode}` : "";
   useEffect(() => {
     if (!originKey) return;
@@ -899,7 +899,7 @@ function PasajeModal({
     const [client, code] = originKey.split("|");
     fetch(`/api/pasajes/stock?client=${encodeURIComponent(client)}&code=${encodeURIComponent(code)}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { real: number; reserved: number; available: number } | null) => setOriginStock(data ? { key: originKey, ...data } : null))
+      .then((data: { real: number; reserved: number; available: number; urbano?: { quantity: number; reportDate: string } | null } | null) => setOriginStock(data ? { key: originKey, ...data } : null))
       .catch(() => undefined);
     return () => controller.abort();
   }, [originKey]);
@@ -1097,6 +1097,13 @@ function PasajeModal({
                 <span className={`mt-1 block text-[11px] font-bold ${shortage ? "text-[#985b00]" : "text-[#5a6a82]"}`}>
                   Disponible en {draft.fromClientCode}: {stock.available}
                   {stock.reserved > 0 ? ` (stock real ${stock.real}, ${stock.reserved} en otros pasajes sin confirmar)` : ""}
+                </span>
+              )}
+              {stock && (
+                <span className={`block text-[11px] font-bold ${stock.urbano && Number.isFinite(requested) && requested > stock.urbano.quantity ? "text-[#985b00]" : "text-[#5a6a82]"}`}>
+                  {stock.urbano
+                    ? `Stock Urbano: ${stock.urbano.quantity} (al ${stock.urbano.reportDate.split("-").reverse().join("/")})`
+                    : "Stock Urbano: Urbano no informa este código"}
                 </span>
               )}
             </label>

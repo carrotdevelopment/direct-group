@@ -174,6 +174,17 @@ export async function deleteUrbanoStockLoad(id: string) {
   if (!count) throw new UrbanoStockError("La carga no existe.", 404);
 }
 
+// Stock informado por Urbano para un código cliente: el de la carga más reciente que lo trae (null si nunca lo informó).
+export async function latestUrbanoStockForCode(code: string) {
+  const [row] = await excelPostgres.$queryRaw<{ cantidad: unknown; fecha: Date }[]>`
+    SELECT i.cantidad, c.fecha_reporte AS fecha
+    FROM urbano_stock_items i JOIN urbano_stock_cargas c ON c.id = i.carga_id
+    WHERE lower(i.codigo_cliente) = lower(${code.trim()})
+    ORDER BY c.fecha_reporte DESC, c.created_at DESC
+    LIMIT 1`;
+  return row ? { quantity: Number(row.cantidad), reportDate: isoDay(row.fecha) } : null;
+}
+
 // Stock informado por Urbano para cada código cliente: el de la carga más reciente que lo trae.
 export async function latestUrbanoStockByCode() {
   const rows = await excelPostgres.$queryRaw<{ codigo: string; original: string; producto: string | null; cantidad: unknown; fecha: Date }[]>`

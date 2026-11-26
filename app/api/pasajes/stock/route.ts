@@ -1,6 +1,7 @@
 import { checkApiAccess } from "@/server/lib/access";
 import { NextResponse } from "next/server";
 import { availableStockForCodes } from "@/lib/pasaje-stock-db";
+import { latestUrbanoStockForCode } from "@/lib/urbano-stock-db";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,10 @@ export async function GET(request: Request) {
   const client = (url.searchParams.get("client") ?? "").trim();
   const code = (url.searchParams.get("code") ?? "").trim();
   if (!client || !code) return NextResponse.json({ message: "Falta el cliente o el código." }, { status: 400 });
-  const stock = (await availableStockForCodes(client, [code])).get(code.toLowerCase());
-  return NextResponse.json(stock ?? { real: 0, reserved: 0, available: 0 });
+  const [stocks, urbano] = await Promise.all([
+    availableStockForCodes(client, [code]),
+    latestUrbanoStockForCode(code).catch(() => null),
+  ]);
+  // urbano: Cant. Física de la última carga de Urbano que trae el código (null si Urbano no lo informa).
+  return NextResponse.json({ ...(stocks.get(code.toLowerCase()) ?? { real: 0, reserved: 0, available: 0 }), urbano });
 }
