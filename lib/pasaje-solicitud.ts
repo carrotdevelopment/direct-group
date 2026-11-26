@@ -279,12 +279,16 @@ export type GridContext = {
 export const gridShipperKey = (value: string) => value.trim().toLowerCase();
 
 // Códigos que se ofrecen para un lado según su shipper. En el destino, si ya se sabe el producto del origen,
-// solo los del mismo código único (si el shipper no tiene ninguno, se ofrecen todos para no dejar la lista vacía).
+// solo los del mismo código único.
 export function gridCodeOptions(ctx: GridContext, side: "origen" | "destino", shipperCode: string, uniqueCode?: string) {
   const options = shipperCodeOptions(ctx.shippers.get(gridShipperKey(shipperCode)), ctx.mappings, side, ctx.productName);
   if (!uniqueCode) return options;
-  const same = options.filter((option) => normalize(option.uniqueCode) === normalize(uniqueCode));
-  return same.length ? same : options;
+  return options.filter((option) => normalize(option.uniqueCode) === normalize(uniqueCode));
+}
+
+// Shippers que pueden recibir un producto: los que tienen algún código activo de ese código único.
+export function gridDestinationShippers(ctx: GridContext, uniqueCode: string) {
+  return [...ctx.shippers.values()].filter((shipper) => gridCodeOptions(ctx, "destino", shipper.code, uniqueCode).length > 0);
 }
 
 // Cliente y producto de un código de la grilla: primero entre los clientes del shipper; si no, el código

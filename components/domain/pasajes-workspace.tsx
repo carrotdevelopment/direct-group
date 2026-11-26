@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, MapPin, Pencil, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, FileSpreadsheet, MapPin, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { readDraft, saveDraft } from "@/lib/browser-draft";
+import { PasajeSolicitudModal } from "@/components/domain/pasaje-solicitud-modal";
 import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
 
 type Mapping = { client: string; clientCode: string; uniqueCode: string; active: boolean };
@@ -77,6 +78,7 @@ export function PasajesWorkspace({
   const [pasajes, setPasajes] = useState<Pasaje[]>([]);
   const [status, setStatus] = useState("Cargando...");
   const [pasajeModalOpen, setPasajeModalOpen] = useState(false);
+  const [solicitudModalOpen, setSolicitudModalOpen] = useState(false);
   const [batches, setBatches] = useState<PasajeBatch[]>([]);
   const [selectedApprove, setSelectedApprove] = useState<Set<string>>(new Set());
   // Destino elegido para cada pasaje sin destino, como "cliente|código".
@@ -279,8 +281,11 @@ export function PasajesWorkspace({
       <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="hidden text-[11px] font-bold text-[#5a6a82] sm:inline">{status}</span>
-          <Button size="sm" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
-            <ArrowRightLeft size={15} /> Cargar pasaje
+          <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={() => setPasajeModalOpen(true)}>
+            <ArrowRightLeft size={15} /> Un pasaje
+          </Button>
+          <Button size="sm" className="whitespace-nowrap" onClick={() => setSolicitudModalOpen(true)}>
+            <FileSpreadsheet size={15} /> Cargar pasajes
           </Button>
         </div>
       </div>
@@ -305,10 +310,10 @@ export function PasajesWorkspace({
               <span className="hidden group-open:inline">Ocultar explicación</span>
             </summary>
             <p className="mt-2 pb-1">
-              Los pasajes se cargan de a uno acá (&quot;Cargar pasaje&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
+              Los pasajes se cargan acá: de a uno (&quot;Un pasaje&quot;) o varios juntos (&quot;Cargar pasajes&quot;). Cuando los aprueba la encargada del cliente origen, egresan del
               origen y queda el ingreso pendiente en el destino; cuando Urbano avisa por correo que llegaron, los confirma la
-              encargada del cliente destino. El Excel para mandarle a Urbano y la planilla para subir en Urbano se bajan en
-              &quot;Exportar por fechas&quot;.
+              encargada del cliente destino. El Excel para mandarle a Urbano y la planilla para subir en Urbano se bajan de cada
+              carga o en &quot;Exportar por fechas&quot;.
             </p>
           </details>
 
@@ -600,6 +605,9 @@ export function PasajesWorkspace({
           </section>
         </div>
 
+      {solicitudModalOpen && (
+        <PasajeSolicitudModal draftKey={`pasajes:${userName}`} mappings={mappings} products={products} onClose={() => setSolicitudModalOpen(false)} onCreated={() => void loadAll()} />
+      )}
       {pasajeModalOpen && (
         <PasajeModal
           mappings={mappings}
