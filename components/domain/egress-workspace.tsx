@@ -553,8 +553,8 @@ function ConfigPanel({ config, onChange, onClose }: {
 
 const INITIAL_ROWS = 5;
 
-function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
-  cliente: string; cfg: ClienteConfig; validCodes: Set<string>; onSave: (l: Omit<Lote, "id">) => void; onCancel: () => void;
+function CargaOtrasOp({ cliente, cfg, validCodes, productByCode, onSave, onCancel }: {
+  cliente: string; cfg: ClienteConfig; validCodes: Set<string>; productByCode: Record<string, string>; onSave: (l: Omit<Lote, "id">) => void; onCancel: () => void;
 }) {
   const [tipo,       setTipo]       = useState<Exclude<TipoEgreso, "CANJE"> | null>(null);
   const [rows,       setRows]       = useState<GridRow[]>([]);
@@ -579,6 +579,8 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
       const next = prev.map((r, i) => {
         if (r._id !== id) return r;
         const updated = { ...r, [key]: val };
+        // Al cargar el código cliente se completa el producto, salvo que lo hayan escrito a mano.
+        if (key === "codigo_cliente") withProduct(updated, r.codigo_cliente);
         // Auto-fill fecha for non-first rows that get their first content
         if (key !== "fecha" && i > 0 && !updated.fecha && val.trim()) {
           updated.fecha = prev[0]?.fecha ?? TODAY;
@@ -612,15 +614,28 @@ function CargaOtrasOp({ cliente, cfg, validCodes, onSave, onCancel }: {
       grid.forEach((pastedRow, ri) => {
         const ti = startIdx + ri;
         if (ti >= updated.length) updated.push(emptyGridRow(cols, `paste-${Date.now()}-${ri}`));
+        const previousCode = updated[ti].codigo_cliente;
         pastedRow.forEach((cell, ci) => {
           if (colIdx + ci < cols.length) updated[ti][cols[colIdx + ci].key] = cell;
         });
+        const pastedProduct = pastedRow.some((_, ci) => cols[colIdx + ci]?.key === "producto");
+        if (!pastedProduct) withProduct(updated[ti], previousCode);
         if (ti > 0 && !updated[ti].fecha && pastedRow.some((c) => c.trim())) {
           updated[ti].fecha = firstFecha;
         }
       });
       return updated;
     });
+  }
+
+  function productFor(code: string | undefined) {
+    return productByCode[code?.trim().toLowerCase() ?? ""] ?? "";
+  }
+
+  function withProduct(row: GridRow, previousCode: string | undefined) {
+    const current = row.producto?.trim() ?? "";
+    if (current && current !== productFor(previousCode)) return;
+    row.producto = productFor(row.codigo_cliente);
   }
 
   function addRow()   { setRows((p) => [...p, emptyGridRow(cols, String(Date.now()))]); }
@@ -1576,6 +1591,7 @@ export function EgressWorkspace() {
   const [status,  setStatus]  = useState("Leyendo egresos desde PostgreSQL...");
   const [saving,  setSaving]  = useState(false);
   const [validCodesByClient, setValidCodesByClient] = useState<Record<string, string[]>>({});
+  const [productByCodeByClient, setProductByCodeByClient] = useState<Record<string, Record<string, string>>>({});
   const onSearchChange = useCallback((search: string) => {
     setHistorySearch(search);
     if (search) setStatus(`Buscando "${search}" en todo el historial...`);
@@ -1661,15 +1677,26 @@ export function EgressWorkspace() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/lookups?kind=client-codes")
-      .then((response) => response.json())
-      .then((data: { mappings?: Array<{ client: string; clientCode: string; active: boolean }> }) => {
+    Promise.all([
+      fetch("/api/lookups?kind=client-codes").then((response) => response.json()),
+      fetch("/api/lookups?kind=products&includeInactive=true").then((response) => response.json()).catch(() => ({})),
+    ])
+      .then(([data, productData]: [
+        { mappings?: Array<{ client: string; clientCode: string; uniqueCode: string; active: boolean }> },
+        { products?: Array<{ code: string; name: string }> },
+      ]) => {
+        const names = new Map((productData.products ?? []).map((product) => [product.code.trim().toLowerCase(), product.name]));
         const grouped: Record<string, string[]> = {};
+        const products: Record<string, Record<string, string>> = {};
         for (const mapping of data.mappings ?? []) {
           if (!mapping.active || !mapping.clientCode) continue;
-          grouped[mapping.client] = [...(grouped[mapping.client] ?? []), mapping.clientCode.toLowerCase()];
+          const code = mapping.clientCode.toLowerCase();
+          grouped[mapping.client] = [...(grouped[mapping.client] ?? []), code];
+          const name = names.get(mapping.uniqueCode?.trim().toLowerCase() ?? "");
+          if (name) (products[mapping.client] ??= {})[code] = name;
         }
         setValidCodesByClient(grouped);
+        setProductByCodeByClient(products);
       })
       .catch(() => undefined);
   }, []);
@@ -1868,7 +1895,7 @@ export function EgressWorkspace() {
           onChange={(c) => void saveConfig(c)}
           onClose={() => setView("list")} />
       )}
-      {view === "ops"   && <CargaOtrasOp cliente={cliente} cfg={cfg} validCodes={new Set(validCodesByClient[cliente] ?? [])} onSave={addLote} onCancel={() => setView("list")} />}
+      {view === "ops"   && <CargaOtrasOp cliente={cliente} cfg={cfg} validCodes={new Set(validCodesByClient[cliente] ?? [])} productByCode={productByCodeByClient[cliente] ?? {}} onSave={addLote} onCancel={() => setView("list")} />}
       {view === "canje" && <CargaCanjeForm config={cfg} codesByClient={validCodesByClient} onSave={addLote} onCancel={() => setView("list")} />}
 
       <EgressBulkDeactivate key={cliente} client={cliente} batches={batches} onComplete={() => loadEgresses(cliente)} />
