@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Check, FileSpreadsheet, MapPin, Pencil, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, FileSpreadsheet, MapPin, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { readDraft, saveDraft } from "@/lib/browser-draft";
 import { PasajeBatchesSection, PasajeRangeExport, type PasajeBatch } from "@/components/domain/pasaje-batches";
@@ -666,12 +666,14 @@ function SearchSelect({
           setOpen(true);
         }}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-        className="mt-2 h-11 w-full rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs font-normal outline-none focus:border-[#7da4d3] disabled:bg-[#f2f5f9]"
+        className={`mt-2 h-11 w-full rounded-xl border bg-white px-3 text-xs outline-none transition disabled:bg-[#f2f5f9] ${
+          open ? "border-[#0b5bbb] font-normal ring-3 ring-[#e5eef9]" : `border-[#dbe4ef] ${selected ? "font-bold text-[#10233f]" : "font-normal"}`
+        }`}
       />
       {open && !disabled && (
-        <div className="absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto rounded-xl border border-[#dbe4ef] bg-white shadow-lg">
+        <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-2xl border border-[#dbe4ef] bg-white p-2 shadow-xl">
           {filtered.length === 0 && (
-            <div className="px-3 py-2 text-[11px] font-semibold text-[#5a6a82]">{emptyText ?? "Sin resultados."}</div>
+            <div className="px-3 py-2 text-xs font-semibold text-[#5a6a82]">{emptyText ?? "Sin resultados."}</div>
           )}
           {filtered.map((option) => (
             <button
@@ -682,11 +684,112 @@ function SearchSelect({
                 onChange(option.value);
                 setOpen(false);
               }}
-              className={`block w-full px-3 py-2 text-left text-xs font-normal hover:bg-[#edf4fc] ${option.value === value ? "bg-[#f4f8fc] font-bold" : ""}`}
+              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs font-bold transition ${
+                option.value === value ? "bg-[#eef5ff] text-[#0b5bbb]" : "text-[#334b6b] hover:bg-[#f4f7fb]"
+              }`}
             >
-              {option.label}
+              <span>{option.label}</span>
+              {option.value === value && <Check size={14} className="shrink-0" />}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Desplegable de una opción con el mismo aspecto que los filtros de Ingresos y Egresos: caja con flecha,
+// panel redondeado, buscador cuando hay muchas opciones y la elegida marcada.
+function ChoiceDropdown({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+  disabled,
+  hint,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+  placeholder: string;
+  disabled?: boolean;
+  hint?: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    function handle(event: MouseEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+  const q = query.trim().toLowerCase();
+  const visible = q ? options.filter((option) => option.toLowerCase().includes(q)) : options;
+  const isOff = disabled || options.length === 0;
+
+  return (
+    <div ref={ref} className="relative text-[11px] font-extrabold text-[#334b6b]">
+      {label}
+      <button
+        type="button"
+        disabled={isOff}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => {
+          setQuery("");
+          setOpen((current) => !current);
+        }}
+        className={`mt-2 flex h-11 w-full items-center justify-between gap-3 rounded-xl border bg-white px-3 text-left text-xs font-normal normal-case outline-none transition disabled:cursor-not-allowed disabled:bg-[#f2f5f9] ${
+          open ? "border-[#0b5bbb] ring-3 ring-[#e5eef9]" : "border-[#dbe4ef]"
+        }`}
+      >
+        <span className={`truncate ${value ? "font-bold text-[#10233f]" : "text-[#8a98ab]"}`}>{value || placeholder}</span>
+        <ChevronDown size={15} className={`shrink-0 text-[#5a6a82] transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {hint}
+      {open && !isOff && (
+        <div className="absolute left-0 top-[calc(100%+6px)] z-30 w-full min-w-56 overflow-hidden rounded-2xl border border-[#dbe4ef] bg-white shadow-xl">
+          {options.length > 8 && (
+            <div className="border-b border-[#dbe4ef] p-2">
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                aria-label="Buscar en la lista"
+                placeholder="Buscar..."
+                className="h-8 w-full rounded-lg border border-[#dbe4ef] px-2.5 text-xs font-normal normal-case outline-none focus:border-[#7da4d3]"
+              />
+            </div>
+          )}
+          <div role="listbox" className="max-h-64 overflow-auto p-2">
+            {visible.length === 0 && <p className="px-3 py-2 text-xs font-semibold text-[#5a6a82]">Sin resultados.</p>}
+            {visible.map((option) => {
+              const isSelected = option === value;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs font-bold transition ${
+                    isSelected ? "bg-[#eef5ff] text-[#0b5bbb]" : "text-[#334b6b] hover:bg-[#f4f7fb]"
+                  }`}
+                >
+                  <span className="truncate">{option}</span>
+                  {isSelected && <Check size={14} className="shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -886,75 +989,45 @@ function PasajeModal({
             placeholder="Buscá por nombre o código único"
           />
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Cliente origen
-              <select
-                value={draft.fromClient}
-                disabled={!draft.sku}
-                onChange={(event) => chooseFromClient(event.target.value)}
-                className={selectClass}
-              >
-                <option value="">{draft.sku ? "Elegí un cliente" : "Primero elegí el producto"}</option>
-                {fromClients.map((client) => (
-                  <option key={client} value={client}>
-                    {client}
-                  </option>
-                ))}
-              </select>
-              {draft.sku && fromClients.length === 0 && (
-                <span className="mt-1 block text-[11px] font-bold text-[#a43d39]">
-                  Ninguno de tus clientes tiene este producto asignado.
-                </span>
-              )}
-            </label>
-            <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Código cliente origen
-              <select
-                value={draft.fromClientCode}
-                disabled={!draft.fromClient}
-                onChange={(event) => setDraft({ ...draft, fromClientCode: event.target.value, toClientCode: "" })}
-                className={selectClass}
-              >
-                <option value="">Elegí un código</option>
-                {fromCodes.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Cliente destino
-              <select
-                value={draft.toClient}
-                disabled={!draft.sku}
-                onChange={(event) => chooseToClient(event.target.value)}
-                className={selectClass}
-              >
-                <option value="">{draft.sku ? "Elegí un cliente" : "Primero elegí el producto"}</option>
-                {toClients.map((client) => (
-                  <option key={client} value={client}>
-                    {client}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-[11px] font-extrabold text-[#334b6b]">
-              Código cliente destino
-              <select
-                value={draft.toClientCode}
-                disabled={!draft.toClient}
-                onChange={(event) => setDraft({ ...draft, toClientCode: event.target.value })}
-                className={selectClass}
-              >
-                <option value="">Elegí un código</option>
-                {toCodes.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ChoiceDropdown
+              label="Cliente origen"
+              value={draft.fromClient}
+              options={fromClients}
+              disabled={!draft.sku}
+              onChange={chooseFromClient}
+              placeholder={draft.sku ? "Elegí un cliente" : "Primero elegí el producto"}
+              hint={
+                draft.sku && fromClients.length === 0 ? (
+                  <span className="mt-1 block text-[11px] font-bold text-[#a43d39]">
+                    Ninguno de tus clientes tiene este producto asignado.
+                  </span>
+                ) : null
+              }
+            />
+            <ChoiceDropdown
+              label="Código cliente origen"
+              value={draft.fromClientCode}
+              options={fromCodes}
+              disabled={!draft.fromClient}
+              onChange={(code) => setDraft({ ...draft, fromClientCode: code, toClientCode: "" })}
+              placeholder={draft.fromClient ? "Elegí un código" : "Primero elegí el cliente"}
+            />
+            <ChoiceDropdown
+              label="Cliente destino"
+              value={draft.toClient}
+              options={toClients}
+              disabled={!draft.sku}
+              onChange={chooseToClient}
+              placeholder={draft.sku ? "Elegí un cliente" : "Primero elegí el producto"}
+            />
+            <ChoiceDropdown
+              label="Código cliente destino"
+              value={draft.toClientCode}
+              options={toCodes}
+              disabled={!draft.toClient}
+              onChange={(code) => setDraft({ ...draft, toClientCode: code })}
+              placeholder={draft.toClient ? "Elegí un código" : "Primero elegí el cliente"}
+            />
           </div>
           {draft.sku && toClients.length <= 1 && (
             <p className="text-[11px] font-bold text-[#985b00]">
