@@ -1099,11 +1099,9 @@ function PasajeModal({
                   {stock.reserved > 0 ? ` (stock real ${stock.real}, ${stock.reserved} en otros pasajes sin confirmar)` : ""}
                 </span>
               )}
-              {stock && (
-                <span className={`block text-[11px] font-bold ${stock.urbano && Number.isFinite(requested) && requested > stock.urbano.quantity ? "text-[#985b00]" : "text-[#5a6a82]"}`}>
-                  {stock.urbano
-                    ? `Stock Urbano: ${stock.urbano.quantity} (al ${stock.urbano.reportDate.split("-").reverse().join("/")})`
-                    : "Stock Urbano: Urbano no informa este código"}
+              {stock?.urbano && (
+                <span className={`block text-[11px] font-bold ${Number.isFinite(requested) && requested > stock.urbano.quantity ? "text-[#985b00]" : "text-[#5a6a82]"}`}>
+                  Stock Urbano: {stock.urbano.quantity} (al {stock.urbano.reportDate.split("-").reverse().join("/")})
                 </span>
               )}
             </label>

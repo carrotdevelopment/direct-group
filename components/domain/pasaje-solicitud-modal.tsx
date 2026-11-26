@@ -424,12 +424,14 @@ export function PasajeSolicitudModal({
                                 title={`Stock real ${info.stock.real} − pasajes abiertos ${info.stock.reserved}`}
                               >
                                 Disp. {info.stock.available}
-                                <div
-                                  className={info.stock.urbano && info.requested > info.stock.urbano.quantity ? "text-[#b7433f]" : "text-[#5a6a82]"}
-                                  title={info.stock.urbano ? `Stock de Urbano al ${info.stock.urbano.reportDate.split("-").reverse().join("/")}` : "Urbano no informa este código"}
-                                >
-                                  Urb. {info.stock.urbano ? info.stock.urbano.quantity : "—"}
-                                </div>
+                                {info.stock.urbano && (
+                                  <div
+                                    className={info.requested > info.stock.urbano.quantity ? "text-[#b7433f]" : "text-[#5a6a82]"}
+                                    title={`Stock de Urbano al ${info.stock.urbano.reportDate.split("-").reverse().join("/")}`}
+                                  >
+                                    Urb. {info.stock.urbano.quantity}
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
