@@ -7,6 +7,9 @@ import {
   type ExcelClientCodeMapping,
 } from "@/lib/local-excel-db";
 import { usesPostgres } from "@/lib/data-source";
+import { auth } from "@/auth";
+import { isCodeType, usesCodeType, type CodeType } from "@/lib/code-type";
+import { saveCodeTypes } from "@/lib/code-type-db";
 import {
   readClientCodesFromPostgres,
   writeClientCodesToPostgres,
@@ -29,6 +32,8 @@ export async function PUT(request: Request) {
   if (denied) return denied;
   const body = (await request.json()) as {
     mappings?: ExcelClientCodeMapping[];
+    // Credicoop: regular o especial de los códigos recién asignados.
+    codeTypes?: { client?: string; codes?: unknown; type?: CodeType };
   };
   const incoming = body.mappings ?? [];
   const scope = await currentClientScope();
@@ -39,6 +44,13 @@ export async function PUT(request: Request) {
     scope === null ? incoming : [...(await read()).filter((mapping) => !inClientScope(scope, mapping.client)), ...incoming];
   if (usesPostgres()) {
     const saved = await writeClientCodesToPostgres(await keepOthers(() => readClientCodesFromPostgres()));
+    const typed = body.codeTypes;
+    const typedClient = String(typed?.client ?? "").trim();
+    if (typed && usesCodeType(typedClient) && inClientScope(scope, typedClient) && isCodeType(typed.type)
+      && Array.isArray(typed.codes) && typed.codes.every((code) => typeof code === "string")) {
+      const user = (await auth())?.user;
+      await saveCodeTypes("Credicoop", typed.codes as string[], typed.type, user?.email || user?.name || "");
+    }
     return NextResponse.json({ mappings: filterByClientScope(scope, saved, (mapping) => mapping.client), source: "postgresql" });
   }
   const all = await keepOthers(() => readClientCodesFromExcel());

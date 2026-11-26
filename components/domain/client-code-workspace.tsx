@@ -11,6 +11,7 @@ import {
 import { ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { CODE_TYPE_LABEL, CODE_TYPES, type CodeType, usesCodeType } from "@/lib/code-type";
 import { inClientScope, useClientScope } from "@/lib/use-client-scope";
 
 type Mapping = {
@@ -72,6 +73,8 @@ type PendingState = {
   assignedMonth: number;
   assignedYear: number;
   source: "assignment" | "history";
+  // Credicoop: si los códigos nuevos son de la planilla regular o la especial.
+  codeType?: CodeType;
 };
 
 const baseClients = [
@@ -218,6 +221,7 @@ export function ClientCodeWorkspace() {
   const [productCatalogLoaded, setProductCatalogLoaded] = useState(false);
   const [client, setClient] = useState("");
   const [month, setMonth] = useState(String(currentMonth));
+  const [codeType, setCodeType] = useState<CodeType>("REGULAR");
   const [year, setYear] = useState(String(currentYear));
   const [draftRows, setDraftRows] = useState<DraftRow[]>(() => blankRows());
   const [selectedNewRows, setSelectedNewRows] = useState<Set<number>>(
@@ -278,17 +282,14 @@ export function ClientCodeWorkspace() {
   );
 
   const historyYears = useMemo(
-    () => Array.from({ length: 4 }, (_, i) => currentYear - 3 + i),
+    () => Array.from({ length: 5 }, (_, i) => currentYear - 3 + i),
     [],
   );
 
-  const availableHistoryMonths = useMemo(() => {
-    const selected = Number(historyYear);
-    const maxMonth = selected === currentYear ? currentMonth : 12;
-    return months
-      .map((name, index) => ({ name, value: index + 1 }))
-      .filter((option) => option.value <= maxMonth);
-  }, [historyYear]);
+  const availableHistoryMonths = useMemo(
+    () => months.map((name, index) => ({ name, value: index + 1 })),
+    [],
+  );
 
   const filteredHistory = useMemo(() => {
     const nUC = historyUniqueCode.trim().toLowerCase();
@@ -346,18 +347,16 @@ export function ClientCodeWorkspace() {
     [filteredHistory, historyPage],
   );
 
+  // Se puede asignar a meses futuros (hasta el año que viene), por ejemplo un catálogo que arranca el mes próximo.
   const assignmentYears = useMemo(
-    () => Array.from({ length: 4 }, (_, i) => currentYear - 3 + i),
+    () => Array.from({ length: 5 }, (_, i) => currentYear - 3 + i),
     [],
   );
 
-  const availableAssignmentMonths = useMemo(() => {
-    const selected = Number(year);
-    const maxMonth = selected === currentYear ? currentMonth : 12;
-    return months
-      .map((name, index) => ({ name, value: index + 1 }))
-      .filter((option) => option.value <= maxMonth);
-  }, [year]);
+  const availableAssignmentMonths = useMemo(
+    () => months.map((name, index) => ({ name, value: index + 1 })),
+    [],
+  );
 
   // Códigos vigentes de cada producto para el cliente elegido (puede haber más de uno).
   const activeAssignmentByCode = useMemo(() => {
@@ -511,14 +510,14 @@ export function ClientCodeWorkspace() {
     setDraftRows((rows) => rows.map((row, i) => (i === index ? { ...row, replace } : row)));
   }
 
-  async function persist(next: Mapping[]) {
+  async function persist(next: Mapping[], codeTypes?: { client: string; codes: string[]; type: CodeType }) {
     setMappings(next);
     setDbStatus("Guardando...");
     try {
       const response = await fetch("/api/local-db/client-codes", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mappings: next }),
+        body: JSON.stringify({ mappings: next, ...(codeTypes?.codes.length ? { codeTypes } : {}) }),
       });
       if (!response.ok) throw new Error("write failed");
       setDbStatus("");
@@ -603,18 +602,10 @@ export function ClientCodeWorkspace() {
 
   function changeAssignmentYear(nextYear: string) {
     setYear(nextYear);
-    const maxMonth = Number(nextYear) === currentYear ? currentMonth : 12;
-    if (Number(month) > maxMonth) {
-      setMonth(String(maxMonth));
-    }
   }
 
   function changeHistoryYear(nextYear: string) {
     setHistoryYear(nextYear);
-    const maxMonth = Number(nextYear) === currentYear ? currentMonth : 12;
-    if (historyMonth && Number(historyMonth) > maxMonth) {
-      setHistoryMonth("");
-    }
   }
 
   useEffect(() => {
@@ -667,29 +658,26 @@ export function ClientCodeWorkspace() {
     });
   }
 
+  // Pegado desde Excel. Con dos columnas (código único y código cliente) se completan las dos; con una sola,
+  // solo la columna donde se pegó, sin tocar la otra (así se puede pegar primero una y después la otra).
   function pasteRows(
     event: ClipboardEvent<HTMLInputElement>,
     startIndex: number,
+    field: "uniqueCode" | "clientCode",
   ) {
     const clipboard = event.clipboardData.getData("text");
     if (!clipboard.includes("\t") && !clipboard.includes("\n")) return;
     event.preventDefault();
-    const incoming = clipboard
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+    const lines = clipboard.replace(/(\r?\n)+$/, "").split(/\r?\n/);
+    const twoColumns = field === "uniqueCode" && lines.some((line) => /\t|;/.test(line));
+    const incoming = lines
       .map((line) => {
-        const [uniqueCode = "", clientCode = ""] = line
-          .split(/\t|;|,/)
-          .map((v) => v.trim());
-        return {
-          uniqueCode,
-          clientCode,
-        };
+        const cells = line.split(twoColumns ? /\t|;|,/ : /\t/).map((v) => v.trim());
+        return twoColumns
+          ? { uniqueCode: cells[0] ?? "", clientCode: cells[1] ?? "" }
+          : { [field]: cells[0] ?? "" } as Partial<Pick<DraftRow, "uniqueCode" | "clientCode">>;
       })
-      .filter(
-        (r) => !/c[oó]digo/i.test(`${r.uniqueCode} ${r.clientCode}`),
-      );
+      .filter((r, index) => !(index === 0 && /c[oó]digo/i.test(`${r.uniqueCode ?? ""} ${r.clientCode ?? ""}`)));
 
     setDraftRows((rows) => {
       const requiredLen = Math.max(
@@ -705,9 +693,10 @@ export function ClientCodeWorkspace() {
         const idx = startIndex + offset;
         const existing = next[idx];
         if (existing && !existing.isNew) {
-          next[idx] = { ...existing, clientCode: incomingRow.clientCode };
+          // Una asignación existente solo cambia el código cliente.
+          if (incomingRow.clientCode !== undefined) next[idx] = { ...existing, clientCode: incomingRow.clientCode };
         } else {
-          next[idx] = { ...incomingRow, isNew: true };
+          next[idx] = { ...(existing ?? { uniqueCode: "", clientCode: "" }), ...incomingRow, isNew: true };
         }
       });
       return next;
@@ -834,6 +823,7 @@ export function ClientCodeWorkspace() {
       assignedMonth: selectedMonth,
       assignedYear: selectedYear,
       source: "assignment",
+      ...(usesCodeType(canonicalized) ? { codeType } : {}),
     });
   }
 
@@ -847,9 +837,13 @@ export function ClientCodeWorkspace() {
       assignedYear: pendingYear,
       source,
       transfers = [],
+      codeType: pendingCodeType,
     } = pending;
     setPending(null);
-    if (!(await persist(finalMappings))) return;
+    const typedCodes = pendingCodeType
+      ? changes.filter((c) => c.kind === "new" || c.kind === "updated" || c.kind === "corrected").map((c) => c.clientCode)
+      : [];
+    if (!(await persist(finalMappings, pendingCodeType ? { client: pendingClient, codes: typedCodes, type: pendingCodeType } : undefined))) return;
     // Reemplazos: el stock del código viejo pasa al nuevo (egreso en el viejo, ingreso en el nuevo).
     const moved: string[] = [];
     const transferErrors: string[] = [];
@@ -889,6 +883,7 @@ export function ClientCodeWorkspace() {
     if (re > 0) parts.push(`${re} reactivada${re !== 1 ? "s" : ""}`);
     if (vo > 0) parts.push(`${vo} anulada${vo !== 1 ? "s" : ""}`);
     const resultMessage = `${parts.join(" · ")} para ${pendingClient} · ${periodLabel(pendingMonth, pendingYear)}`
+      + (pendingCodeType && typedCodes.length ? ` · ${CODE_TYPE_LABEL[pendingCodeType]}` : "")
       + (moved.length ? `. Stock pasado al código nuevo: ${moved.join("; ")}` : "")
       + (transferErrors.length ? `. No se pudo pasar el stock de ${transferErrors.join("; ")}: revisalo en Stock.` : "");
     if (source === "history") {
@@ -1197,7 +1192,7 @@ export function ClientCodeWorkspace() {
                                     e.target.value,
                                   )
                                 }
-                                onPaste={(e) => pasteRows(e, originalIndex)}
+                                onPaste={(e) => pasteRows(e, originalIndex, "uniqueCode")}
                                 autoFocus={originalIndex === 0 && isBlank}
                                 aria-label={`Fila ${originalIndex + 1}: código único`}
                                 placeholder={isBlank ? "Pegá códigos de producto acá" : ""}
@@ -1243,7 +1238,7 @@ export function ClientCodeWorkspace() {
                                   e.target.value,
                                 )
                               }
-                              onPaste={(e) => pasteRows(e, originalIndex)}
+                              onPaste={(e) => pasteRows(e, originalIndex, "clientCode")}
                               aria-label={`Fila ${originalIndex + 1}: código cliente`}
                               placeholder={
                                 row.uniqueCode && !row.clientCode
@@ -1395,6 +1390,22 @@ export function ClientCodeWorkspace() {
                 ))}
               </select>
             </label>
+            {usesCodeType(client) && (
+              <label className="text-[11px] font-extrabold text-[#334b6b]" title="Credicoop separa sus códigos en la planilla regular y la especial. Se puede cambiar después en Stock.">
+                Tipo
+                <select
+                  value={codeType}
+                  onChange={(e) => setCodeType(e.target.value as CodeType)}
+                  className="mt-1.5 h-9 w-32 rounded-xl border border-[#dbe4ef] bg-white px-3 text-xs"
+                >
+                  {CODE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {CODE_TYPE_LABEL[type]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <div className="flex flex-col items-end gap-2">
             <Button
