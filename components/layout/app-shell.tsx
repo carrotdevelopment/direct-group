@@ -48,9 +48,27 @@ const navigation: NavGroup[] = [
   ]},
 ];
 
+// Pasajes pendientes de aprobar por el usuario: se consulta al cambiar de pantalla y cada minuto.
+function usePendingPasajes(enabled: boolean, pathname: string) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const load = () => fetch("/api/pasajes/pendientes", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { count?: number } | null) => { if (!cancelled && data) setCount(data.count ?? 0); })
+      .catch(() => undefined);
+    void load();
+    const timer = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [enabled, pathname]);
+  return enabled ? count : 0;
+}
+
 function SidebarContent({ close, collapse }: { close?: () => void; collapse?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const pendingPasajes = usePendingPasajes(hasModule(session?.user, "pasajes"), pathname);
 
   return (
     <div className="flex h-full flex-col">
@@ -83,6 +101,11 @@ function SidebarContent({ close, collapse }: { close?: () => void; collapse?: ()
                     )}>
                       <item.icon size={17} strokeWidth={active ? 2.5 : 2} />
                       {item.label}
+                      {item.href === "/pasajes" && pendingPasajes > 0 && (
+                        <span title={`${pendingPasajes} pasaje${pendingPasajes === 1 ? "" : "s"} pendiente${pendingPasajes === 1 ? "" : "s"} de aprobar`}>
+                          ({pendingPasajes})
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
