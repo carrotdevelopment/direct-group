@@ -472,40 +472,76 @@ export function CostStructureWorkspace() {
     URL.revokeObjectURL(url);
   }
 
+  // Excel: todas las columnas de la tabla, de las filas tildadas (o de todas las filas filtradas si no hay ninguna tildada).
+  function excelRows() {
+    const segments = ["active", "inactive_with_stock", "inactive"] as const;
+    const base = filteredRows.some((row) => selectedIds.has(row.id))
+      ? filteredRows.filter((row) => selectedIds.has(row.id))
+      : filteredRows;
+    return segments.flatMap((segment) => sortRows(base.filter((row) => row.segment === segment)));
+  }
+
   async function exportExcel() {
-    const exportable = exportRows();
+    const exportable = excelRows();
     if (exportable.length === 0) return;
     const XLSX = await import("xlsx");
+    const period = `${saveYear}-${saveMonth.padStart(2, "0")}`;
     const validity = `${String(saveMonth).padStart(2, "0")}/${saveYear}`;
+    const segmentLabel = { active: "Activo", inactive_with_stock: "Inactivo con stock", inactive: "Inactivo" } as const;
+    const moneyFormat = '"$" #,##0.00';
+    const columns: Array<{ header: string; width: number; format?: string; value: (row: CostRow, calc: ReturnType<typeof calculate>) => string | number }> = [
+      { header: "Estado", width: 18, value: (row) => segmentLabel[row.segment] },
+      { header: "Cód.", width: 12, value: (row) => row.clientCode },
+      { header: "Cód.Único", width: 14, value: (row) => row.uniqueCode },
+      { header: "Producto", width: 48, value: (row) => row.product },
+      { header: "Proveedor", width: 22, value: (row) => row.supplier },
+      { header: "Categoría", width: 22, value: (row) => row.category },
+      { header: "Fecha costo", width: 12, value: (row) => row.costDgUpdatedAt ? displayPeriod(row.costDgUpdatedAt) : "" },
+      { header: "Costo DG s/IVA", width: 15, format: moneyFormat, value: (row) => row.costDgNoVat },
+      { header: "PP s/IVA", width: 14, format: moneyFormat, value: (_row, calc) => calc.ppNoVat },
+      { header: "PP c/IVA", width: 14, format: moneyFormat, value: (row) => row.publicPrice },
+      ...(isAmex ? [{ header: `PP c/IVA + ${amexPct}%`, width: 16, format: moneyFormat, value: (row: CostRow) => plusPercentage(row.publicPrice, amexPct) }] : []),
+      { header: "Fecha PVC ant", width: 13, value: (row) => row.previousAdjustment ? displayPeriod(row.previousAdjustment.period) : "" },
+      { header: "Flete ant", width: 13, format: moneyFormat, value: (row) => row.previousAdjustment ? row.previousAdjustment.freightNoVat : "" },
+      { header: "PVC s/IVA ant", width: 15, format: moneyFormat, value: (row) => row.previousAdjustment ? row.previousAdjustment.pvcNoVat : "" },
+      { header: "PVC c/IVA ant", width: 15, format: moneyFormat, value: (row) => row.previousAdjustment ? row.previousAdjustment.pvcWithVat : "" },
+      { header: "Fecha PVC", width: 11, value: (row) => displayPeriod(displayedPvcPeriod(row, origMap.get(row.id), period)).replace("—", "") },
+      { header: "Flete s/IVA", width: 13, format: moneyFormat, value: (row) => row.freightNoVat },
+      { header: "PVC s/IVA", width: 14, format: moneyFormat, value: (row) => row.pvcNoVat },
+      { header: "PVC c/IVA", width: 14, format: moneyFormat, value: (row) => row.pvcWithVat },
+      ...(isAmex ? [{ header: `PVC s/IVA + ${amexPct}%`, width: 16, format: moneyFormat, value: (row: CostRow) => plusPercentage(row.pvcNoVat, amexPct) }] : []),
+      { header: "Utilidad $", width: 14, format: moneyFormat, value: (_row, calc) => round2(calc.profit) },
+      { header: "Util. %", width: 10, format: "0.00%", value: (_row, calc) => round2(calc.profitPct) / 100 },
+      { header: "Stock", width: 8, value: (row) => row.stock },
+    ];
+    const headerRow = 3;
     const data = [
-      [`Lista de precios · ${client}`],
-      [`Vigencia: ${validity} · Precios con IVA incluido`],
+      [`Estructura de costos · ${client}${channel ? ` · ${channel}` : ""}`],
+      [`Período: ${validity} · ${exportable.length} producto${exportable.length === 1 ? "" : "s"}`],
       [],
-      ["Código cliente", "Código único", "Producto", "Categoría", "Precio con IVA", "Vigencia"],
-      ...exportable.map((row) => [
-        row.clientCode,
-        row.uniqueCode,
-        row.product,
-        row.category,
-        row.priceWithVat,
-        row.validity,
-      ]),
+      columns.map((column) => column.header),
+      ...exportable.map((row) => {
+        const calc = calculate(row, costoRates, precioRates);
+        return columns.map((column) => column.value(row, calc));
+      }),
     ];
     const sheet = XLSX.utils.aoa_to_sheet(data);
+    const lastCol = XLSX.utils.encode_col(columns.length - 1);
     sheet["!merges"] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+      { s: { r: 0, c: 0 }, e: { r: 0, c: columns.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: columns.length - 1 } },
     ];
-    sheet["!cols"] = [
-      { wch: 18 }, { wch: 18 }, { wch: 48 }, { wch: 24 }, { wch: 18 }, { wch: 12 },
-    ];
-    sheet["!autofilter"] = { ref: `A4:F${data.length}` };
-    for (let rowIndex = 4; rowIndex < data.length; rowIndex += 1) {
-      const cell = sheet[`E${rowIndex + 1}`];
-      if (cell) cell.z = '"$" #,##0.00';
-    }
+    sheet["!cols"] = columns.map((column) => ({ wch: column.width }));
+    sheet["!autofilter"] = { ref: `A${headerRow + 1}:${lastCol}${data.length}` };
+    columns.forEach((column, colIndex) => {
+      if (!column.format) return;
+      for (let rowIndex = headerRow + 1; rowIndex < data.length; rowIndex += 1) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: colIndex })];
+        if (cell && typeof cell.v === "number") cell.z = column.format;
+      }
+    });
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, sheet, "Precios vigentes");
+    XLSX.utils.book_append_sheet(workbook, sheet, "Estructura de costos");
     const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
     downloadBlob(buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx");
   }
@@ -1011,10 +1047,12 @@ export function CostStructureWorkspace() {
               type="button"
               variant="secondary"
               size="sm"
-              disabled={rows.every((row) => row.segment !== "active")}
+              disabled={filteredRows.length === 0}
               onClick={() => void exportExcel()}
               className="h-8 text-[11px]"
-              title="Descargar precios activos en Excel"
+              title={someSelected
+                ? "Descargar en Excel los productos tildados, con todas las columnas"
+                : "Descargar en Excel todos los productos de la tabla, con todas las columnas"}
             >
               <Download size={13} /> Excel
             </Button>
