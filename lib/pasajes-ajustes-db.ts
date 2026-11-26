@@ -251,13 +251,17 @@ export async function listPasajes(actor: PasajeActor, status?: string) {
     .filter((row) => row.status === NO_DESTINATION || canSeePasaje(actor, row));
 }
 
-// Pasajes pendientes que puede aprobar el usuario: los de los clientes origen que atiende.
-export async function countPasajesToApprove(actor: PasajeActor) {
+// Lo que espera al usuario en Pasajes: los pendientes que tiene que aprobar (atiende el cliente origen) y
+// los aprobados que tiene que confirmar que llegaron (atiende el cliente destino).
+export async function countPasajesWaiting(actor: PasajeActor) {
   const rows = await excelPostgres.pasajeRequest.findMany({
-    where: { status: "pending" },
-    select: { fromClient: true, toClient: true, createdBy: true },
+    where: { status: { in: ["pending", "approved"] } },
+    select: { status: true, fromClient: true, toClient: true, createdBy: true },
   });
-  return rows.filter((row) => canApprovePasaje(actor, row)).length;
+  return {
+    toApprove: rows.filter((row) => row.status === "pending" && canApprovePasaje(actor, row)).length,
+    toConfirm: rows.filter((row) => row.status === "approved" && canReceivePasaje(actor, row)).length,
+  };
 }
 
 // Rechaza o cancela un pasaje: el stock vuelve al origen. Lo hace la encargada del origen (al no aprobarlo)

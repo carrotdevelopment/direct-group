@@ -48,21 +48,24 @@ const navigation: NavGroup[] = [
   ]},
 ];
 
-// Pasajes pendientes de aprobar por el usuario: se consulta al cambiar de pantalla y cada minuto.
+// Pasajes que esperan al usuario (por aprobar / por confirmar): se consulta al cambiar de pantalla y cada minuto.
+type PasajesWaiting = { toApprove: number; toConfirm: number };
 function usePendingPasajes(enabled: boolean, pathname: string) {
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState<PasajesWaiting | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     const load = () => fetch("/api/pasajes/pendientes", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { count?: number } | null) => { if (!cancelled && data) setCount(data.count ?? 0); })
+      .then((data: Partial<PasajesWaiting> | null) => {
+        if (!cancelled && data) setCount({ toApprove: data.toApprove ?? 0, toConfirm: data.toConfirm ?? 0 });
+      })
       .catch(() => undefined);
     void load();
     const timer = setInterval(load, 60_000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [enabled, pathname]);
-  return enabled ? count : 0;
+  return enabled ? count : null;
 }
 
 function SidebarContent({ close, collapse }: { close?: () => void; collapse?: () => void }) {
@@ -101,9 +104,19 @@ function SidebarContent({ close, collapse }: { close?: () => void; collapse?: ()
                     )}>
                       <item.icon size={17} strokeWidth={active ? 2.5 : 2} />
                       {item.label}
-                      {item.href === "/pasajes" && pendingPasajes > 0 && (
-                        <span title={`${pendingPasajes} pasaje${pendingPasajes === 1 ? "" : "s"} pendiente${pendingPasajes === 1 ? "" : "s"} de aprobar`}>
-                          ({pendingPasajes})
+                      {item.href === "/pasajes" && pendingPasajes && (
+                        <span
+                          title={`${pendingPasajes.toApprove} por aprobar / ${pendingPasajes.toConfirm} por confirmar que llegaron`}
+                          className={cn(
+                            "ml-auto rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums",
+                            active
+                              ? "bg-white/20 text-white"
+                              : pendingPasajes.toApprove + pendingPasajes.toConfirm > 0
+                                ? "bg-[#fde9c9] text-[#985b00]"
+                                : "bg-[#edf1f6] text-[#5a6a82]",
+                          )}
+                        >
+                          {pendingPasajes.toApprove}/{pendingPasajes.toConfirm}
                         </span>
                       )}
                     </Link>
