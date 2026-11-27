@@ -116,15 +116,40 @@ const RESOLVED_INCOME_CTE = Prisma.raw(`${CLIENT_RESOLUTION_CTE},
   )
 `);
 
+// Número de una OC sin el punto de venta ni los ceros: "0000100026781", "100026781" y "26781" -> "26781"
+// (en Tango va completo; en las planillas, de cualquiera de las formas).
+function ocNumber(expression: string) {
+  return `ltrim(right(regexp_replace(coalesce(${expression}, ''), '[^0-9]', '', 'g'), 8), '0')`;
+}
+
 // OC de Tango con cantidad pendiente de recibir, sumadas por código cliente. El cliente se resuelve
-// igual que en los ingresos (por código cliente), no por el depósito de la OC.
+// igual que en los ingresos (por código cliente), no por el depósito de la OC. Por cada OC y código:
+// - si ya está cargada en Ingresos a mano o desde las planillas, no se suma (esa compra ya cuenta ahí);
+// - a lo pedido se le resta lo que ya entró desde Tango, por si la recepción no quedó vinculada a la OC y
+//   Tango la sigue mostrando pendiente.
 export async function readPendingPurchaseOrdersFromPostgres(client: string) {
   const rows = await excelPostgres.$queryRaw<{ codigo_cliente: string; pendiente: number }[]>`
-    WITH ${Prisma.raw(CLIENT_RESOLUTION_CTE)}
-    SELECT min(${Prisma.raw(platformCode("t.codigo_cliente"))}) AS codigo_cliente, sum(t.cantidad_pendiente)::float8 AS pendiente
-    FROM (SELECT *, ${Prisma.raw(norm(platformCode("codigo_cliente")))} AS k FROM tango_oc_pendientes) t${Prisma.raw(CLIENT_JOINS)}
+    WITH ${Prisma.raw(CLIENT_RESOLUTION_CTE)},
+    oc_ing AS (
+      SELECT ${Prisma.raw(norm(platformCode("codigo_cliente")))} AS k, ${Prisma.raw(ocNumber("orden_de_compra"))} AS n,
+        bool_or(external_key IS NULL) AS cargada,
+        coalesce(sum(cantidad) FILTER (WHERE external_key IS NOT NULL), 0) AS recibido_tango
+      FROM tango_ingresos
+      WHERE orden_de_compra ~ '[0-9]'
+      GROUP BY 1, 2
+    ),
+    p AS (
+      SELECT t.*, greatest(0, least(t.cantidad_pendiente, t.cantidad_pedida - coalesce(oc_ing.recibido_tango, 0))) AS pendiente
+      FROM (SELECT *, ${Prisma.raw(norm(platformCode("codigo_cliente")))} AS k, ${Prisma.raw(ocNumber("orden_de_compra"))} AS n
+        FROM tango_oc_pendientes) t
+      LEFT JOIN oc_ing ON oc_ing.k = t.k AND oc_ing.n = t.n AND t.n <> ''
+      WHERE oc_ing.cargada IS NOT TRUE
+    )
+    SELECT min(${Prisma.raw(platformCode("t.codigo_cliente"))}) AS codigo_cliente, sum(t.pendiente)::float8 AS pendiente
+    FROM p t${Prisma.raw(CLIENT_JOINS)}
     WHERE ${Prisma.raw(norm(RESOLVED_CLIENT))} = ${normalizeSearch(client)}
-    GROUP BY t.k`;
+    GROUP BY t.k
+    HAVING sum(t.pendiente) > 0`;
   return rows.map((row) => ({ clientCode: text(row.codigo_cliente), quantity: number(row.pendiente) }));
 }
 
