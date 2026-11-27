@@ -539,7 +539,10 @@ export function StockWorkspace() {
   const colHdr = "sticky top-[52px] z-20 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 text-center align-top text-[11px] font-black text-[#334b6b]";
   // Sticky column header cells (also left-pinned)
   const colHdrSticky = "sticky top-[52px] z-40 border-b border-[#c5d3e0] bg-[#edf3f9] px-1.5 py-2 align-top text-[11px] font-black text-[#334b6b]";
-  const controlClass = "h-8 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs font-semibold normal-case text-[#10233f] outline-none focus:border-[#0b5bbb]";
+  // Lugar del título de cada columna: alto fijo de dos renglones, así los filtros quedan todos a la misma altura
+  // aunque algunos títulos ocupen uno solo.
+  const headLabel = "flex h-[30px] items-center";
+  const controlClass ="h-8 rounded-lg border border-[#dbe4ef] bg-white px-2 text-xs font-semibold normal-case text-[#10233f] outline-none focus:border-[#0b5bbb]";
   // Body number cells
   const td = "border-b border-[#e8eef5] px-1.5 py-1.5 text-[11px] text-right tabular-nums";
 
@@ -952,7 +955,7 @@ export function StockWorkspace() {
                     style={{ left: column.left, width: column.width, minWidth: column.width }}
                     className={`${colHdrSticky} text-left ${index === STICKY.length - 1 ? "shadow-[6px_0_8px_-5px_rgba(16,35,63,.18)]" : ""}`}
                   >
-                    <div className="pl-0.5">{sortButton(column.key)}</div>
+                    <div className={`${headLabel} pl-0.5`}>{sortButton(column.key)}</div>
                     {filterInput(column.key, false)}
                   </th>
                 ))}
@@ -969,7 +972,7 @@ export function StockWorkspace() {
                       title={meta.title ?? "Arrastrá el encabezado para mover la columna"}
                       className={`${colHdr} cursor-grab ${GROUPS[meta.group].th}`}
                     >
-                      <div>{sortButton(key)}</div>
+                      <div className={headLabel}>{sortButton(key)}</div>
                       {filterInput(key, !["type", "category", "firstIncomeDate"].includes(key))}
                     </th>
                   );
