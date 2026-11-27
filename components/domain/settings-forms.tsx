@@ -98,8 +98,8 @@ const ALERTS: { key: "urbano" | "tango" | "backups"; label: string; help: string
   { key: "backups", label: "Respaldos de la base", help: "Si no se hizo el respaldo automático de la noche." },
 ];
 
-// Quienes reciben solo el aviso de Tango, además de los destinatarios generales.
-function TangoRecipients({ value, onChange, onError }: { value: string[]; onChange: (next: string[]) => void; onError: (message: string) => void }) {
+// Lista de correos con su título y lo que se muestra cuando está vacía (aviso solo de Tango y reporte diario).
+function EmailList({ title, empty, value, onChange, onError }: { title: string; empty: string; value: string[]; onChange: (next: string[]) => void; onError: (message: string) => void }) {
   const [draft, setDraft] = useState("");
   function add() {
     const email = draft.trim().toLowerCase();
@@ -111,9 +111,9 @@ function TangoRecipients({ value, onChange, onError }: { value: string[]; onChan
   }
   return (
     <span className="mt-3 block text-[11px] text-[#334b6b]">
-      <span className="font-bold">También avisar solo de Tango a:</span>
+      <span className="font-bold">{title}</span>
       <span className="mt-1.5 flex flex-wrap gap-2">
-        {value.length === 0 && <span className="text-[#5a6a82]">Nadie más (solo los destinatarios generales).</span>}
+        {value.length === 0 && <span className="text-[#5a6a82]">{empty}</span>}
         {value.map((email) => (
           <span key={email} className="inline-flex items-center gap-1 rounded-full bg-[#e9f1fb] px-3 py-1 text-xs font-bold text-[#0b5bbb]">
             {email}
@@ -261,7 +261,9 @@ export function NotificationsForm({ initial, saved: initialSaved }: { initial: N
                 </span>
               )}
               {alert.key === "tango" && form.tango && (
-                <TangoRecipients
+                <EmailList
+                  title="También avisar solo de Tango a:"
+                  empty="Nadie más (solo los destinatarios generales)."
                   value={form.tangoRecipients ?? []}
                   onChange={(tangoRecipients) => setForm({ ...form, tangoRecipients })}
                   onError={setError}
@@ -270,6 +272,21 @@ export function NotificationsForm({ initial, saved: initialSaved }: { initial: N
             </span>
           </label>
         ))}
+      </div>
+
+      <div className="mt-6 rounded-xl border border-[#e1e8f1] p-3">
+        <div className="text-xs font-bold text-[#10233f]">Reporte diario de carga en Tango</div>
+        <div className="text-[11px] text-[#5a6a82]">
+          Todas las mañanas, lo que se cargó en la plataforma desde el reporte anterior y hay que cargar también en Tango: pasajes
+          confirmados, ajustes que suman o restan y devoluciones. Si no hubo nada, no se manda.
+        </div>
+        <EmailList
+          title="Mandar el reporte a:"
+          empty="Nadie: no se manda el reporte."
+          value={form.tangoReportRecipients ?? []}
+          onChange={(tangoReportRecipients) => setForm({ ...form, tangoReportRecipients })}
+          onError={setError}
+        />
       </div>
 
       <Feedback error={error} notice={notice} />

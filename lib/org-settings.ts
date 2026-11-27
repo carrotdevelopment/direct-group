@@ -30,6 +30,9 @@ export const notificationsSchema = z.object({
   // Además de los destinatarios generales, quienes reciben solo el aviso de Tango (por ejemplo, quien carga los ingresos).
   tangoRecipients: z.array(z.string().trim().toLowerCase().email("Hay un correo que no es válido.")).max(10).default([]),
   backups: z.boolean(),
+  // Reporte diario con lo que se cargó en la plataforma y hay que cargar también en Tango (pasajes, ajustes,
+  // devoluciones). Sin destinatarios no se manda.
+  tangoReportRecipients: z.array(z.string().trim().toLowerCase().email("Hay un correo que no es válido.")).max(10).default([]),
 });
 export type NotificationSettings = z.infer<typeof notificationsSchema>;
 
@@ -40,6 +43,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
   tangoIdleBusinessDays: 3,
   tangoRecipients: [],
   backups: true,
+  tangoReportRecipients: [],
 };
 
 // Días hábiles (lunes a viernes) completos entre dos fechas, sin contar el día de inicio.
