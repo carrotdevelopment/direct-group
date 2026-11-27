@@ -278,7 +278,8 @@ export function NotificationsForm({ initial, saved: initialSaved }: { initial: N
         <div className="text-xs font-bold text-[#10233f]">Reporte diario de carga en Tango</div>
         <div className="text-[11px] text-[#5a6a82]">
           Todas las mañanas, lo que se cargó en la plataforma desde el reporte anterior y hay que cargar también en Tango: pasajes
-          confirmados, ajustes que suman o restan y devoluciones. Si no hubo nada, no se manda.
+          confirmados, ajustes que suman o restan y devoluciones. También repite lo de días anteriores que todavía no volvió
+          por el conector de Tango. Si no hay nada, no se manda.
         </div>
         <EmailList
           title="Mandar el reporte a:"

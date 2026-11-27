@@ -1,9 +1,11 @@
 import "server-only";
 
 import { excelPostgres } from "@/lib/excel-postgres-client";
-import type { TangoLoadItem } from "@/lib/tango-load-report";
+import type { TangoLoadItem, TangoReturnedRow } from "@/lib/tango-load-report";
 
 type Row = {
+  id: string;
+  tango_code: string | null;
   kind: TangoLoadItem["kind"];
   at: Date;
   client: string | null;
@@ -18,11 +20,12 @@ type Row = {
 };
 
 // Movimientos cargados o confirmados en la plataforma entre from (incluido) y to (excluido) que siguen
-// marcados como pendientes de cargar en Tango. Lo migrado de las planillas y lo que vino de Tango no entra.
+// marcados como pendientes de cargar en Tango. Lo migrado de las planillas, las correcciones de datos
+// (created_by "correccion-...") y lo que vino de Tango no entran.
 export async function readTangoLoadItems(from: Date, to: Date): Promise<TangoLoadItem[]> {
   const rows = await excelPostgres.$queryRaw<Row[]>`
     -- Pasajes confirmados cuyo ingreso en el destino no se encontró en Tango.
-    SELECT 'pasaje' AS kind, p.confirmed_at AS at, p.cliente_origen AS client, p.codigo_cliente_origen AS client_code,
+    SELECT 'p:' || p.id AS id, p.codigo_cliente_destino AS tango_code, 'pasaje' AS kind, p.confirmed_at AS at, p.cliente_origen AS client, p.codigo_cliente_origen AS client_code,
       p.cantidad_confirmada::float8 AS quantity, p.cliente_destino AS to_client, p.codigo_cliente_destino AS to_client_code,
       p.codigo_unico AS unique_code, p.producto AS product,
       nullif(concat_ws(' · ', CASE WHEN p.comprobante_urbano IS NOT NULL THEN 'Comprobante Urbano ' || p.comprobante_urbano END, p.comentarios), '') AS detail,
@@ -32,7 +35,7 @@ export async function readTangoLoadItems(from: Date, to: Date): Promise<TangoLoa
       AND EXISTS (SELECT 1 FROM tango_ingresos i WHERE i.pasaje_id = p.id AND i.external_key IS NULL AND i.pending_tango_entry)
     UNION ALL
     -- Ajustes que suman, devoluciones y pasajes registrados a mano en Ingresos.
-    SELECT CASE i.operacion WHEN 'DEVOLUCION' THEN 'devolucion' WHEN 'PASAJE' THEN 'pasaje' ELSE 'ajusteSuma' END,
+    SELECT 'i:' || i.id, i.codigo_cliente, CASE i.operacion WHEN 'DEVOLUCION' THEN 'devolucion' WHEN 'PASAJE' THEN 'pasaje' ELSE 'ajusteSuma' END,
       i.created_at, CASE WHEN i.operacion = 'PASAJE' THEN i.origen_del_pasaje ELSE i.cliente END,
       CASE WHEN i.operacion = 'PASAJE' THEN '' ELSE i.codigo_cliente END,
       coalesce(i.cantidad, 0)::float8,
@@ -41,18 +44,20 @@ export async function readTangoLoadItems(from: Date, to: Date): Promise<TangoLoa
     FROM tango_ingresos i
     WHERE i.external_key IS NULL AND i.pasaje_id IS NULL AND i.pending_tango_entry
       AND i.operacion IN ('ROBO/AJUSTE', 'DEVOLUCION', 'PASAJE')
-      AND coalesce(i.created_by, '') NOT LIKE 'migracion%'
+      AND coalesce(i.created_by, '') NOT LIKE 'migracion%' AND coalesce(i.created_by, '') NOT LIKE 'correccion%'
       AND i.created_at >= ${from} AND i.created_at < ${to}
     UNION ALL
     -- Ajustes que restan (se guardan como egresos).
-    SELECT 'ajusteResta', e.created_at, e.cliente, e.codigo_cliente, coalesce(e.cantidad, 0)::float8, NULL, NULL,
+    SELECT 'e:' || e.id, e.codigo_cliente, 'ajusteResta', e.created_at, e.cliente, e.codigo_cliente, coalesce(e.cantidad, 0)::float8, NULL, NULL,
       e.codigo_unico, e.producto, e.comentarios, e.created_by
     FROM egresos e
     WHERE e.deleted_at IS NULL AND e.operacion = 'ROBO/AJUSTE' AND e.pasaje_id IS NULL
       AND e.raw_row_id IS NULL AND e.source_hash IS NULL
-      AND coalesce(e.created_by, '') NOT LIKE 'migracion%'
+      AND coalesce(e.created_by, '') NOT LIKE 'migracion%' AND coalesce(e.created_by, '') NOT LIKE 'correccion%'
       AND e.created_at >= ${from} AND e.created_at < ${to}`;
   return rows.map((row) => ({
+    id: row.id,
+    tangoCode: row.tango_code ?? "",
     kind: row.kind,
     at: row.at,
     client: row.client ?? "",
@@ -64,6 +69,23 @@ export async function readTangoLoadItems(from: Date, to: Date): Promise<TangoLoa
     product: row.product ?? undefined,
     detail: row.detail ?? undefined,
     by: row.actor ?? undefined,
+  }));
+}
+
+// Ajustes, devoluciones y pasajes que llegaron desde Tango desde una fecha: con ellos se corrobora qué
+// movimientos de la plataforma ya se cargaron allá.
+export async function readTangoReturnedRows(since: Date): Promise<TangoReturnedRow[]> {
+  const rows = await excelPostgres.$queryRaw<{ external_key: string; operacion: string; codigo_cliente: string | null; entregado: number | null; fecha_entrega: Date }[]>`
+    SELECT external_key, operacion, codigo_cliente, entregado::float8 AS entregado, fecha_entrega
+    FROM tango_ingresos
+    WHERE external_key IS NOT NULL AND fecha_entrega IS NOT NULL AND fecha_entrega >= ${since}::date
+      AND operacion IN ('AJUSTE VALORIZADO', 'AJUSTE NO VALORIZADO', 'DEVOLUCION', 'PASAJE')`;
+  return rows.map((row) => ({
+    externalKey: row.external_key,
+    operation: row.operacion,
+    clientCode: row.codigo_cliente ?? "",
+    quantity: Number(row.entregado ?? 0),
+    date: row.fecha_entrega,
   }));
 }
 
