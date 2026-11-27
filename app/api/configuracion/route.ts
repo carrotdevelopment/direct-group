@@ -8,7 +8,7 @@ import { sendSmtpMail } from "@/lib/smtp-mailer";
 export const runtime = "nodejs";
 
 // Guarda una sección de Sistema > Configuración ({ key, value }); con { test: true } manda un correo de
-// prueba a los destinatarios de avisos guardados. Solo administradores, salvo los correos a proveedores.
+// prueba a los destinatarios guardados (avisos y reporte de carga en Tango). Solo administradores, salvo los correos a proveedores.
 export async function POST(request: Request) {
   let body: { key?: unknown; value?: unknown; test?: boolean };
   try {
@@ -24,9 +24,11 @@ export async function POST(request: Request) {
 
   if (body.test) {
     const { value } = await readSetting("notificaciones");
-    if (!value.recipients.length) return NextResponse.json({ message: "Guardá al menos un destinatario antes de probar." }, { status: 400 });
+    // Prueba a todos los destinatarios guardados: los de los avisos y los del reporte de carga en Tango.
+    const recipients = [...new Set([...value.recipients, ...(value.tangoReportRecipients ?? [])])];
+    if (!recipients.length) return NextResponse.json({ message: "Guardá al menos un destinatario antes de probar." }, { status: 400 });
     const failed: string[] = [];
-    for (const to of value.recipients) {
+    for (const to of recipients) {
       try {
         await sendSmtpMail({
           to,
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
       }
     }
     if (failed.length) return NextResponse.json({ message: `No se pudo enviar a: ${failed.join("; ")}.` }, { status: 502 });
-    return NextResponse.json({ sent: value.recipients });
+    return NextResponse.json({ sent: recipients });
   }
 
   if (!isSettingKey(body.key)) return NextResponse.json({ message: "Sección de configuración desconocida." }, { status: 400 });
